@@ -1,0 +1,116 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - "./telemetry/otel-collector-config.yaml:/etc/otel-collector-config.yaml"
+    networks:
+      - default
+  opensearch: # This is also the hostname of the container within the Docker network (i.e. https://opensearch/)
+    image: opensearchproject/opensearch:${OPENSEARCH_VERSION} # Specifying the latest available image - modify if you want a specific version
+    container_name: opensearch
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD} # Sets the demo admin user password when using demo configuration, required for OpenSearch 2.12 and later
+    ulimits:
+      memlock:
+        soft: -1 # Set memlock to unlimited (no soft or hard limit)
+        hard: -1
+      nofile:
+        soft: 65536 # Maximum number of open files for the opensearch user - set to at least 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data # Creates volume called opensearch-data1 and mounts it to the container
+      # - ./certs/opensearch:/usr/share/opensearch/config/certs
+    # ports:
+    #   - 9200:9200 # REST API
+    #   - 9600:9600 # Performance Analyzer
+    networks:
+      - default
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:${OPENSEARCH_VERSION} # Make sure the version of opensearch-dashboards matches the version of opensearch installed on other nodes
+    container_name: opensearch-dashboards
+    ports:
+      - 5601:5601 # Map host port 5601 to container port 5601
+    expose:
+      - "5601" # Expose port 5601 for web access to OpenSearch Dashboards
+    environment:
+      - OPENSEARCH_HOSTS=http://opensearch:9200 # Define the OpenSearch nodes that OpenSearch Dashboards will query
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    # volumes:
+    #   - ./certs/opensearch:/usr/share/opensearch/config/certs
+    networks:
+      - default
+    depends_on:
+      - opensearch
+  jaeger:
+    image: jaegertracing/jaeger:2.6.0
+    container_name: jaeger
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318"
+      - "5778:5778"
+      - "9411:9411"
+      - "16686:16686"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=memory
+    depends_on:
+      - opensearch
+    networks:
+      - default
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - 9090:9090 # UI
+    depends_on:
+      - otel-collector
+    volumes:
+      - ./telemetry/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    networks:
+      - default
+  grafana:
+    image: grafana/grafana
+    ports:
+      - 3001:3000 # UI
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./telemetry/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./telemetry/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/main.yaml
+      - ./telemetry/grafana/dashboards:/etc/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    networks:
+      - default
+  influxdb:
+    image: influxdb:1.8
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - INFLUXDB_HTTP_AUTH_ENABLED=false
+      - INFLUXDB_DB=k6
+    volumes:
+      - influxdb-data:/var/lib/influxdb
+    networks:
+      - default
+volumes:
+  prometheus_data:
+  grafana_data:
+  opensearch-data:
+  influxdb-data:
