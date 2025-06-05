@@ -7,7 +7,6 @@ public static class WeatherEndpoints
 {
     public static void MapWeatherEndpoints(this WebApplication app)
     {
-
         var summaries = new[]
         {
             "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"

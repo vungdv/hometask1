@@ -23,7 +23,7 @@ public static class Config
             // Metrics provider from OpenTelemetry
             metrics.AddAspNetCoreInstrumentation();
             //Our custom metrics
-            metrics.AddMeter("greeterMeter.Name");
+            metrics.AddMeter("OTel.Example");
             // Metrics provides by ASP.NET Core in .NET 8
             metrics.AddMeter("Microsoft.AspNetCore.Hosting");
             metrics.AddMeter("Microsoft.AspNetCore.Server.Kestrel");
@@ -36,7 +36,7 @@ public static class Config
             {
                 o.EnrichWithHttpRequest = (activity, httpRequest) =>
                 {
-                    activity.SetTag("test", "test-value");
+                    activity.SetTag("test", "test-value" + new Random().Next(0, 1000));
                     activity.SetTag("User_Agent", httpRequest.Headers.UserAgent);
                 };
             });

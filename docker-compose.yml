@@ -12,6 +12,8 @@ services:
       DOTNET_USE_POLLING_FILE_WATCHER: "1"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
       OTEL_SERVICE_NAME: "OTLP-Example"
+    depends_on:
+      - otel-collector
   k6:
     image: grafana/k6
     container_name: k6
