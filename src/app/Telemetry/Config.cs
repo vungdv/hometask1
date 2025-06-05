@@ -23,7 +23,7 @@ public static class Config
             // Metrics provider from OpenTelemetry
             metrics.AddAspNetCoreInstrumentation();
             //Our custom metrics
-            metrics.AddMeter("OTel.Example");
+            metrics.AddMeter(Meters.MeterName);
             // Metrics provides by ASP.NET Core in .NET 8
             metrics.AddMeter("Microsoft.AspNetCore.Hosting");
             metrics.AddMeter("Microsoft.AspNetCore.Server.Kestrel");
@@ -44,12 +44,18 @@ public static class Config
             tracing.AddSource(Tracing.TraceNames.Services);
         });
 
+        // Setup logging to be exported via OpenTelemetry
+        builder.Logging.AddOpenTelemetry(logging =>
+        {
+            logging.IncludeFormattedMessage = true;
+            logging.IncludeScopes = true;
+        });
+
         // Export OpenTelemetry data via OTLP, using env vars for the configuration
         var OtlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
         if (OtlpEndpoint != null)
         {
             otel.UseOtlpExporter();
         }
-
     }
 }

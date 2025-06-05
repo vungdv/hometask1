@@ -11,9 +11,6 @@ public static class WeatherEndpoints
         {
             "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
         };
-        // Custom metrics for the application
-        var greeterMeter = new Meter("OTel.Example", "1.0.0");
-        var countGreetings = greeterMeter.CreateCounter<int>("greetings.count", description: "Counts the number of greetings");
 
         app.MapGet("/weatherforecast", () =>
         {
@@ -28,7 +25,7 @@ public static class WeatherEndpoints
                 ))
                 .ToArray();
             // Increment the custom counter
-            countGreetings.Add(1);
+            Meters.WeatherRequestCount.Add(1);
             return forecast;
         })
         .WithName("GetWeatherForecast")
