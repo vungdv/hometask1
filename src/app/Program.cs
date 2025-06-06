@@ -1,4 +1,4 @@
-using app.Endpoints;
+using app.Features.Weather.Endpoints;
 using app.Telemetry;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -23,6 +23,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.MapWeatherEndpoints();
+app.MapHelloEndpoints();
 
 app.Run();
 

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package hello;
+
+// Add this line with your module path + package folder:
+option go_package = "goapp/hello";
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloReply {
+  string message = 1;
+}

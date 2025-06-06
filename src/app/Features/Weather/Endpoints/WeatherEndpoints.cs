@@ -1,7 +1,6 @@
-using System.Diagnostics.Metrics;
 using app.Telemetry;
 
-namespace app.Endpoints;
+namespace app.Features.Weather.Endpoints;
 
 public static class WeatherEndpoints
 {
