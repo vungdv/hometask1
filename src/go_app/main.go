@@ -2,80 +2,84 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"io"
+	"errors"
 	"log"
+	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"time"
 
-	"go_app/hello" // Replace with the actual path of generated code
-
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
-	"google.golang.org/grpc"
-	"google.golang.org/protobuf/proto"
 )
 
-func helloHandler(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
-	body, _ := io.ReadAll(r.Body)
-
-	var req hello.HelloRequest
-	err := proto.Unmarshal(body, &req)
-	if err != nil {
-		http.Error(w, "Invalid Protobuf", http.StatusBadRequest)
-		return
+func main() {
+	if err := run(); err != nil {
+		log.Fatalln(err)
 	}
-
-	resp := &hello.HelloReply{
-		Message: fmt.Sprintf("Hello, %s %s!", req.Name, time.DateTime),
-	}
-	respBytes, _ := proto.Marshal(resp)
-
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	w.Write(respBytes)
 }
 
-func main() {
-	ctx := context.Background()
+func run() (err error) {
+	// Handle SIGINT (CTRL+C) gracefully.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 
-	// Initialize OTLP exporter over gRPC (default endpoint: localhost:4317)
-	exporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithInsecure(), // or use WithTLSCredentials
-		otlptracegrpc.WithEndpoint("otel-collector:4317"),
-		otlptracegrpc.WithDialOption(grpc.WithBlock()),
-	)
-
+	// Set up OpenTelemetry.
+	otelShutdown, err := setupOTelSDK(ctx)
 	if err != nil {
-		log.Fatalf("failed to create OTLP exporter: %v", err)
+		return
 	}
-
-	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			semconv.ServiceName("go_app"),
-		),
-	)
-	if err != nil {
-		log.Fatalf("Failed to create resource: %v", err)
-	}
-
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	)
+	// Handle shutdown properly so nothing leaks.
 	defer func() {
-		_ = tp.Shutdown(ctx)
+		err = errors.Join(err, otelShutdown(context.Background()))
 	}()
 
-	otel.SetTracerProvider(tp)
+	// Start HTTP server.
+	srv := &http.Server{
+		Addr:         ":8080",
+		BaseContext:  func(_ net.Listener) context.Context { return ctx },
+		ReadTimeout:  time.Second,
+		WriteTimeout: 10 * time.Second,
+		Handler:      newHTTPHandler(),
+	}
+	srvErr := make(chan error, 1)
+	go func() {
+		srvErr <- srv.ListenAndServe()
+	}()
 
-	// Wrap handler with otelhttp middleware
-	http.Handle("/hello", otelhttp.NewHandler(http.HandlerFunc(helloHandler), "HelloHandler"))
+	// Wait for interruption.
+	select {
+	case err = <-srvErr:
+		// Error when starting HTTP server.
+		return
+	case <-ctx.Done():
+		// Wait for first CTRL+C.
+		// Stop receiving signal notifications as soon as possible.
+		stop()
+	}
 
-	fmt.Println("Go Protobuf server listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// When Shutdown is called, ListenAndServe immediately returns ErrServerClosed.
+	err = srv.Shutdown(context.Background())
+	return
+}
+
+func newHTTPHandler() http.Handler {
+	mux := http.NewServeMux()
+
+	// handleFunc is a replacement for mux.HandleFunc
+	// which enriches the handler's HTTP instrumentation with the pattern as the http.route.
+	handleFunc := func(pattern string, handlerFunc func(http.ResponseWriter, *http.Request)) {
+		// Configure the "http.route" for the HTTP instrumentation.
+		handler := otelhttp.WithRouteTag(pattern, http.HandlerFunc(handlerFunc))
+		mux.Handle(pattern, handler)
+	}
+
+	// Register handlers.
+	handleFunc("/rolldice/", rolldice)
+	handleFunc("/rolldice/{player}", rolldice)
+	handleFunc("/hello", helloHandler)
+
+	// Add HTTP instrumentation for the whole server.
+	handler := otelhttp.NewHandler(mux, "/")
+	return handler
 }

@@ -1,0 +1,34 @@
+# Go build output
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Object and cache files
+*.o
+*.a
+*.out
+
+# Go module & cache (optional, depending on image strategy)
+vendor/
+# go.sum
+
+# IDE and editor folders
+.vscode/
+.idea/
+*.swp
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Git
+.git/
+.gitignore
+
+# Docker files (optional)
+Dockerfile
+docker-compose.yml

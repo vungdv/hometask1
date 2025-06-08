@@ -1,0 +1,21 @@
+# Ignore .NET build output
+bin/
+obj/
+
+# Ignore Git files
+.git
+.gitignore
+
+# Ignore environment files
+.env
+*.user
+*.suo
+
+# Ignore Dockerfile itself
+Dockerfile
+docker-compose.yml
+
+# Ignore local config and logs
+*.log
+.vscode/
+.idea/

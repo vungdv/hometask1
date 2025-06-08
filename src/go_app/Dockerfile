@@ -1,5 +1,5 @@
 # Stage 1 - Build
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Set necessary environment variables
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
@@ -17,7 +17,7 @@ COPY . .
 RUN go build -o app
 
 # Stage 2 - Minimal runtime image
-FROM alpine:latest
+FROM alpine:3.22.0@sha256:8a1f59ffb675680d47db6337b49d22281a139e9d709335b492be023728e11715
 
 # Add CA certificates for HTTPS support if needed
 # RUN apk --no-cache add ca-certificates
@@ -26,8 +26,8 @@ FROM alpine:latest
 COPY --from=builder /app/app /app/app
 
 # Use non-root user if desired (optional)
-# RUN adduser -D appuser
-# USER appuser
+RUN adduser -D appuser
+USER appuser
 
 # Run the app
 ENTRYPOINT ["/app/app"]
