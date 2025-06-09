@@ -97,7 +97,7 @@ services:
       - grafana_data:/var/lib/grafana
     networks:
       - default
-  influxdb:
+  influxdb: # this is for k6 store the test result.
     image: influxdb:1.8
     container_name: influxdb
     ports:
@@ -109,8 +109,21 @@ services:
       - influxdb-data:/var/lib/influxdb
     networks:
       - default
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command:
+      - -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./telemetry/loki/loki-config.yaml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    networks:
+      - default
 volumes:
   prometheus_data:
   grafana_data:
   opensearch-data:
   influxdb-data:
+  loki-data:

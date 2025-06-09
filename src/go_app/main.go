@@ -94,8 +94,8 @@ func withTenantTag(next http.Handler) http.Handler {
 		span := trace.SpanFromContext(ctx)
 
 		// Extract "tenant-id" from baggage
-		const tenantKey = "tenant-id"
-		const userKey = "user-id"
+		const tenantKey = "tenant_id"
+		const userKey = "user_id"
 
 		bag := baggage.FromContext(ctx)
 		member := bag.Member(tenantKey)

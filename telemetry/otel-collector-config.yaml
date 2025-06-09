@@ -41,6 +41,11 @@ exporters:
     endpoint: otel-collector:2113
   debug:
     verbosity: detailed
+  # Log exporters
+  otlphttp/logs:
+    endpoint: "http://loki:3100/otlp"
+    tls:
+      insecure: true
 service:
   pipelines:
     traces:
@@ -49,5 +54,9 @@ service:
       exporters: [otlp]
     metrics:
       receivers: [otlp]
-      # processors: [batch]
+      processors: [batch]
       exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/logs]
