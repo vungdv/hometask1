@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/baggage"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func main() {
@@ -70,7 +73,7 @@ func newHTTPHandler() http.Handler {
 	// which enriches the handler's HTTP instrumentation with the pattern as the http.route.
 	handleFunc := func(pattern string, handlerFunc func(http.ResponseWriter, *http.Request)) {
 		// Configure the "http.route" for the HTTP instrumentation.
-		handler := otelhttp.WithRouteTag(pattern, http.HandlerFunc(handlerFunc))
+		handler := otelhttp.WithRouteTag(pattern, withTenantTag(http.HandlerFunc(handlerFunc)))
 		mux.Handle(pattern, handler)
 	}
 
@@ -82,4 +85,32 @@ func newHTTPHandler() http.Handler {
 	// Add HTTP instrumentation for the whole server.
 	handler := otelhttp.NewHandler(mux, "/")
 	return handler
+}
+
+// Middleware: extract "tenant-id" from baggage and tag it
+func withTenantTag(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		span := trace.SpanFromContext(ctx)
+
+		// Extract "tenant-id" from baggage
+		const tenantKey = "tenant-id"
+		const userKey = "user-id"
+
+		bag := baggage.FromContext(ctx)
+		member := bag.Member(tenantKey)
+		if member.Value() != "" && span != nil {
+			span.SetAttributes(attribute.String(tenantKey, member.Value()))
+		} else {
+			span.SetAttributes(attribute.String(tenantKey, "empty"))
+		}
+
+		userid := bag.Member(userKey)
+		if userid.Value() != "" && span != nil {
+			span.SetAttributes(attribute.String(userKey, userid.Value()))
+		} else {
+			span.SetAttributes(attribute.String(userKey, "empty"))
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }

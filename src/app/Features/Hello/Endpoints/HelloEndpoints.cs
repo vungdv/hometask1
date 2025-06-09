@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using app.Telemetry;
 using Google.Protobuf;
 using Hello;
+using OpenTelemetry;
 
 namespace app.Features.Weather.Endpoints;
 
@@ -12,8 +13,6 @@ public static class HelloEndpoints
     {
         app.MapGet("/hello", async (IHttpClientFactory httpClientFactory) =>
         {
-            using var activity = Tracing.ServiceActivitySource.StartActivity("HelloActivity");
-
             var reply = await HelloProtobufAsync(httpClientFactory);
             Meters.HelloCount.Add(1);
             return new { reply.Message };
@@ -24,8 +23,19 @@ public static class HelloEndpoints
 
     static async Task<HelloReply> HelloProtobufAsync(IHttpClientFactory httpClientFactory)
     {
-        Activity.Current?.AddBaggage("tenant-id", "123");
-        Activity.Current?.SetTag("user-id", "123");
+        using var activity = Tracing.ServiceActivitySource.StartActivity("HelloActivity", ActivityKind.Client);
+
+        if (Activity.Current != null)
+        {
+            Activity.Current?.SetBaggage("tenant-id", "123");
+            Activity.Current?.SetTag("tenant-id", "123");
+        }
+        else
+        {
+            Baggage.SetBaggage("tenant-id", "321");
+        }
+
+        Baggage.SetBaggage("user-id", "123456");
 
         var client = httpClientFactory.CreateClient();
         var request = new HelloRequest { Name = "Alice" };
