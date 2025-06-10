@@ -4,3 +4,19 @@ datasources:
   type: prometheus
   url: http://prometheus:9090
   isDefault: true
+- name: Loki
+  access: proxy
+  type: loki
+  url: http://loki:3100
+  isDefault: true
+- name: Tempo
+  access: proxy
+  type: tempo
+  url: http://tempo:3200
+  isDefault: true
+- name: InfluxDB
+  access: proxy
+  type: influxdb
+  url: http://influxdb:8086
+  database: k6
+  isDefault: true

@@ -36,3 +36,16 @@ services:
     entrypoint: ["sh", "/k6/run-all.sh"]
     depends_on:
       - app
+  blackbox:
+    # https://github.com/prometheus/blackbox_exporter/releases
+    image: prom/blackbox-exporter:v0.26.0
+    container_name: blackbox
+    restart: unless-stopped
+    ports:
+      - 9115:9115
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./telemetry/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml
+    command: --config.file=/etc/blackbox/blackbox.yml
+    networks:
+      - default
