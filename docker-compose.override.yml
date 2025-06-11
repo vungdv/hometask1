@@ -111,20 +111,20 @@ services:
       - default
   grafana:
     image: grafana/grafana
+    container_name: grafana
     ports:
       - 3001:3000 # UI
     restart: unless-stopped
     depends_on:
-      prometheus:
-        condition: service_started
+      - prometheus
+      - loki
+      - tempo
     environment:
-      - GF_AUTH_DISABLE_LOGIN_FORM=true
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
     volumes:
-      - ./telemetry/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
-      - ./telemetry/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/main.yaml
-      - ./telemetry/grafana/dashboards:/etc/grafana/dashboards
+      - ./telemetry/grafana/provisioning:/etc/grafana/provisioning
       - grafana_data:/var/lib/grafana
     networks:
       - default
@@ -152,6 +152,12 @@ services:
       - loki-data:/loki
     networks:
       - default
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
 volumes:
   portainer_data:
   prometheus_data:
@@ -160,3 +166,4 @@ volumes:
   influxdb-data:
   loki-data:
   tempo-data:
+  redis_data:

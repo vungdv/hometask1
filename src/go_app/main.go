@@ -81,6 +81,7 @@ func newHTTPHandler() http.Handler {
 	handleFunc("/rolldice/", rolldice)
 	handleFunc("/rolldice/{player}", rolldice)
 	handleFunc("/hello", helloHandler)
+	handleFunc("/health", healthCheckHandler(getRedis()))
 
 	// Add HTTP instrumentation for the whole server.
 	handler := otelhttp.NewHandler(mux, "/")

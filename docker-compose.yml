@@ -6,7 +6,7 @@ services:
       context: ./src/app
       dockerfile: Dockerfile
     ports:
-      - "5001:5000"
+      - "6001:5000"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:5000
@@ -23,9 +23,10 @@ services:
       context: ./src/go_app
       dockerfile: Dockerfile
     ports:
-      - 5002:8080
+      - 6002:8080
     depends_on:
       - otel-collector
+      - redis
   k6:
     image: grafana/k6
     container_name: k6

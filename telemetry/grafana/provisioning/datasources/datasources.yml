@@ -1,9 +1,15 @@
 datasources:
 - name: Prometheus
-  access: proxy
   type: prometheus
+  uid: prometheus
+  access: proxy
   url: http://prometheus:9090
+  jsonData:
+    timeInterval: 10s
+  basicAuth: false
   isDefault: true
+  version: 1
+  editable: false
 - name: Loki
   access: proxy
   type: loki
