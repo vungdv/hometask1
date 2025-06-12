@@ -32,6 +32,7 @@ services:
     container_name: k6
     environment:
       - APP_BaseUrl=http://app:5000
+      - GO_APP_BaseUrl=http://go_app:8080
     volumes:
       - ./tests/k6:/k6
     entrypoint: ["sh", "/k6/run-all.sh"]

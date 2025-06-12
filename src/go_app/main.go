@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"go_app/product"
 	"log"
 	"net"
 	"net/http"
@@ -82,6 +83,7 @@ func newHTTPHandler() http.Handler {
 	handleFunc("/rolldice/{player}", rolldice)
 	handleFunc("/hello", helloHandler)
 	handleFunc("/health", healthCheckHandler(getRedis()))
+	handleFunc("/products", product.GetProductsHandle)
 
 	// Add HTTP instrumentation for the whole server.
 	handler := otelhttp.NewHandler(mux, "/")
