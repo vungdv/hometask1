@@ -1,14 +1,14 @@
 services:
-  portainer:
-    image: portainer/portainer:linux-amd64-2.0.1@sha256:77917f339201db91aa25e9498bc130aaf46faa69d16c78088d422df85ce114b1
-    container_name: portainer
-    command: -H unix:///var/run/docker.sock
-    ports:
-      - "9000:9000"
-    volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock"
-      - "portainer_data:/data"
-    restart: always
+  # portainer:
+  #   image: portainer/portainer:linux-amd64-2.0.1@sha256:77917f339201db91aa25e9498bc130aaf46faa69d16c78088d422df85ce114b1
+  #   container_name: portainer
+  #   command: -H unix:///var/run/docker.sock
+  #   ports:
+  #     - "9000:9000"
+  #   volumes:
+  #     - "/var/run/docker.sock:/var/run/docker.sock"
+  #     - "portainer_data:/data"
+  #   restart: always
 
   otel-collector:
     image: otel/opentelemetry-collector:latest
@@ -18,60 +18,60 @@ services:
       - "./telemetry/otel-collector-config.yaml:/etc/otel-collector-config.yaml"
     networks:
       - default
-  opensearch: # This is also the hostname of the container within the Docker network (i.e. https://opensearch/)
-    image: opensearchproject/opensearch:${OPENSEARCH_VERSION} # Specifying the latest available image - modify if you want a specific version
-    container_name: opensearch
-    environment:
-      - discovery.type=single-node
-      - plugins.security.disabled=true
-      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD} # Sets the demo admin user password when using demo configuration, required for OpenSearch 2.12 and later
-    ulimits:
-      memlock:
-        soft: -1 # Set memlock to unlimited (no soft or hard limit)
-        hard: -1
-      nofile:
-        soft: 65536 # Maximum number of open files for the opensearch user - set to at least 65536
-        hard: 65536
-    volumes:
-      - opensearch-data:/usr/share/opensearch/data # Creates volume called opensearch-data1 and mounts it to the container
-      # - ./certs/opensearch:/usr/share/opensearch/config/certs
-    # ports:
-    #   - 9200:9200 # REST API
-    #   - 9600:9600 # Performance Analyzer
-    networks:
-      - default
-  opensearch-dashboards:
-    image: opensearchproject/opensearch-dashboards:${OPENSEARCH_VERSION} # Make sure the version of opensearch-dashboards matches the version of opensearch installed on other nodes
-    container_name: opensearch-dashboards
-    ports:
-      - 5601:5601 # Map host port 5601 to container port 5601
-    expose:
-      - "5601" # Expose port 5601 for web access to OpenSearch Dashboards
-    environment:
-      - OPENSEARCH_HOSTS=http://opensearch:9200 # Define the OpenSearch nodes that OpenSearch Dashboards will query
-      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
-    # volumes:
-    #   - ./certs/opensearch:/usr/share/opensearch/config/certs
-    networks:
-      - default
-    depends_on:
-      - opensearch
-  jaeger:
-    image: jaegertracing/jaeger:2.6.0
-    container_name: jaeger
-    ports:
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318"
-      - "5778:5778"
-      - "9411:9411"
-      - "16686:16686"
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-      - SPAN_STORAGE_TYPE=memory
-    depends_on:
-      - opensearch
-    networks:
-      - default
+  # opensearch: # This is also the hostname of the container within the Docker network (i.e. https://opensearch/)
+  #   image: opensearchproject/opensearch:${OPENSEARCH_VERSION} # Specifying the latest available image - modify if you want a specific version
+  #   container_name: opensearch
+  #   environment:
+  #     - discovery.type=single-node
+  #     - plugins.security.disabled=true
+  #     - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD} # Sets the demo admin user password when using demo configuration, required for OpenSearch 2.12 and later
+  #   ulimits:
+  #     memlock:
+  #       soft: -1 # Set memlock to unlimited (no soft or hard limit)
+  #       hard: -1
+  #     nofile:
+  #       soft: 65536 # Maximum number of open files for the opensearch user - set to at least 65536
+  #       hard: 65536
+  #   volumes:
+  #     - opensearch-data:/usr/share/opensearch/data # Creates volume called opensearch-data1 and mounts it to the container
+  #     # - ./certs/opensearch:/usr/share/opensearch/config/certs
+  #   # ports:
+  #   #   - 9200:9200 # REST API
+  #   #   - 9600:9600 # Performance Analyzer
+  #   networks:
+  #     - default
+  # opensearch-dashboards:
+  #   image: opensearchproject/opensearch-dashboards:${OPENSEARCH_VERSION} # Make sure the version of opensearch-dashboards matches the version of opensearch installed on other nodes
+  #   container_name: opensearch-dashboards
+  #   ports:
+  #     - 5601:5601 # Map host port 5601 to container port 5601
+  #   expose:
+  #     - "5601" # Expose port 5601 for web access to OpenSearch Dashboards
+  #   environment:
+  #     - OPENSEARCH_HOSTS=http://opensearch:9200 # Define the OpenSearch nodes that OpenSearch Dashboards will query
+  #     - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+  #   # volumes:
+  #   #   - ./certs/opensearch:/usr/share/opensearch/config/certs
+  #   networks:
+  #     - default
+  #   depends_on:
+  #     - opensearch
+  # jaeger:
+  #   image: jaegertracing/jaeger:2.6.0
+  #   container_name: jaeger
+  #   ports:
+  #     - "4317:4317" # OTLP gRPC
+  #     - "4318:4318"
+  #     - "5778:5778"
+  #     - "9411:9411"
+  #     - "16686:16686"
+  #   environment:
+  #     - COLLECTOR_OTLP_ENABLED=true
+  #     - SPAN_STORAGE_TYPE=memory
+  #   depends_on:
+  #     - opensearch
+  #   networks:
+  #     - default
   initTempo:
     image: &tempoImage grafana/tempo:main-9e6e940@sha256:89dad91e57334ad623e684c3e7dbd63440bf860b9e2cc2c0c98d414fd02a8f46
     user: root
@@ -158,6 +158,21 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: appdb
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "admin"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+    ports:
+      - "5432:5432"
+    networks:
+      - default
 volumes:
   portainer_data:
   prometheus_data:

@@ -1,3 +1,12 @@
+version: "3.9"
+
+x-go_app_base: &app-base
+  platform: linux/amd64
+  container_name: go_app
+  build:
+    context: ./src/go_app
+    dockerfile: Dockerfile
+
 services:
   app:
     container_name: dotnet8_app
@@ -16,20 +25,41 @@ services:
     depends_on:
       - otel-collector
       - go_app
+  go_app_migrate:
+    <<: *app-base
+    platform: linux/amd64
+    container_name: go_app_migrate
+    entrypoint: ["/migrate"]
+    volumes:
+      - ./local/go_app_config.yml:/etc/go_app/config.yml
+    deploy:
+      replicas: 1
+    environment:
+      POSTGRES_URL: postgres://admin:secret@postgres:5432/appdb?sslmode=disable
+    depends_on:
+      otel-collector:
+        condition: service_started
+      postgres:
+        condition: service_healthy
   go_app:
+    <<: *app-base
     platform: linux/amd64
     container_name: go_app
-    build:
-      context: ./src/go_app
-      dockerfile: Dockerfile
     ports:
       - 6002:8080
+    volumes:
+      - ./local/go_app_config.yml:/etc/go_app/config.yml
+    environment:
+      - POSTGRES_URL=postgres://admin:secret@postgres:5432/appdb?sslmode=disable
     depends_on:
       - otel-collector
       - redis
+      - go_app_migrate
   k6:
     image: grafana/k6
     container_name: k6
+    deploy:
+      replicas: 0
     environment:
       - APP_BaseUrl=http://app:5000
       - GO_APP_BaseUrl=http://go_app:8080
