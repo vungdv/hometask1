@@ -1,9 +1,10 @@
-package migrations
+package main
 
 import (
 	"context"
 	"errors"
-	"go_app/assets/migrations"
+
+	"go_app/assets/migrations/postgres"
 	"go_app/server"
 	"go_app/telemetry"
 	"log"
@@ -30,6 +31,6 @@ func main() {
 	}
 
 	//Run migration
-	migrations.Migrate(config, ctx)
+	postgres.Migrate(config, ctx)
 
 }

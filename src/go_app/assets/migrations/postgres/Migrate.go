@@ -1,4 +1,4 @@
-package migrations
+package postgres
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"go_app/assets"
 	"go_app/server"
 	"log"
+
+	_ "github.com/lib/pq" // PostgreSQL driver
 
 	"github.com/pressly/goose/v3"
 	"go.opentelemetry.io/otel"

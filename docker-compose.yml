@@ -59,7 +59,7 @@ services:
     image: grafana/k6
     container_name: k6
     deploy:
-      replicas: 0
+      replicas: 1
     environment:
       - APP_BaseUrl=http://app:5000
       - GO_APP_BaseUrl=http://go_app:8080
