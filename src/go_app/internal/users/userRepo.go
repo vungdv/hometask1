@@ -3,23 +3,34 @@ package users
 import (
 	"context"
 	"database/sql"
+	userv1 "go_app/internal/api/gen/user/v1"
+	"log"
 )
 
-func getUsers(ctx context.Context, db *sql.DB) ([]User, error) {
+type UserRepository interface {
+	ListUser(ctx context.Context) ([]*userv1.User, error)
+}
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, email FROM users")
+type PostgreUserRepository struct {
+	db *sql.DB
+}
+
+func (repo *PostgreUserRepository) ListUser(ctx context.Context) ([]*userv1.User, error) {
+
+	rows, err := repo.db.QueryContext(ctx, "SELECT id, name, email FROM users")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var users []User
+	var users []*userv1.User
 	for rows.Next() {
-		var u User
-		if err := rows.Scan(&u.ID, &u.Name, &u.Email); err != nil {
+		var u userv1.User
+		if err := rows.Scan(&u.Id, &u.Name, &u.Email); err != nil {
+			log.Fatal(err)
 			return nil, err
 		}
-		users = append(users, u)
+		users = append(users, &u)
 	}
 
 	return users, nil

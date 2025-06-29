@@ -8,6 +8,7 @@ import (
 	"go_app/internal/product"
 	"go_app/internal/users"
 	"go_app/server"
+	"go_app/storage/postgres"
 	"go_app/telemetry"
 	"log"
 	"net"
@@ -48,14 +49,20 @@ func run() (err error) {
 		log.Fatal(err)
 	}
 
+	handler, err := newHTTPHandler(ctx, config)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Start HTTP server.
 	srv := &http.Server{
 		Addr:         ":8080",
 		BaseContext:  func(_ net.Listener) context.Context { return ctx },
 		ReadTimeout:  time.Second,
 		WriteTimeout: 10 * time.Second,
-		Handler:      newHTTPHandler(config),
+		Handler:      handler,
 	}
+
 	srvErr := make(chan error, 1)
 	go func() {
 		srvErr <- srv.ListenAndServe()
@@ -77,7 +84,7 @@ func run() (err error) {
 	return
 }
 
-func newHTTPHandler(cfg *server.Config) http.Handler {
+func newHTTPHandler(ctx context.Context, cfg *server.Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	// handleFunc is a replacement for mux.HandleFunc
@@ -91,11 +98,16 @@ func newHTTPHandler(cfg *server.Config) http.Handler {
 	handleFunc("/hello", hello.HelloHandler)
 	handleFunc("/health", health.HealthCheckHandler(health.GetRedis()))
 	handleFunc("/products", product.GetProductsHandle)
-	handleFunc("/users", users.HandleGetUsers(cfg))
+	db, err := postgres.InitDB(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	path, userHandler := users.GetUserServiceHandler(db)
+	handleFunc(path, http.HandlerFunc(userHandler.ServeHTTP))
 
 	// Add HTTP instrumentation for the whole server.
 	handler := otelhttp.NewHandler(mux, "/")
-	return handler
+	return handler, nil
 }
 
 // Middleware: extract "tenant-id" from baggage and tag it
