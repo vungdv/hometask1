@@ -1,12 +1,9 @@
-version: "3.9"
-
 x-go_app_base: &app-base
   platform: linux/amd64
   container_name: go_app
   build:
     context: ./src/go_app
     dockerfile: Dockerfile
-
 services:
   app:
     container_name: dotnet8_app
@@ -21,10 +18,17 @@ services:
       ASPNETCORE_URLS: http://+:5000
       DOTNET_USE_POLLING_FILE_WATCHER: "1"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
-      OTEL_SERVICE_NAME: "OTLP-Example"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 1s
+      retries: 3
+      start_period: 10s
     depends_on:
-      - otel-collector
-      - go_app
+      otel-collector:
+        condition: service_started
+      go_app:
+        condition: service_healthy
   go_app_migrate:
     <<: *app-base
     platform: linux/amd64
@@ -47,14 +51,23 @@ services:
     container_name: go_app
     ports:
       - 6002:8080
+    healthcheck:
+      test: ["CMD", "busybox", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 1s
+      retries: 3
+      start_period: 10s
     volumes:
       - ./local/go_app_config.yml:/etc/go_app/config.yml
     environment:
       - POSTGRES_URL=postgres://admin:secret@postgres:5432/appdb?sslmode=disable
     depends_on:
-      - otel-collector
-      - redis
-      - go_app_migrate
+      otel-collector:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      go_app_migrate:
+        condition: service_completed_successfully
   k6:
     image: grafana/k6
     container_name: k6
@@ -67,7 +80,8 @@ services:
       - ./tests/k6:/k6
     entrypoint: ["sh", "/k6/run-all.sh"]
     depends_on:
-      - app
+      app:
+        condition: service_healthy
   blackbox:
     # https://github.com/prometheus/blackbox_exporter/releases
     image: prom/blackbox-exporter:v0.26.0
@@ -79,5 +93,10 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ./telemetry/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml
     command: --config.file=/etc/blackbox/blackbox.yml
+    depends_on:
+      app:
+        condition: service_healthy
+      go_app:
+        condition: service_healthy
     networks:
       - default
