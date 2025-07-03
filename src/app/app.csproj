@@ -25,6 +25,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Protobuf Include="Features/Hello/Contracts/hello.proto" GrpcServices="Client" />
+    <Protobuf Include="Features/Hello/Proto/hello.proto" GrpcServices="Client" />
   </ItemGroup>
 </Project>

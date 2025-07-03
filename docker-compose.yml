@@ -18,6 +18,7 @@ services:
       ASPNETCORE_URLS: http://+:5000
       DOTNET_USE_POLLING_FILE_WATCHER: "1"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      GO_APP__ENDPOINT: "http://go_app:8080/"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 10s
