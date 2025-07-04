@@ -105,6 +105,9 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: secret
       POSTGRES_DB: appdb
+    volumes:
+      - ./local/postgres/initDb:/docker-entrypoint-initdb.d # postgres will execute all the scripts in the folder.
+      - pg_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "admin"]
       interval: 3s
@@ -112,6 +115,21 @@ services:
       retries: 10
     ports:
       - "5432:5432"
+    networks:
+      - default
+  pgadmin:
+    image: dpage/pgadmin4:9.5.0@sha256:2a830466aafd9cbc2aea0f76ff81a80dbbba819f2f5db7e69cb40e9cbdb6bc7b
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./local/postgres/servers.json:/pgadmin4/servers.json
+    depends_on:
+      - postgres
     networks:
       - default
 volumes:
@@ -123,3 +141,5 @@ volumes:
   loki-data:
   tempo-data:
   redis_data:
+  pg_data:
+  pgadmin_data:

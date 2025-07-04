@@ -39,8 +39,6 @@ services:
       - ./local/go_app_config.yml:/etc/go_app/config.yml
     deploy:
       replicas: 1
-    environment:
-      POSTGRES_URL: postgres://admin:secret@postgres:5432/appdb?sslmode=disable
     depends_on:
       otel-collector:
         condition: service_started
@@ -60,8 +58,6 @@ services:
       start_period: 10s
     volumes:
       - ./local/go_app_config.yml:/etc/go_app/config.yml
-    environment:
-      - POSTGRES_URL=postgres://admin:secret@postgres:5432/appdb?sslmode=disable
     depends_on:
       otel-collector:
         condition: service_started

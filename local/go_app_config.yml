@@ -1,1 +1,1 @@
-POSTGRES_URL: postgres://admin:secret@postgres:5432/appdb?sslmode=disable
+POSTGRES_URL: postgres://admin:secret@postgres:5432/app_db?sslmode=disable&search_path=go_app_db

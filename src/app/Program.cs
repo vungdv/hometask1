@@ -36,6 +36,7 @@ app.MapHealthChecks("/health", new HealthCheckOptions()
 });
 app.MapWeatherEndpoints();
 app.MapHelloEndpoints();
+app.MapUsersEndpoints();
 
 await app.RunAsync();
 
