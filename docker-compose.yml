@@ -5,6 +5,23 @@ x-go_app_base: &app-base
     context: ./src/go_app
     dockerfile: Dockerfile
 services:
+  app_migrate:
+    image: postgres:16
+    container_name: app_migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./src/net9app/Migrations/deploy:/scripts
+    entrypoint: >
+      bash -c "
+        echo 'Waiting for database...' &&
+        until pg_isready -h postgres -U admin; do sleep 1; done &&
+        echo 'Running migration script...' &&
+        psql -h postgres -U admin -d identity_db -f /scripts/openiddict.sql
+      "
+    environment:
+      PGPASSWORD: secret
   app:
     container_name: dotnet8_app
     platform: linux/amd64

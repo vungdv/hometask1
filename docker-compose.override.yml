@@ -104,7 +104,6 @@ services:
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: secret
-      POSTGRES_DB: appdb
     volumes:
       - ./local/postgres/initDb:/docker-entrypoint-initdb.d # postgres will execute all the scripts in the folder.
       - pg_data:/var/lib/postgresql/data

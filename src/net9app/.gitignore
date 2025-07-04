@@ -1,0 +1,66 @@
+## Build results
+bin/
+obj/
+[Bb]uild/
+[Ll]ogs/
+*.log
+
+## Rider & VSCode settings
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+## OS-specific files
+.DS_Store
+Thumbs.db
+
+## ASP.NET Core
+appsettings.*.json
+appsettings.Development.json
+secrets.json
+
+## User-specific files
+*.swp
+*.bak
+*.tmp
+
+## dotnet watch / hot reload
+**/tmp/
+**/*.gpState
+
+## Global tools
+.nupkg/
+*.nupkg
+
+## Test results
+TestResults/
+*.coverage
+*.coveragexml
+*.testresult
+
+## NuGet packages (if not using a global cache)
+packages/
+.nuget/
+
+## Publish output
+publish/
+out/
+
+## Optional: JetBrains Rider or ReSharper cache
+.ReSharper*/
+*_Resharper.*
+.idea/
+
+## Optional: VS for Mac
+.vscode/
+.vscode-test/
+
+## Optional: environment specific config
+.env
+.env.*
+
+## Optional: local override config
+local.settings.json
