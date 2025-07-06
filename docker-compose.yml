@@ -1,5 +1,5 @@
 x-go_app_base: &app-base
-  platform: linux/amd64
+  platform: ${PLATFORM}
   container_name: go_app
   build:
     context: ./src/go_app
@@ -21,35 +21,35 @@ services:
         psql -h postgres -U admin -d identity_db -f /scripts/openiddict.sql
       "
     environment:
-      PGPASSWORD: secret
+      PGPASSWORD: ${POSTGRES_PASSWORD}
   app:
     container_name: dotnet8_app
-    platform: linux/amd64
+    platform: ${PLATFORM}
     build:
       context: ./src/app
       dockerfile: Dockerfile
     ports:
-      - "6001:5000"
+      - "6001:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_URLS: http://+:5000
-      DOTNET_USE_POLLING_FILE_WATCHER: "1"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
       GO_APP__ENDPOINT: "http://go_app:8080/"
+      GO_APP__Timeout: "00:00:03"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD", "busybox", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 10s
       timeout: 1s
       retries: 3
       start_period: 10s
     depends_on:
+      app_migrate:
+        condition: service_completed_successfully
       otel-collector:
         condition: service_started
       go_app:
         condition: service_healthy
   go_app_migrate:
     <<: *app-base
-    platform: linux/amd64
     container_name: go_app_migrate
     entrypoint: ["/migrate"]
     volumes:
@@ -63,7 +63,6 @@ services:
         condition: service_healthy
   go_app:
     <<: *app-base
-    platform: linux/amd64
     container_name: go_app
     ports:
       - 6002:8080
@@ -88,7 +87,7 @@ services:
     deploy:
       replicas: 1
     environment:
-      - APP_BaseUrl=http://app:5000
+      - APP_BaseUrl=http://app:8080
       - GO_APP_BaseUrl=http://go_app:8080
     volumes:
       - ./tests/k6:/k6

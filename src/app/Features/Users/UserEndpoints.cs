@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using app.Constants;
 using app.Telemetry;
 using Google.Protobuf;
 using OpenTelemetry;
@@ -11,16 +12,14 @@ namespace app.Features.Weather.Endpoints;
 
 public static class UserEndpoints
 {
-    private const string GOAPPServiceEndpointConfig = "go_app:endpoint";
-
     public static void MapUsersEndpoints(this WebApplication app)
     {
-        app.MapGet("/users", async (IHttpClientFactory httpClientFactory, IConfiguration config) =>
+        app.MapGet("/users", async (IHttpClientFactory httpClientFactory, CancellationToken cancellationToken) =>
         {
             Baggage.SetBaggage("user_id", "123456");
             using var activity = Tracing.ServiceActivitySource.StartActivity("UserActivity", ActivityKind.Client);
 
-            var reply = await CallConnectProtoAsync(httpClientFactory, config);
+            var reply = await CallConnectProtoAsync(httpClientFactory, cancellationToken);
             Meters.HelloCount.Add(1);
             return new { reply.Users };
         })
@@ -29,10 +28,11 @@ public static class UserEndpoints
 
         app.MapGet("json/users", async (IHttpClientFactory httpClientFactory, IConfiguration config) =>
         {
+            //TODO: for an unstable downstream service, beside a circuit breaker and retry policy.
+            // We could also implement a fallback policy to return a cached response or a default value.
             Baggage.SetBaggage("user_id", "123456");
             using var activity = Tracing.ServiceActivitySource.StartActivity("UserActivity", ActivityKind.Client);
-
-            var reply = await CallConnectJsonAsync(httpClientFactory, config);
+            var reply = await CallConnectJsonAsync(httpClientFactory);
             Meters.HelloCount.Add(1);
             return new { reply.Users };
         })
@@ -44,20 +44,19 @@ public static class UserEndpoints
             Baggage.SetBaggage("user_id", "123456");
             using var activity = Tracing.ServiceActivitySource.StartActivity("UserActivity", ActivityKind.Client);
 
-            var reply = await CallGrpcWebAsync(httpClientFactory, config);
+            var reply = await CallGrpcWebAsync(httpClientFactory);
             Meters.HelloCount.Add(1);
             return new { reply.Users };
         })
         .WithName("webgrpcUsers")
         .WithOpenApi();
     }
-    static async Task<ListUsersResponse> CallConnectProtoAsync(IHttpClientFactory httpClientFactory, IConfiguration config)
+    static async Task<ListUsersResponse> CallConnectProtoAsync(
+        IHttpClientFactory httpClientFactory,
+        CancellationToken cancellationToken)
     {
-        var endpoint = config.GetValue<string>(GOAPPServiceEndpointConfig); // e.g., "http://localhost:6002"
-        ArgumentNullException.ThrowIfNull(endpoint);
-
-        var client = httpClientFactory.CreateClient();
-        client.BaseAddress = new Uri(endpoint);
+        //Create named client with support of polly for resilient. 
+        var client = httpClientFactory.CreateClient(Services.GoApp);
 
         var request = new ListUsersRequest(); // Empty request
         var requestBytes = request.ToByteArray();
@@ -66,21 +65,18 @@ public static class UserEndpoints
         content.Headers.ContentType = new MediaTypeHeaderValue("application/proto"); // ✅ Required by Connect-go!
         content.Headers.Add("Connect-Protocol-Version", "1"); // ✅ Required by Connect-go!
         // make request via http
-        var httpResponse = await client.PostAsync("/user.v1.UserService/ListUsers", content);
+        var httpResponse = await client.PostAsync("/user.v1.UserService/ListUsers", content, cancellationToken);
         httpResponse.EnsureSuccessStatusCode();
 
-        var responseBytes = await httpResponse.Content.ReadAsByteArrayAsync();
+        var responseBytes = await httpResponse.Content.ReadAsByteArrayAsync(cancellationToken);
         // parse the response from protobuf byte[] 
         return ListUsersResponse.Parser.ParseFrom(responseBytes);
     }
 
-    static async Task<ListUsersResponse> CallConnectJsonAsync(IHttpClientFactory httpClientFactory, IConfiguration config)
+    static async Task<ListUsersResponse> CallConnectJsonAsync(IHttpClientFactory httpClientFactory)
     {
-        var goappEndpoint = config.GetValue<string>(GOAPPServiceEndpointConfig);
-        ArgumentNullException.ThrowIfNull(goappEndpoint);
-
-        var client = httpClientFactory.CreateClient();
-        client.BaseAddress = new Uri(goappEndpoint);
+        //Create named client with support of polly for resilient. 
+        var client = httpClientFactory.CreateClient(Services.GoApp);
 
         var request = new ListUsersRequest();
         var json = JsonSerializer.Serialize(request);
@@ -90,15 +86,12 @@ public static class UserEndpoints
         response.EnsureSuccessStatusCode();
 
         var responseBody = await response.Content.ReadAsStringAsync();
-        return JsonSerializer.Deserialize<ListUsersResponse>(responseBody);
+        return JsonSerializer.Deserialize<ListUsersResponse>(responseBody) ?? new ListUsersResponse();
     }
-    static async Task<ListUsersResponse> CallGrpcWebAsync(IHttpClientFactory httpClientFactory, IConfiguration config)
+    static async Task<ListUsersResponse> CallGrpcWebAsync(IHttpClientFactory httpClientFactory)
     {
-        var goappEndpoint = config.GetValue<string>(GOAPPServiceEndpointConfig);
-        ArgumentNullException.ThrowIfNull(goappEndpoint);
-
-        var client = httpClientFactory.CreateClient();
-        client.BaseAddress = new Uri(goappEndpoint);
+        //Create named client with support of polly for resilient. 
+        var client = httpClientFactory.CreateClient(Services.GoApp);
 
         var request = new ListUsersRequest();
         var content = new ByteArrayContent(request.ToByteArray());

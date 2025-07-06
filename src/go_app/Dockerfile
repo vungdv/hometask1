@@ -6,14 +6,14 @@ ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 
 WORKDIR /app
 # install and cache dependencies
-RUN --mount=type=cache,target=/root/go/pkg/mod \
+RUN --mount=type=cache,target=/root/go/pkg/mod,id=go-pkg-cache \
     --mount=type=bind,source=go.sum,target=go.sum \
     --mount=type=bind,source=go.mod,target=go.mod \
     go mod download -x
 
 # build with cache
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/go/pkg/mod,id=go-pkg-cache \
     --mount=type=bind,target=. \
     CGO_ENABLED=0 go build -o /api ./cmd/api &&  go build -o /migrate ./cmd/migrate && chmod +x /migrate
 

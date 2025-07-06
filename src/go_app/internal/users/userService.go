@@ -45,5 +45,6 @@ func GetUserServiceHandler(db *sql.DB) (path string, handler http.Handler) {
 			db: db,
 		},
 	}
+	userServer.StartTimer()
 	return userv1connect.NewUserServiceHandler(&userServer)
 }

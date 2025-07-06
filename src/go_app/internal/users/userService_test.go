@@ -20,6 +20,10 @@ func (m *MockUserRepository) ListUser(ctx context.Context) ([]*userv1.User, erro
 	args := m.Called(ctx)
 	return args.Get(0).([]*userv1.User), args.Error(1)
 }
+func (m *MockUserRepository) StartTimer() {
+	// This method is not used in the tests, but required by the interface
+	// so we can leave it empty or implement a mock if needed.
+}
 func TestListUsers(t *testing.T) {
 	mockRepo := new(MockUserRepository)
 	expected := []*userv1.User{{Id: 1, Name: "Alice", Email: "a@example.com"}}

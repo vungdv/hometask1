@@ -1,7 +1,9 @@
 using app.Features.Weather.Endpoints;
+using app.PolyPolicies;
 using app.Telemetry;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Http;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,9 +11,11 @@ var builder = WebApplication.CreateBuilder(args);
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddHttpLogging(o => { });
+// builder.Services.AddHttpLogging(o => { });
 builder.Services.AddHttpClient();
 builder.Services.AddHealthChecks();
+builder.Services.AddUserFeature();
+
 
 builder.ConfigureTelemetry();
 

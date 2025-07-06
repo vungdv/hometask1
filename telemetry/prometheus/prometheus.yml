@@ -3,6 +3,11 @@ global:
   scrape_timeout: 10s
 
 scrape_configs:
+  - job_name: 'cadvisor'
+    metrics_path: /metrics
+    static_configs:
+      - targets: 
+        - 'cadvisor:8080' # this matches the docker compose service name and port
   - job_name: local-stack
     metrics_path: /metrics
     static_configs:

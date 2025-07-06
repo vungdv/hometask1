@@ -51,7 +51,6 @@ public static class Config
             tracing.AddSource(Tracing.TraceNames.Services);
         });
 
-        // otel.WithLogging(logging => { });
         // Export OpenTelemetry data via OTLP, using env vars for the configuration
         var OtlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
         if (OtlpEndpoint != null)
