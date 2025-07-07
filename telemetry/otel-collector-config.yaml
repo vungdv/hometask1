@@ -18,12 +18,27 @@ processors:
   batch:
     timeout: 2s
     send_batch_max_size: 32768
-
+  attributes:
+    actions:
+      - key: trace_id
+        action: insert
+        from_attribute: trace_id
+      - key: user_id
+        action: insert
+        from_attribute: user_id
+      - key: service_name
+        action: insert
+        from_attribute: service_name
 # How you send data to one or more backends. Configuring an exporter does not enable it.
 exporters:
   # Data sources: traces
   otlp/tempo:
     endpoint: tempo:4317
+    labels:
+      attributes:
+        - trace_id
+        - user_id
+        - service.name
     tls:
       insecure: true
     retry_on_failure:
@@ -58,5 +73,5 @@ service:
       exporters: [prometheus]
     logs:
       receivers: [otlp]
-      processors: [batch]
+      processors: [attributes, batch]
       exporters: [otlphttp/logs]

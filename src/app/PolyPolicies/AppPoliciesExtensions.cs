@@ -1,4 +1,8 @@
+using System.Diagnostics;
+using app.Constants;
 using app.Telemetry;
+using Grpc.Core;
+using OpenTelemetry;
 using Polly;
 using Polly.Extensions.Http;
 
@@ -7,11 +11,11 @@ namespace app.PolyPolicies;
 public static class AppPoliciesExtensions
 {
     private static IAsyncPolicy<HttpResponseMessage>? _policy;
-    public static readonly Action<ILogger, string?, int, TimeSpan, Exception?> _preCompiledLogMessage =
-        LoggerMessage.Define<string?, int, TimeSpan>(
+    public static readonly Action<ILogger, string?, string?, int, TimeSpan, Exception?> _preCompiledLogMessage =
+        LoggerMessage.Define<string?, string?, int, TimeSpan>(
             logLevel: LogLevel.Warning,
             eventId: 102,
-            formatString: "Retrying for {uri}, at {retryAttempt} times, after {timespan}");
+            formatString: "Retrying {uri}, for {user_id}, at {retryAttempt} times, after {timespan}");
 
     /// <summary>
     /// Objective: based on the request, select a policy to apply. 
@@ -46,13 +50,19 @@ public static class AppPoliciesExtensions
     private static Polly.Retry.AsyncRetryPolicy<HttpResponseMessage> CreateRetryPolicy(HttpRequestMessage request, ILogger logger)
      => HttpPolicyExtensions
         .HandleTransientHttpError()
+        .Or<RpcException>(ex => ex.StatusCode != StatusCode.OK)
         .WaitAndRetryAsync(
              retryCount: 3,
              sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt - 1)), // 1s, 2s, 4s, 8s
              onRetry: (outcome, timespan, retryAttempt, context) =>
              {
-                 Meters.UserServiceRetryCounter.Add(1, new KeyValuePair<string, object?>("endpoint", request.RequestUri?.AbsolutePath));
-                 _preCompiledLogMessage(logger, request.RequestUri?.AbsolutePath, retryAttempt, timespan, null);
+                 var userId = Baggage.GetBaggage(Labels.UserId) ?? "Anonymous";
+                 Meters.UserServiceRetryCounter.Add(1,
+                    new KeyValuePair<string, object?>("endpoint", request.RequestUri?.AbsolutePath),
+                    new KeyValuePair<string, object?>(Labels.Dependency, Services.GoApp),
+                    new KeyValuePair<string, object?>(Labels.UserId, userId));
+
+                 _preCompiledLogMessage(logger, request.RequestUri?.AbsolutePath, userId, retryAttempt, timespan, null);
              });
 
     private static readonly Action<ILogger, string?, double, Exception?> _circuitBreakLogMessage =
@@ -65,12 +75,16 @@ public static class AppPoliciesExtensions
         HttpRequestMessage request, ILogger logger)
             => HttpPolicyExtensions
             .HandleTransientHttpError()
+            .Or<RpcException>(ex => ex.StatusCode != StatusCode.OK)
             .CircuitBreakerAsync(
-                handledEventsAllowedBeforeBreaking: 5,
+                handledEventsAllowedBeforeBreaking: 15,
                 durationOfBreak: TimeSpan.FromSeconds(5),
                 onBreak: (result, breakDelay) =>
                 {
-                    Meters.UserServiceCircuitBreakerOpenCount.Add(1, new KeyValuePair<string, object?>("endpoint", request.RequestUri?.AbsolutePath));
+                    Meters.UserServiceCircuitBreakerOpenCount.Add(1,
+                    new KeyValuePair<string, object?>("endpoint", request.RequestUri?.AbsolutePath),
+                    new KeyValuePair<string, object?>(Labels.Dependency, Services.GoApp)
+                    );
                     _circuitBreakLogMessage(logger, request.RequestUri?.AbsolutePath, breakDelay.TotalSeconds, null);
                 },
                 onReset: () => logger.LogInformation("Circuit reset."),

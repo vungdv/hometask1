@@ -27,7 +27,7 @@ func (repo *PostgreUserRepository) ListUser(ctx context.Context) ([]*userv1.User
 	}
 	rows, err := repo.db.QueryContext(ctx, `
 		SELECT id, name, email 
-		FROM users)
+		FROM users
 	`)
 
 	if err != nil {
@@ -51,8 +51,8 @@ func (repo *PostgreUserRepository) StartTimer() {
 	// Start ticker to reset error count every minute
 	go func() {
 		for {
-			// Randomize errors per minute between 1 and 10
-			atomic.StoreInt64(&errorRatePerMinute, int64(rand.Intn(100)+1))
+			// Randomize errors per minute between 1 and 20
+			atomic.StoreInt64(&errorRatePerMinute, int64(rand.Intn(20)+1))
 			atomic.StoreInt64(&errorCountThisMinute, 0)
 			log.Printf("New error rate: %d errors/min", errorRatePerMinute)
 			time.Sleep(time.Minute)

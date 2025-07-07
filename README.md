@@ -1,14 +1,4 @@
-# Requirements
-
-- Start up with a command
-- Observe different kind of tests:
-  - Unit test, component tests
-  - Integration tests
-  - Performance tests
-- Telemetry for:
-  - Traces
-  - Logs
-  - Metrics
+# Ideas
 
 ## Run stack
 

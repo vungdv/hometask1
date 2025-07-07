@@ -14,6 +14,7 @@ public static class Config
         {
             logging.IncludeFormattedMessage = true;
             logging.IncludeScopes = true;
+            logging.ParseStateValues = true;
         });
 
         var otel = builder.Services.AddOpenTelemetry();

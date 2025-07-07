@@ -81,20 +81,6 @@ services:
         condition: service_healthy
       go_app_migrate:
         condition: service_completed_successfully
-  k6:
-    image: grafana/k6
-    container_name: k6
-    deploy:
-      replicas: 1
-    environment:
-      - APP_BaseUrl=http://app:8080
-      - GO_APP_BaseUrl=http://go_app:8080
-    volumes:
-      - ./tests/k6:/k6
-    entrypoint: ["sh", "/k6/run-all.sh"]
-    depends_on:
-      app:
-        condition: service_healthy
   blackbox:
     # https://github.com/prometheus/blackbox_exporter/releases
     image: prom/blackbox-exporter:v0.26.0

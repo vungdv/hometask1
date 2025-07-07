@@ -10,6 +10,8 @@ import (
 	"connectrpc.com/connect"
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/baggage"
 )
 
 type userServiceServer struct {
@@ -26,8 +28,14 @@ func (s userServiceServer) ListUsers(
 	res *connect.Response[userv1.ListUsersResponse],
 	error error,
 ) {
+	bag := baggage.FromContext(ctx)
+	userIDMember := bag.Member("user_id")
+	userID := userIDMember.Value()
+
 	ctx, span := tracer.Start(ctx, "UserService.ListUsers")
 	defer span.End()
+
+	span.SetAttributes(attribute.String("user_id", userID))
 
 	users, err := s.ListUser(ctx)
 	if err != nil {
