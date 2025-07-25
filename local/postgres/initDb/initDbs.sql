@@ -1,2 +1,3 @@
 CREATE DATABASE identity_db;
 CREATE DATABASE app_db;
+CREATE DATABASE efcore_db;

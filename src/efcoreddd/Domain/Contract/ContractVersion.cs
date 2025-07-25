@@ -8,6 +8,12 @@ namespace efcoreddd.Domain.Contract;
 
 public class ContractVersion : BaseEntity<Guid>
 {
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
+    private ContractVersion()
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
+    {
+        // EF Core requires a parameterless constructor for materialization
+    }
     public static ContractVersion CreateNew(BaseAttributes attribs)
     {
         return new ContractVersion(GetDefaultSpecs(), attribs, null, false);
@@ -16,7 +22,7 @@ public class ContractVersion : BaseEntity<Guid>
     public static ContractVersion CreateRevision
         (BaseAttributes attribs, SpecificationSet specs, bool hasRevisedSpecs)
     {
-        return new ContractVersion(specs, attribs, null, hasRevisedSpecs); ;
+        return new ContractVersion(specs, attribs, null, hasRevisedSpecs);
     }
 
     public static ContractVersion CreateRevisionWithCustomDeadline
