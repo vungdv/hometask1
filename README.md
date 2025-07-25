@@ -15,6 +15,43 @@ make build
 make up
 ```
 
-## document
+## Document
 
 There will be a readme.md file in each of sub-folder to explain their purposes.
+
+## Overview
+
+- docker-compose.override.yml provides infra services such as influxdb, postgreSQL, tempo, loki, prometheus,...
+- docker-compose.yml define services for the apps located under ~/src directory
+- telemetry configuration for local observability stack: loki, grafana, prometheus, tempo, otel-collector.
+- Makefile to build custom, reusable commands
+
+```bash
+tree -L 2
+.
+├── docker-compose.override.yml
+├── docker-compose.yml
+├── LICENSE
+├── local
+│   ├── go_app_config.yml
+│   └── postgres
+├── Makefile
+├── README.md
+├── src
+│   ├── app
+│   ├── efcoreddd
+│   ├── efcoreddd.unittests
+│   ├── go_app
+│   └── net9app
+├── telemetry
+│   ├── blackbox
+│   ├── grafana
+│   ├── jaeger
+│   ├── loki
+│   ├── otel-collector-config.yaml
+│   ├── prometheus
+│   └── tempo
+└── tests
+    ├── k6
+    └── README.md
+```
