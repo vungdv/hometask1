@@ -16,12 +16,22 @@ namespace efcoreddd.Infra.Data
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            modelBuilder.Entity<ContractVersion>().ComplexProperty(v => v.Specs);
-            modelBuilder.Entity<ContractVersion>().OwnsMany(v => v.Authors).OwnsOne(a => a.Name);
+            modelBuilder.Entity<ContractVersion>()
+                .OwnsOne(v => v.Specs, nav => { nav.ToJson(); });
+            modelBuilder.Entity<ContractVersion>()
+                .OwnsMany(v => v.Authors, nav =>
+                {
+                    nav.ToJson();
+                    nav.OwnsOne(a => a.Name, na => { na.ToJson(); });
+                });
+
             modelBuilder.Entity<ContractVersion>().Property("_hasRevisedSpecSet");
 
-            modelBuilder.Entity<ContractAggregate>().Property(c => c.DateInitiated).HasField("_initiated");
-            modelBuilder.Entity<ContractAggregate>().Property(c => c.ContractNumber).HasField("_contractNumber");
+            modelBuilder.Entity<ContractAggregate>()
+                .Property(c => c.DateInitiated).HasField("_initiated");
+
+            modelBuilder.Entity<ContractAggregate>()
+            .Property(c => c.ContractNumber).HasField("_contractNumber");
         }
     }
 }

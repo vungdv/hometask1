@@ -1,6 +1,5 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
@@ -45,15 +44,8 @@ namespace efcoreddd.Infra.Migrations
                     Accepted = table.Column<bool>(type: "boolean", nullable: false),
                     ContractAggregateId = table.Column<Guid>(type: "uuid", nullable: true),
                     _hasRevisedSpecSet = table.Column<bool>(type: "boolean", nullable: false),
-                    Specs_AdvanceAmountUSD = table.Column<int>(type: "integer", nullable: false),
-                    Specs_AuthorAvailableForPR = table.Column<bool>(type: "boolean", nullable: false),
-                    Specs_DigitalRoyaltyPct = table.Column<int>(type: "integer", nullable: false),
-                    Specs_HardCoverRoyaltyPct = table.Column<int>(type: "integer", nullable: false),
-                    Specs_PriceForAddlAuthorCopiesUSD = table.Column<decimal>(type: "numeric", nullable: false),
-                    Specs_PromoCopiesForAuthor = table.Column<int>(type: "integer", nullable: false),
-                    Specs_PublicityProvided = table.Column<bool>(type: "boolean", nullable: false),
-                    Specs_SoftCoverRoyaltyPct = table.Column<int>(type: "integer", nullable: false),
-                    Specs_TranslationRoyaltyUSD = table.Column<int>(type: "integer", nullable: false)
+                    Authors = table.Column<string>(type: "jsonb", nullable: true),
+                    Specs = table.Column<string>(type: "jsonb", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -65,31 +57,6 @@ namespace efcoreddd.Infra.Migrations
                         principalColumn: "Id");
                 });
 
-            migrationBuilder.CreateTable(
-                name: "Author",
-                columns: table => new
-                {
-                    ContractVersionId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    Name_FirstName = table.Column<string>(type: "text", nullable: false),
-                    Name_LastName = table.Column<string>(type: "text", nullable: false),
-                    Email = table.Column<string>(type: "text", nullable: false),
-                    Phone = table.Column<string>(type: "text", nullable: false),
-                    Signed = table.Column<bool>(type: "boolean", nullable: false),
-                    SignedAuthorId = table.Column<Guid>(type: "uuid", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Author", x => new { x.ContractVersionId, x.Id });
-                    table.ForeignKey(
-                        name: "FK_Author_ContractVersion_ContractVersionId",
-                        column: x => x.ContractVersionId,
-                        principalTable: "ContractVersion",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
             migrationBuilder.CreateIndex(
                 name: "IX_ContractVersion_ContractAggregateId",
                 table: "ContractVersion",
@@ -99,9 +66,6 @@ namespace efcoreddd.Infra.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "Author");
-
             migrationBuilder.DropTable(
                 name: "ContractVersion");
 

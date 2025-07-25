@@ -1,6 +1,6 @@
 namespace efcoreddd.Domain.Contract.ValueObjects;
 
-public readonly record struct SpecificationSet
+public record SpecificationSet
 (
  int AdvanceAmountUSD,
  int HardCoverRoyaltyPct,
