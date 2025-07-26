@@ -45,6 +45,18 @@
           "System.Text.Json": "9.0.7"
         }
       },
+      "Microsoft.EntityFrameworkCore.Relational": {
+        "type": "Direct",
+        "requested": "[9.0.7, )",
+        "resolved": "9.0.7",
+        "contentHash": "Yo5joquG7L79H5BhtpqP8apu+KFOAYfvmj0dZnVkPElBY14wY5qva0SOcrDWzYw5BrJrhIArfCcJCJHBvMYiKg==",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore": "9.0.7",
+          "Microsoft.Extensions.Caching.Memory": "9.0.7",
+          "Microsoft.Extensions.Configuration.Abstractions": "9.0.7",
+          "Microsoft.Extensions.Logging": "9.0.7"
+        }
+      },
       "Npgsql.EntityFrameworkCore.PostgreSQL": {
         "type": "Direct",
         "requested": "[9.0.4, )",
@@ -149,17 +161,6 @@
         "type": "Transitive",
         "resolved": "9.0.7",
         "contentHash": "HqiPjAvjVOsyA1svnjL81/Wk2MRQYMK/lxKVWvw0f5IcA//VcxBepVSAqe7CFirdsPXqe8rFKEwZROWZTz7Jqw=="
-      },
-      "Microsoft.EntityFrameworkCore.Relational": {
-        "type": "Transitive",
-        "resolved": "9.0.7",
-        "contentHash": "Yo5joquG7L79H5BhtpqP8apu+KFOAYfvmj0dZnVkPElBY14wY5qva0SOcrDWzYw5BrJrhIArfCcJCJHBvMYiKg==",
-        "dependencies": {
-          "Microsoft.EntityFrameworkCore": "9.0.7",
-          "Microsoft.Extensions.Caching.Memory": "9.0.7",
-          "Microsoft.Extensions.Configuration.Abstractions": "9.0.7",
-          "Microsoft.Extensions.Logging": "9.0.7"
-        }
       },
       "Microsoft.Extensions.Caching.Abstractions": {
         "type": "Transitive",

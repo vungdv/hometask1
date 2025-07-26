@@ -12,10 +12,11 @@ namespace efcoreddd.Infra.Data
         {
         }
 
-        public DbSet<ContractAggregate> Contracts => Set<ContractAggregate>(name: "Contracts");
+        public DbSet<ContractAggregate> Contracts { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.Entity<ContractAggregate>().ToTable("Contracts");
             modelBuilder.Entity<ContractVersion>()
                 .OwnsOne(v => v.Specs, nav => { nav.ToJson(); });
             modelBuilder.Entity<ContractVersion>()

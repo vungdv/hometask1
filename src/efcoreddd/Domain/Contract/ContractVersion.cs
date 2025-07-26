@@ -36,7 +36,7 @@ public class ContractVersion : BaseEntity<Guid>
         Id = Guid.NewGuid();
         Specs = specs;
         _hasRevisedSpecSet = revisedSpecs;
-        DateCreated = DateTime.Today;
+        DateCreated = DateTime.Today.ToUniversalTime();
         DateSentToAuthors = DateCreated.AddDays(1);
         if (deadline is null)
         { AcceptanceDeadline = DateOnly.FromDateTime(DateCreated.AddDays(10)); }

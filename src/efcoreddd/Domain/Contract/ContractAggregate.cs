@@ -36,8 +36,8 @@ public class ContractAggregate : BaseEntity<Guid>
     public Guid CurrentVersionId { get; private set; }
     public Guid FinalVersionId { get; private set; }
     public bool Completed { get; private set; }
-    public DateOnly CompletedDate { get; private set; }
-    public DateOnly Fullfilled { get; private set; }
+    public DateOnly CompletedDate { get; private set; } = DateOnly.MinValue;
+    public DateOnly Fulfilled { get; private set; } = DateOnly.MinValue;
     public IEnumerable<ContractVersion> Versions => _versions;
 
     private string _contractNumber;
@@ -92,7 +92,7 @@ public class ContractAggregate : BaseEntity<Guid>
     public void FinalVersionSignedByAllParties()
     {
         Completed = true;
-        CompletedDate = DateOnly.FromDateTime(DateTime.Now);
+        CompletedDate = DateOnly.FromDateTime(DateTime.UtcNow);
         FinalVersionId = CurrentVersionId;
     }
 
