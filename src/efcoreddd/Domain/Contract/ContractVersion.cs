@@ -34,6 +34,7 @@ public class ContractVersion : BaseEntity<Guid>
                               DateOnly? deadline, bool revisedSpecs)
     {
         Id = Guid.NewGuid();
+        ContractId = attribs.ContractId;
         Specs = specs;
         _hasRevisedSpecSet = revisedSpecs;
         DateCreated = DateTime.Today.ToUniversalTime();
@@ -61,6 +62,7 @@ public class ContractVersion : BaseEntity<Guid>
     public bool Accepted { get; private set; }
     private readonly List<Author> _authors = [];
     public IEnumerable<Author> Authors => _authors.AsReadOnly();
+    public IEnumerable<Author> CloneAuthors() => _authors.Select(a => (Author)a.Clone());
     public void SentToAuthors(DateTime dateSent)
     {
         DateSentToAuthors = dateSent;

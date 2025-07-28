@@ -17,6 +17,12 @@ namespace efcoreddd.Infra.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<ContractAggregate>().ToTable("Contracts");
+            modelBuilder.Entity<ContractAggregate>()
+               .Property(c => c.DateInitiated).HasField("_initiated");
+
+            modelBuilder.Entity<ContractAggregate>()
+            .Property(c => c.ContractNumber).HasField("_contractNumber");
+
             modelBuilder.Entity<ContractVersion>()
                 .OwnsOne(v => v.Specs, nav => { nav.ToJson(); });
             modelBuilder.Entity<ContractVersion>()
@@ -27,12 +33,11 @@ namespace efcoreddd.Infra.Data
                 });
 
             modelBuilder.Entity<ContractVersion>().Property("_hasRevisedSpecSet");
-
-            modelBuilder.Entity<ContractAggregate>()
-                .Property(c => c.DateInitiated).HasField("_initiated");
-
-            modelBuilder.Entity<ContractAggregate>()
-            .Property(c => c.ContractNumber).HasField("_contractNumber");
+            // As in the domain model we generate the Ids manually,
+            // EFCore will default treat it as existing one and not track as new. 
+            // by setting ValueGeneratedNever, it's strange but it works.
+            // This one is to solved the Integration Test - ContractRevisionTests.CreateNewRevision 
+            modelBuilder.Entity<ContractVersion>().Property(v => v.Id).ValueGeneratedNever();
         }
     }
 }

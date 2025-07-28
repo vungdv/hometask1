@@ -3,7 +3,7 @@ using efcoreddd.Domain.Contract;
 using efcoreddd.Domain.Contract.Enums;
 using efcoreddd.Domain.Contract.ValueObjects;
 
-namespace efcoreddd.unittests.Domain;
+namespace efcoreddd.UnitTests.Domain;
 
 public class ContractTests
 {

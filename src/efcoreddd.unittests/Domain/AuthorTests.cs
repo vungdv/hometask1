@@ -1,6 +1,6 @@
 ﻿using efcoreddd.Domain.Contract.ValueObjects;
 
-namespace efcoreddd.unittests.Domain;
+namespace efcoreddd.UnitTests.Domain;
 
 public class AuthorTests
 {
@@ -50,5 +50,13 @@ public class AuthorTests
     {
         var author = Author.UnsignedAuthor("Jane", "Doe", "", "098-765-4321");
         Assert.Equal(Guid.Empty, author.SignedAuthorId);
+    }
+
+    [Fact]
+    public void CloneUnsignedAuthorShouldEqual()
+    {
+        var author = Author.UnsignedAuthor("Jane", "Doe", "", "098-765-4321");
+        var clonedAuthor = (Author)author.Clone();
+        Assert.Equal(author, clonedAuthor);
     }
 }

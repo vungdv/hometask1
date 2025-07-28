@@ -2,7 +2,7 @@ using efcoreddd.Domain.SharedKernel.ValueObjects;
 
 namespace efcoreddd.Domain.Contract.ValueObjects;
 
-public class Author
+public class Author : ICloneable
 {
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
     private Author()
@@ -67,5 +67,10 @@ public class Author
     public override int GetHashCode()
     {
         return HashCode.Combine(Name, Email, Phone, Signed, SignedAuthorId);
+    }
+
+    public object Clone()
+    {
+        return new Author(Name.FirstName, Name.LastName, Email, Phone, Signed, SignedAuthorId);
     }
 }

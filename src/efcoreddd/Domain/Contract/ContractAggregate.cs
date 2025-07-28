@@ -38,9 +38,9 @@ public class ContractAggregate : BaseEntity<Guid>
     public bool Completed { get; private set; }
     public DateOnly CompletedDate { get; private set; } = DateOnly.MinValue;
     public DateOnly Fulfilled { get; private set; } = DateOnly.MinValue;
-    public IEnumerable<ContractVersion> Versions => _versions;
+    public IEnumerable<ContractVersion> Versions => _versions.AsReadOnly();
 
-    private string _contractNumber;
+    private readonly string _contractNumber;
     private DateOnly _initiated;
     private readonly List<ContractVersion> _versions = [];
 
@@ -49,7 +49,8 @@ public class ContractAggregate : BaseEntity<Guid>
          DateOnly? customDeadline)
     {
         CreateRevision(modReason, modDescription, title, authors, customDeadline,
-                       CurrentVersion().Specs, true);
+                          CurrentVersion().Specs with { },
+                       true);
     }
 
     public void CreateRevisionUsingNewSpecs
@@ -101,9 +102,9 @@ public class ContractAggregate : BaseEntity<Guid>
         CurrentVersion().VersionAccepted();
     }
 
-    public void AddAuthor(Author author, ContractVersion version)
+    public void AddAuthor(Author author)
     {
-        version.AddAuthor(author);
+        CurrentVersion().AddAuthor(author);
     }
 
     private string GenerateContractNumber(ContractVersion version)

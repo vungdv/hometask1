@@ -12,12 +12,12 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace efcoreddd.IntegrationTests.Infra.Data;
 
-public class ContractDbContextTests : IClassFixture<ApplicationFactory>
+public class ContractTests : IClassFixture<ApplicationFactory>
 {
     private readonly ApplicationFactory _factory;
     private ContractDbContext _dbContext;
 
-    public ContractDbContextTests(ApplicationFactory factory)
+    public ContractTests(ApplicationFactory factory)
     {
         _factory = factory;
         _dbContext = _factory.Services.GetRequiredService<ContractDbContext>();
@@ -40,6 +40,7 @@ public class ContractDbContextTests : IClassFixture<ApplicationFactory>
         var storedContract = await _dbContext.Contracts.FindAsync(contract.Id);
         Assert.NotNull(storedContract);
         Assert.Equal(contract.Id, storedContract.Id);
+        Assert.Equal(contract.CurrentVersionId, storedContract.CurrentVersionId);
     }
 
     [Fact]
@@ -60,7 +61,7 @@ public class ContractDbContextTests : IClassFixture<ApplicationFactory>
                                     .Where(c => c.Id == contract.Id);
         Assert.Equal(
             ContractVersion.GetDefaultSpecs(),
-            storedContract.First().Versions.First().Specs
+            storedContract.Single().CurrentVersion().Specs
         );
     }
     [Fact]
@@ -100,7 +101,7 @@ public class ContractDbContextTests : IClassFixture<ApplicationFactory>
         _dbContext.ChangeTracker.Clear();
         var value = _dbContext.Contracts
                                     .Where(c => c.Id == contract.Id)
-                                    .Select(c => EF.Property<bool>(c.Versions.FirstOrDefault(), "_hasRevisedSpecSet"))
+                                    .Select(c => EF.Property<bool>(c.Versions.First(), "_hasRevisedSpecSet"))
                                     .FirstOrDefault();
         Assert.False(value);
     }
