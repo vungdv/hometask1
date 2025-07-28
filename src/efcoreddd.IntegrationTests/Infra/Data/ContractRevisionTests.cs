@@ -88,7 +88,3 @@ public class ContractRevisionTests : IClassFixture<ApplicationFactory>
         return contract.Id;
     }
 }
-
-internal class stored
-{
-}
