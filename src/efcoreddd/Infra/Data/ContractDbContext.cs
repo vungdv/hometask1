@@ -1,6 +1,6 @@
-using System.Diagnostics.Contracts;
 using efcoreddd.Domain.Contract;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace efcoreddd.Infra.Data
 {
@@ -38,6 +38,23 @@ namespace efcoreddd.Infra.Data
             // by setting ValueGeneratedNever, it's strange but it works.
             // This one is to solved the Integration Test - ContractRevisionTests.CreateNewRevision 
             modelBuilder.Entity<ContractVersion>().Property(v => v.Id).ValueGeneratedNever();
+        }
+
+        protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+        {
+            configurationBuilder.Properties<ContractId>().HaveConversion<ContractIdConverter>();
+            configurationBuilder.Properties<ContractVersionId>().HaveConversion<ContractVersionIdConverter>();
+        }
+
+        private sealed class ContractIdConverter : ValueConverter<ContractId, Guid>
+        {
+            public ContractIdConverter() : base(v => v.Value, v => new ContractId(v))
+            { }
+        }
+        private sealed class ContractVersionIdConverter : ValueConverter<ContractVersionId, Guid>
+        {
+            public ContractVersionIdConverter() : base(v => v.Value, v => new(v))
+            { }
         }
     }
 }

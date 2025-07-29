@@ -47,7 +47,14 @@ public class ContractService
         }
         await _contractDbContext.SaveChangesAsync();
     }
-    public async Task AcceptCurrentVersionAsync(Guid contractId)
+    /// <summary>
+    /// By using Guid here, all the contract, contract version share the same Id type. 
+    /// So it might be accidentally a developer pass ContractVersionId as a ContractId. 
+    /// In language such as golang, we have alias type
+    /// </summary>
+    /// <param name="contractId"></param>
+    /// <returns></returns>
+    public async Task AcceptCurrentVersionAsync(ContractId contractId)
     {
         await _contractDbContext.Set<ContractVersion>()
             .Where(c => _contractDbContext.Contracts.Where(c => c.Id == contractId)
@@ -56,7 +63,7 @@ public class ContractService
                 c.SetProperty(p => p.Accepted, v => true));
     }
 
-    public async Task FinalizeContractAsync(Guid contractId, DateTime completed)
+    public async Task FinalizeContractAsync(ContractId contractId, DateTime completed)
     {
         await _contractDbContext.Contracts
             .Where(c => c.Id == contractId)
@@ -67,7 +74,7 @@ public class ContractService
                               v => DateOnly.FromDateTime(completed.ToUniversalTime())));
     }
 
-    public async Task FulfilContract(Guid contractId, DateTime fulfilled)
+    public async Task FulfilContract(ContractId contractId, DateTime fulfilled)
     {
         await _contractDbContext.Contracts
             .Where(c => c.Id == contractId)

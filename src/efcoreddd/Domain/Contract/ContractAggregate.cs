@@ -5,7 +5,12 @@ using efcoreddd.Domain.SharedKernel;
 
 namespace efcoreddd.Domain.Contract;
 
-public class ContractAggregate : BaseEntity<Guid>
+public record ContractId
+{
+    public ContractId(Guid value) => Value = value;
+    public Guid Value { get; init; }
+}
+public class ContractAggregate : BaseEntity<ContractId>
 {
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
     private ContractAggregate()
@@ -16,9 +21,9 @@ public class ContractAggregate : BaseEntity<Guid>
     public ContractAggregate(DateOnly initDate, List<Author> authors, string workingTitle)
     {
         _initiated = initDate;
-        Id = Guid.NewGuid();
+        Id = new ContractId(Guid.NewGuid());
         var baseattribs =
-            VersionAttributeFactory.Create(Id, workingTitle, authors,
+            VersionAttributeFactory.Create(Id.Value, workingTitle, authors,
                                            ModReason.NewContract, "New Contract");
         ContractVersion version = ContractVersion.CreateNew(baseattribs);
         _contractNumber = GenerateContractNumber(version);
@@ -33,8 +38,8 @@ public class ContractAggregate : BaseEntity<Guid>
 
     public string ContractNumber => _contractNumber;
     public DateOnly DateInitiated => _initiated;
-    public Guid CurrentVersionId { get; private set; }
-    public Guid FinalVersionId { get; private set; }
+    public ContractVersionId CurrentVersionId { get; private set; } = new ContractVersionId(Guid.Empty);
+    public ContractVersionId FinalVersionId { get; private set; } = new ContractVersionId(Guid.Empty);
     public bool Completed { get; private set; }
     public DateOnly CompletedDate { get; private set; } = DateOnly.MinValue;
     public DateOnly Fulfilled { get; private set; } = DateOnly.MinValue;
@@ -65,7 +70,7 @@ public class ContractAggregate : BaseEntity<Guid>
          DateOnly? customDeadline, SpecificationSet specs, bool sameSpecs)
     {
         var baseattribs =
-            VersionAttributeFactory.Create(Id, title, authors, modReason, modDescription);
+            VersionAttributeFactory.Create(Id.Value, title, authors, modReason, modDescription);
         ContractVersion revision;
         if (customDeadline == null)
         {
@@ -80,7 +85,7 @@ public class ContractAggregate : BaseEntity<Guid>
         AddVersion(revision);
     }
 
-    public IEnumerable<ContractVersion> GetVersion(Guid versionId)
+    public IEnumerable<ContractVersion> GetVersion(ContractVersionId versionId)
     {
         return Versions.Where(v => v.Id == versionId);
     }

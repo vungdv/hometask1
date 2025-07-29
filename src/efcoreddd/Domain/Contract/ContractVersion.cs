@@ -6,7 +6,12 @@ using static efcoreddd.Domain.Contract.Services.VersionAttributeFactory;
 
 namespace efcoreddd.Domain.Contract;
 
-public class ContractVersion : BaseEntity<Guid>
+public record ContractVersionId
+{
+    public ContractVersionId(Guid value) => Value = value;
+    public Guid Value { get; }
+}
+public class ContractVersion : BaseEntity<ContractVersionId>
 {
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
     private ContractVersion()
@@ -33,7 +38,7 @@ public class ContractVersion : BaseEntity<Guid>
     private ContractVersion(SpecificationSet specs, BaseAttributes attribs,
                               DateOnly? deadline, bool revisedSpecs)
     {
-        Id = Guid.NewGuid();
+        Id = new ContractVersionId(Guid.NewGuid());
         ContractId = attribs.ContractId;
         Specs = specs;
         _hasRevisedSpecSet = revisedSpecs;

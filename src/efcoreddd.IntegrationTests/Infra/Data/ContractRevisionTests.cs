@@ -51,7 +51,7 @@ public class ContractRevisionTests : IClassFixture<ApplicationFactory>
         Assert.Equal(2, contractFromDB.CurrentVersion().Authors.Count());
     }
 
-    private async Task AddAuthorToContract(Guid contractId)
+    private async Task AddAuthorToContract(ContractId contractId)
     {
         var contractFromDB = await _dbContext.Contracts
             .Include(c => c.Versions)
@@ -62,7 +62,7 @@ public class ContractRevisionTests : IClassFixture<ApplicationFactory>
         await _dbContext.SaveChangesAsync();
     }
 
-    private async Task<Guid> NewContractAndAddRevision()
+    private async Task<ContractId> NewContractAndAddRevision()
     {
         // Arrange
         var unsignedAuthors = new List<Author> { Author.UnsignedAuthor("first", "last", "email", "phone") };
