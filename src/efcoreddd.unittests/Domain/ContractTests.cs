@@ -2,6 +2,7 @@ using System.Reflection;
 using efcoreddd.Domain.Contract;
 using efcoreddd.Domain.Contract.Enums;
 using efcoreddd.Domain.Contract.ValueObjects;
+using FluentAssertions;
 
 namespace efcoreddd.UnitTests.Domain;
 
@@ -18,7 +19,7 @@ public class ContractTests
     [Fact]
     public void NewContractHasId()
     {
-        Assert.NotEqual(Guid.Empty, _contract.Id);
+        _contract.Id.Should().NotBe(Guid.Empty);
     }
     [Fact]
     public void NewContractHasExpectedContractNumber()
@@ -40,7 +41,7 @@ public class ContractTests
     {
         var firstVersionId = _contract.CurrentVersion().Id;
         _contract.CreateRevisionUsingSameSpecs(ModReason.Other, "abc", "xyz", _unsignedAuthors, null);
-        Assert.NotEqual(Guid.Empty, _contract.CurrentVersion().Id);
+        _contract.CurrentVersion().Id.Should().NotBe(Guid.Empty);
     }
     [Fact]
     public void AddingContractRevisionIncreasestheNumberOfVersions()
