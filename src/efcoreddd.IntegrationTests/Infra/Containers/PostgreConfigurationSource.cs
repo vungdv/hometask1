@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using Testcontainers.PostgreSql;
 
 namespace efcoreddd.IntegrationTests.Infra.Containers;
@@ -20,11 +19,13 @@ public sealed class PostgreConfigurationSource : IConfigurationSource
 public sealed class PostgreConfigurationProvider : ConfigurationProvider
 {
     private readonly string _containerName;
+    private static readonly SemaphoreSlim _lock = new SemaphoreSlim(1, 1);
     public PostgreConfigurationProvider(string containerName)
     {
         _containerName = containerName ?? throw new ArgumentNullException(nameof(containerName));
     }
     private static readonly TaskFactory TaskFactory = new TaskFactory(CancellationToken.None, TaskCreationOptions.None, TaskContinuationOptions.None, TaskScheduler.Default);
+
     public override void Load()
     {
         // Until the asynchronous configuration provider is available,
@@ -48,7 +49,18 @@ public sealed class PostgreConfigurationProvider : ConfigurationProvider
             .WithLabel(_containerName, "")
             .Build();
 
-        await postgreContainer.StartAsync();
+        if (postgreContainer.State != DotNet.Testcontainers.Containers.TestcontainersStates.Running)
+        {
+            await _lock.WaitAsync();
+            try
+            {
+                await postgreContainer.StartAsync();
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
 
         Data["ConnectionStrings:DefaultConnection"] = postgreContainer.GetConnectionString();
     }

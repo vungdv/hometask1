@@ -1,3 +1,5 @@
+using Ardalis.Specification;
+using Ardalis.Specification.EntityFrameworkCore;
 using efcoreddd.Domain.Contract;
 using efcoreddd.Infra.Data;
 using Microsoft.EntityFrameworkCore;
@@ -81,5 +83,10 @@ public class ContractService
             .ExecuteUpdateAsync(c =>
                 c.SetProperty(p => p.Fulfilled,
                               v => DateOnly.FromDateTime(fulfilled.ToUniversalTime())));
+    }
+
+    public async Task<IEnumerable<ContractAggregate>> GetContractsBySpecs(ISpecification<ContractAggregate> specs)
+    {
+        return await _contractDbContext.Contracts.WithSpecification(specs).ToListAsync();
     }
 }
