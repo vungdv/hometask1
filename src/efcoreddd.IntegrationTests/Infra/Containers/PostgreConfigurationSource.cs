@@ -19,7 +19,6 @@ public sealed class PostgreConfigurationSource : IConfigurationSource
 public sealed class PostgreConfigurationProvider : ConfigurationProvider
 {
     private readonly string _containerName;
-    private static readonly SemaphoreSlim _lock = new SemaphoreSlim(1, 1);
     public PostgreConfigurationProvider(string containerName)
     {
         _containerName = containerName ?? throw new ArgumentNullException(nameof(containerName));
@@ -51,14 +50,15 @@ public sealed class PostgreConfigurationProvider : ConfigurationProvider
 
         if (postgreContainer.State != DotNet.Testcontainers.Containers.TestcontainersStates.Running)
         {
-            await _lock.WaitAsync();
+            await GlobalLocks.PostgreInitContainerLock.WaitAsync();
             try
             {
                 await postgreContainer.StartAsync();
             }
             finally
             {
-                _lock.Release();
+
+                GlobalLocks.PostgreInitContainerLock.Release();
             }
         }
 
