@@ -5,6 +5,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
+import vn.danang.polaris.domain.Product;
+
 public record ProductResponse(
     UUID id,
     String tenantId,
@@ -30,6 +32,22 @@ public record ProductResponse(
             false,
             now,
             now
+        );
+    }
+
+    public static ProductResponse getProduct(Product product) {
+    Instant now = Instant.now();
+    return new ProductResponse(
+        null,
+        "",
+        product.getSku(),
+        product.getName(),
+        product.getName(),
+        product.getPrice(),
+        product.getStockQty(),
+        true,
+        now,
+        now
         );
     }
 }
