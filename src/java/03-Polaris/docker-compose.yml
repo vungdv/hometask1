@@ -1,0 +1,85 @@
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - keycloak
+      - app
+    networks:
+      - polaris-net
+  app:
+    build: .
+    container_name: polaris
+    user: root
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://id.${POLARIS_DOMAIN}/realms/polaris # Back-channel communication via keycloak-net network.
+      SPRING_DATASOURCE_URL: jdbc:h2:file:/app/data/polaris
+      SPRING_DATASOURCE_DRIVER-CLASS-NAME: org.h2.Driver
+      SPRING_DATASOURCE_USERNAME: sa
+      SPRING_DATASOURCE_PASSWORD: ""
+      SWAGGER_CLIENT_ID: "polaris-app"
+      SPRINGDOC_OAUTH_ISSUER: "https://id.${POLARIS_DOMAIN}/realms/polaris"
+      SPRINGDOC_SWAGGER-UI_OAUTH_CLIENT-ID: "polaris-app"
+      SPRINGDOC_SWAGGER-UI_OAUTH_USE-PKCE-WITH-AUTHORIZATION-CODE-GRANT: "true"
+      JAVA_TOOL_OPTIONS: "-Djavax.net.ssl.trustStore=/certs/truststore.jks"
+    extra_hosts:
+      - "id.polaris.local:host-gateway"
+    volumes:
+      - ./nginx/truststore.jks:/certs/truststore.jks:ro
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    networks:
+      - polaris-net
+  postgres:
+    image: postgres:16
+    container_name: keycloak-postgres
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    networks:
+      - polaris-net
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_PROXY: edge
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+    depends_on:
+      - postgres
+    networks:
+      - polaris-net
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  keycloak_db_data:
+
+networks:
+  polaris-net:

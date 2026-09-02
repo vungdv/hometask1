@@ -11,7 +11,7 @@ import vn.danang.polaris.domain.Order;
 import vn.danang.polaris.service.OrderService;
 
 @RestController
-@RequestMapping("/api/orders")
+@RequestMapping("/api/v1/orders")
 public class OrderController {
 
     private final OrderService orderService;

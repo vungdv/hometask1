@@ -1,0 +1,46 @@
+{
+  "realm": "polaris",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "polaris-app",
+      "enabled": true,
+      "publicClient": true,
+     "redirectUris": [
+        "https://polaris.local/swagger-ui/index.html",
+        "https://polaris.local/swagger-ui/oauth2-redirect.html"
+      ],
+      "webOrigins": [
+        "https://polaris.local"
+      ],
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "email": "testuser@novagadgets.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["offline_access", "uma_authorization"],
+      "clientRoles": {
+        "account": ["view-profile", "manage-account"]
+      }
+    }
+  ]
+}
