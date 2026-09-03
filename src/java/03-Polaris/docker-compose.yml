@@ -17,8 +17,10 @@ services:
     build: .
     container_name: polaris
     user: root
-    ports:
-      - "8080:8080"
+    # We don't need export port here
+    # access to container go through nginx under domain polaris.local
+    # ports:
+    #   - "8080:8080"
     environment:
       SERVER_FORWARD_HEADERS_STRATEGY: framework
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://id.${POLARIS_DOMAIN}/realms/polaris # Back-channel communication via keycloak-net network.
@@ -26,8 +28,6 @@ services:
       SPRING_DATASOURCE_DRIVER-CLASS-NAME: org.h2.Driver
       SPRING_DATASOURCE_USERNAME: sa
       SPRING_DATASOURCE_PASSWORD: ""
-      SWAGGER_CLIENT_ID: "polaris-app"
-      SPRINGDOC_OAUTH_ISSUER: "https://id.${POLARIS_DOMAIN}/realms/polaris"
       SPRINGDOC_SWAGGER-UI_OAUTH_CLIENT-ID: "polaris-app"
       SPRINGDOC_SWAGGER-UI_OAUTH_USE-PKCE-WITH-AUTHORIZATION-CODE-GRANT: "true"
       JAVA_TOOL_OPTIONS: "-Djavax.net.ssl.trustStore=/certs/truststore.jks"
