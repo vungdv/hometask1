@@ -1,5 +1,5 @@
 // domain/OrderItem.java
-package vn.danang.polaris.domain;
+package vn.danang.polaris.entity;
 
 import java.math.BigDecimal;
 

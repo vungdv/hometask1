@@ -1,5 +1,5 @@
 // domain/OrderStatus.java
-package vn.danang.polaris.domain;
+package vn.danang.polaris.entity;
 
 public enum OrderStatus {
     PLACED, CONFIRMED, PARCELED, DELIVERING, DELIVERED, CANCELLED;

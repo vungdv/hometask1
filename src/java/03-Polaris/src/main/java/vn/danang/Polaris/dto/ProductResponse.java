@@ -5,7 +5,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
-import vn.danang.polaris.domain.Product;
+import vn.danang.polaris.entity.Product;
 
 public record ProductResponse(
     UUID id,

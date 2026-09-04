@@ -7,11 +7,11 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import vn.danang.polaris.domain.Customer;
-import vn.danang.polaris.domain.Order;
-import vn.danang.polaris.domain.OrderItem;
-import vn.danang.polaris.domain.OrderStatus;
-import vn.danang.polaris.domain.Product;
+import vn.danang.polaris.entity.Customer;
+import vn.danang.polaris.entity.Order;
+import vn.danang.polaris.entity.OrderItem;
+import vn.danang.polaris.entity.OrderStatus;
+import vn.danang.polaris.entity.Product;
 import vn.danang.polaris.repository.CustomerRepository;
 import vn.danang.polaris.repository.OrderRepository;
 import vn.danang.polaris.repository.ProductRepository;

@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import vn.danang.polaris.domain.Order;
+import vn.danang.polaris.entity.Order;
 import vn.danang.polaris.service.OrderService;
 
 @RestController

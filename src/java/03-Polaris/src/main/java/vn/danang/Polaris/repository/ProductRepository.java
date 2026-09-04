@@ -2,6 +2,6 @@ package vn.danang.polaris.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import vn.danang.polaris.domain.Product;
+import vn.danang.polaris.entity.Product;
 
 public interface ProductRepository extends JpaRepository<Product, Long> {}

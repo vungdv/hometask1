@@ -1,7 +1,7 @@
-// domain/Customer.java
-package vn.danang.polaris.domain;
+// domain/Product.java
+package vn.danang.polaris.entity;
 
-import java.time.Instant;
+import java.math.BigDecimal;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -12,13 +12,13 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "customers")
+@Table(name = "products")
 @Getter @Setter
-public class Customer {
+public class Product {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    private String fullName;
-    private String email;
-    private String phone;
-    private Instant createdAt;
+    private String sku;
+    private String name;
+    private BigDecimal price;
+    private Integer stockQty;
 }

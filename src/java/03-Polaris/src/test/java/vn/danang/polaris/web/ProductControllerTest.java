@@ -25,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import vn.danang.polaris.config.SecurityConfig;
 import vn.danang.polaris.config.WebConfig;
-import vn.danang.polaris.domain.Product;
+import vn.danang.polaris.entity.Product;
 import vn.danang.polaris.repository.ProductRepository;
 import vn.danang.polaris.web.support.JwtMockFactory;
 
