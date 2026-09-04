@@ -28,3 +28,18 @@ springdoc:
     oauth:
       client-id: polaris-local
       use-pkce-with-authorization-code-grant: true
+
+management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+    metrics:
+      export:
+        otlp:
+          url: ${MANAGEMENT_OTLP_METRICS_EXPORT_URL:http://localhost:4318/v1/metrics}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
