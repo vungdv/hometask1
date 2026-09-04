@@ -12,7 +12,10 @@ services:
       - keycloak
       - app
     networks:
-      - polaris-net
+      polaris-net:
+        aliases:
+          - id.polaris.local
+          - polaris.local
   app:
     build: .
     container_name: polaris
@@ -24,7 +27,9 @@ services:
     environment:
       # DEBUG: "true"
       SERVER_FORWARD_HEADERS_STRATEGY: framework
-      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://id.${POLARIS_DOMAIN}/realms/polaris # Back-channel communication via keycloak-net network.
+      # Access Keycloak through its canonical public issuer URL.
+      # Internally, id.polaris.local resolves to the nginx container.
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://id.${POLARIS_DOMAIN}/realms/polaris 
       SPRING_DATASOURCE_URL: jdbc:h2:file:/app/data/polaris
       SPRING_DATASOURCE_DRIVER-CLASS-NAME: org.h2.Driver
       SPRING_DATASOURCE_USERNAME: sa
@@ -36,10 +41,8 @@ services:
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
       OTEL_SERVICE_NAME: polaris
-      LOGGING_LEVEL_IO_OPENTELEMETRY: DEBUG
-      LOGGING_LEVEL_IO_OPENTELEMETRY_EXPORTER_OTLP: DEBUG
-    extra_hosts:
-      - "id.polaris.local:host-gateway"
+      # LOGGING_LEVEL_IO_OPENTELEMETRY: DEBUG
+      # LOGGING_LEVEL_IO_OPENTELEMETRY_EXPORTER_OTLP: DEBUG
     volumes:
       - ./nginx/truststore.jks:/certs/truststore.jks:ro
     depends_on:
@@ -72,14 +75,15 @@ services:
       KC_DB_PASSWORD: keycloak
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
-      KC_PROXY: edge
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME: https://id.${POLARIS_DOMAIN}
       KC_TRACING_ENABLED: "true"
       KC_TRACING_ENDPOINT: http://otel-collector:4317
       KC_TRACING_SERVICE_NAME: keycloak
       KC_TRACING_SAMPLER_TYPE: traceidratio
       KC_TRACING_SAMPLER_RATIO: "1.0"
-    ports:
-      - "8081:8080"
+    # ports:
+    #   - "8081:8080"
     volumes:
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
     depends_on:
@@ -95,20 +99,17 @@ services:
       timeout: 5s
       retries: 20
 
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
-    container_name: otel-collector
-    command: ["--config=/etc/otel-collector-config.yaml"]
-    volumes:
-      - ./telemetry/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
-    ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-    networks:
-      - polaris-net
+  # otel-collector:
+  #   image: otel/opentelemetry-collector-contrib:latest
+  #   container_name: otel-collector
+  #   command: ["--config=/etc/otel-collector-config.yaml"]
+  #   volumes:
+  #     - ./telemetry/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+  #   ports:
+  #     - "4317:4317"   # OTLP gRPC
+  #     - "4318:4318"   # OTLP HTTP
+  #   networks:
+  #     - polaris-net
 
 volumes:
   keycloak_db_data:
-
-networks:
-  polaris-net:
