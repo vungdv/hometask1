@@ -60,9 +60,9 @@ services:
       - keycloak_db_data:/var/lib/postgresql/data
     networks:
       - polaris-net
-
+      
   keycloak:
-    image: quay.io/keycloak/keycloak:25.0
+    image: quay.io/keycloak/keycloak:26.2
     container_name: keycloak
     command: ["start-dev", "--import-realm"]
     environment:
@@ -73,12 +73,20 @@ services:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
       KC_PROXY: edge
+      KC_TRACING_ENABLED: "true"
+      KC_TRACING_ENDPOINT: http://otel-collector:4317
+      KC_TRACING_SERVICE_NAME: keycloak
+      KC_TRACING_SAMPLER_TYPE: traceidratio
+      KC_TRACING_SAMPLER_RATIO: "1.0"
     ports:
       - "8081:8080"
     volumes:
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
     depends_on:
-      - postgres
+      postgres:
+        condition: service_started
+      otel-collector:
+        condition: service_started
     networks:
       - polaris-net
     healthcheck:
@@ -86,6 +94,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
     container_name: otel-collector
