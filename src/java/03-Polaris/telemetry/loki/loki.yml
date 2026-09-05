@@ -31,12 +31,13 @@ compactor:
     kvstore:
       store: inmemory
 
-limits_config:
-  allow_structured_metadata: true
-  volume_enabled: true
-  # Optional: Automatically map key OTLP attributes to indexed Loki labels
+distributor:
   otlp_config:
     default_resource_attributes_as_index_labels:
       - service.name
       - service.namespace
       - deployment.environment
+
+limits_config:
+  allow_structured_metadata: true
+  volume_enabled: true

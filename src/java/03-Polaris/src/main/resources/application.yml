@@ -1,4 +1,6 @@
 spring:
+  application:
+    name: Polaris
   datasource:
     url: jdbc:h2:file:./data/polaris;AUTO_SERVER=TRUE
     driver-class-name: org.h2.Driver
@@ -34,11 +36,15 @@ management:
     tracing:
       export:
         otlp:
-          endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+          endpoint: http://localhost:4318/v1/traces
     metrics:
       export:
         otlp:
-          url: ${MANAGEMENT_OTLP_METRICS_EXPORT_URL:http://localhost:4318/v1/metrics}
+          url: http://localhost:4318/v1/metrics
+    logging:
+      export:
+        otlp:
+          endpoint: http://localhost:4318/v1/logs
   endpoints:
     web:
       exposure:

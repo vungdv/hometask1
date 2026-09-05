@@ -17,7 +17,7 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:3.1.0
     container_name: loki
 
     ports:
@@ -31,7 +31,22 @@ services:
 
     command:
       - "-config.file=/etc/loki/config.yml"
-
+  logseeding:
+    image: python:3.11-slim
+    container_name: logseeding
+    working_dir: /app
+    # Mount your script into the container (edit locally, no rebuild needed)
+    volumes:
+      - ./telemetry/sample-logs/logseeding.py:/app/logseeding.py:ro
+    # Install requests once, then idle so the container stays up for `docker exec`.
+    # requests is installed into a volume-backed dir so it survives restarts
+    # (skip re-downloading every time you recreate the container).
+    command: ["sh", "-c", "pip install --no-cache-dir requests && tail -f /dev/null"]
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOKI_URL=http://loki:3100
+    networks:
+      - polaris-net
   tempo:
     image: grafana/tempo:latest
     container_name: tempo

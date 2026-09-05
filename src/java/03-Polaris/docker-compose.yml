@@ -10,13 +10,13 @@ services:
       - ./nginx/certs:/etc/nginx/certs:ro
     depends_on:
       - keycloak
-      - app
+      - polaris
     networks:
       polaris-net:
         aliases:
           - id.polaris.local
           - polaris.local
-  app:
+  polaris:
     build: .
     container_name: polaris
     user: root
@@ -39,6 +39,10 @@ services:
       JAVA_TOOL_OPTIONS: "-Djavax.net.ssl.trustStore=/certs/truststore.jks"
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
+      MANAGEMENT_OTLP_LOGGING_ENDPOINT: http://otel-collector:4318/v1/logs
+      MANAGEMENT_OPENTELEMETRY_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+      MANAGEMENT_OPENTELEMETRY_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
+      MANAGEMENT_OPENTELEMETRY_OTLP_LOGGING_ENDPOINT: http://otel-collector:4318/v1/logs
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
       OTEL_SERVICE_NAME: polaris
       # LOGGING_LEVEL_IO_OPENTELEMETRY: DEBUG

@@ -1,62 +1,74 @@
+# https://opentelemetry.io/docs/collector/configuration/
+
+# How data gets into the Collector
 receivers:
+  # Data sources: traces, metrics, logs
   otlp:
     protocols:
       grpc:
-        endpoint: 0.0.0.0:4317
+        endpoint: "0.0.0.0:4317"
       http:
-        endpoint: 0.0.0.0:4318
+        endpoint: "0.0.0.0:4318"
 
 processors:
+  # Data sources: traces, metrics, logs
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 30
+    spike_limit_percentage: 6
+  # Data sources: traces, metrics, logs
   batch:
-
+    timeout: 2s
+    send_batch_max_size: 32768
+  attributes:
+    actions:
+      - key: trace_id
+        action: insert
+        from_attribute: trace_id
+      - key: user_id
+        action: insert
+        from_attribute: user_id
+      - key: service_name
+        action: insert
+        from_attribute: service_name
+# How you send data to one or more backends. Configuring an exporter does not enable it.
 exporters:
-  debug:
-    verbosity: detailed
-  # Swap/add real backends later, e.g.:
-  # otlp/tempo:
-  #   endpoint: tempo:4317
-  #   tls:
-  #     insecure: true
-  # prometheusremotewrite:
-  #   endpoint: http://prometheus:9090/api/v1/write
-
-# ============================
-  # TRACES -> TEMPO
-  # ============================
-  otlp/tempo:
+  # Data sources: traces
+  otlp_grpc/tempo:
     endpoint: tempo:4317
     tls:
       insecure: true
-
-  # ============================
-  # LOGS -> LOKI
-  # ============================
-  otlphttp/loki:
-    endpoint: http://loki:3100/otlp
-
-  # ============================
-  # METRICS -> PROMETHEUS
-  # ============================
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 10000
+  # this should work out to about 8M batches/second for 10s buffer
+  # Data sources: metrics
   prometheus:
-    endpoint: 0.0.0.0:8889
-
+    endpoint: otel-collector:2113
+  debug:
+    verbosity: detailed
+  # Log exporters
+  otlp_http/logs:
+    endpoint: "http://loki:3100/otlp"
+    tls:
+      insecure: true
 service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
-      exporters: 
-        - debug
-        - otlp/tempo
+      processors: [memory_limiter, attributes, batch]
+      exporters: [otlp_grpc/tempo]
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters:
-        - debug
-        - prometheus
+      exporters: [prometheus]
     logs:
       receivers: [otlp]
-      processors: [batch]
-      exporters: 
-        - debug
-        - otlphttp/loki
+      processors: [attributes, batch]
+      exporters: [otlp_http/logs, debug]
