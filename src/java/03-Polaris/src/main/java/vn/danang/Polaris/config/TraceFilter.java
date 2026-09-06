@@ -18,7 +18,7 @@ class TraceIdFilter extends OncePerRequestFilter {
     
     private final Tracer tracer;
 
-    TraceIdFilter(Tracer tracer) {
+    public TraceIdFilter(Tracer tracer) {
         this.tracer = tracer;
     }
 

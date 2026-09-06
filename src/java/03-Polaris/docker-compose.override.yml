@@ -75,9 +75,9 @@ services:
       - ./telemetry/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
 
     ports:
-      - "4317:4317"
-      - "4318:4318"
-      - "8889:8889"
+      - "4317:4317" # gRPC OTLP receiver
+      - "4318:4318" # HTTP OTLP receiver
+      - "8889:8889" # Prometheus metrics endpoint
     networks:
       - polaris-net
 
@@ -97,16 +97,45 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./telemetry/grafana/provisioning:/etc/grafana/provisioning
+  gcx-cli:
+    image: debian:bookworm-slim
+    container_name: gcx-cli
+    working_dir: /root
+    # Installs curl + ca-certificates once, then runs the entrypoint which
+    # installs gcx itself and idles so `docker exec` always has something
+    # to attach to.
+    entrypoint: ["sh", "-c", "apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && sh /entrypoint.sh"]
+    volumes:
+      - ./telemetry/gcx/entrypoint.sh:/entrypoint.sh:ro
+      - gcx-bin:/root/.local/bin
+      - gcx-config:/root/.config/gcx
+    environment:
+      - GCX_INSTALL_DIR=/root/.local/bin
+      # Makes gcx visible to `docker exec` shells too, not just the
+      # entrypoint script's own process.
+      - PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+       # gcx reads these directly (no `gcx config set` needed) to talk to
+      # the local Grafana OSS instance in this stack.
+      - GRAFANA_SERVER=http://grafana:3000
+      - GRAFANA_ORG_ID=1
+      # Quick-start basic auth using Grafana's default admin account.
+      # Swap these for GRAFANA_TOKEN (a service account token) once you've
+      # created one — see the note below.
+      - GRAFANA_USER=admin
+      - GRAFANA_PASSWORD=admin
+    networks:
+      - polaris-net
+    depends_on:
+      - grafana
 
 volumes:
 
   prometheus-data:
-
   loki-data:
-
   tempo-data:
-
   grafana-data:
+  gcx-bin:
+  gcx-config:
 
 networks:
   polaris-net:

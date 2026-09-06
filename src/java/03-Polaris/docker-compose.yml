@@ -37,14 +37,11 @@ services:
       SPRINGDOC_SWAGGER-UI_OAUTH_CLIENT-ID: "polaris-app"
       SPRINGDOC_SWAGGER-UI_OAUTH_USE-PKCE-WITH-AUTHORIZATION-CODE-GRANT: "true"
       JAVA_TOOL_OPTIONS: "-Djavax.net.ssl.trustStore=/certs/truststore.jks"
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
-      MANAGEMENT_OTLP_LOGGING_ENDPOINT: http://otel-collector:4318/v1/logs
-      MANAGEMENT_OPENTELEMETRY_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
-      MANAGEMENT_OPENTELEMETRY_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
-      MANAGEMENT_OPENTELEMETRY_OTLP_LOGGING_ENDPOINT: http://otel-collector:4318/v1/logs
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/logs
+      # Enable 100% sampling for tracing in this local dev environment.
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      OTEL_SERVICE_NAME: polaris
       # LOGGING_LEVEL_IO_OPENTELEMETRY: DEBUG
       # LOGGING_LEVEL_IO_OPENTELEMETRY_EXPORTER_OTLP: DEBUG
     volumes:
@@ -102,18 +99,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-
-  # otel-collector:
-  #   image: otel/opentelemetry-collector-contrib:latest
-  #   container_name: otel-collector
-  #   command: ["--config=/etc/otel-collector-config.yaml"]
-  #   volumes:
-  #     - ./telemetry/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
-  #   ports:
-  #     - "4317:4317"   # OTLP gRPC
-  #     - "4318:4318"   # OTLP HTTP
-  #   networks:
-  #     - polaris-net
 
 volumes:
   keycloak_db_data:

@@ -28,7 +28,6 @@ public class SecurityConfig {
                 ).permitAll()
                 .anyRequest().authenticated()
             )
-            //TODO: CORS configuration
             // jwt is sessionless, so disable session at all.
             // this avoid creating HttpSession (JSESSIONID).
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
