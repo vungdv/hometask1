@@ -19,6 +19,9 @@ public class Product {
     private Long id;
     private String sku;
     private String name;
+    private String description;
+    private String category;
     private BigDecimal price;
     private Integer stockQty;
+    private Boolean isActive = true;
 }

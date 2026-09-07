@@ -1,53 +1,38 @@
 package vn.danang.polaris.dto;
 
 import java.math.BigDecimal;
-import java.time.Clock;
 import java.time.Instant;
-import java.util.UUID;
 
 import vn.danang.polaris.entity.Product;
 
 public record ProductResponse(
-    UUID id,
-    String tenantId,
+    Long id,
     String sku,
     String name,
     String description,
+    String category,
     BigDecimal price,
     Integer stockQuantity,
+    Boolean isAvailable,
     Boolean active,
-    Instant createdAt,
-    Instant updatedAt
+    Instant createdAt
 ) {
-    public static ProductResponse getProductDefault(Clock clock) {
-        Instant now = Instant.now(clock);
-        return new ProductResponse(
-            UUID.randomUUID(),
-            "",
-            "",
-            "",
-            "A new product",
-            BigDecimal.ZERO,
-            0,
-            false,
-            now,
-            now
-        );
-    }
+    public static ProductResponse from(Product product) {
+        boolean available = product.getStockQty() != null 
+                && product.getStockQty() > 0 
+                && Boolean.TRUE.equals(product.getIsActive());
 
-    public static ProductResponse getProduct(Product product) {
-    Instant now = Instant.now();
-    return new ProductResponse(
-        null,
-        "",
-        product.getSku(),
-        product.getName(),
-        product.getName(),
-        product.getPrice(),
-        product.getStockQty(),
-        true,
-        now,
-        now
+        return new ProductResponse(
+            product.getId(),
+            product.getSku(),
+            product.getName(),
+            product.getDescription(),
+            product.getCategory(),
+            product.getPrice(),
+            product.getStockQty(),
+            available,
+            product.getIsActive(),
+            Instant.now()
         );
     }
 }

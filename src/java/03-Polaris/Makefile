@@ -12,3 +12,5 @@ restart-%:
 	docker compose restart $*
 gcx: 
 	docker exec -it gcx-cli sh
+agy-ls:
+	ls -t ~/.gemini/antigravity-cli/brain | head -n 10

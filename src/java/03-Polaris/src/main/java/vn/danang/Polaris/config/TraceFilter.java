@@ -2,6 +2,7 @@ package vn.danang.polaris.config;
 
 import java.io.IOException;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -16,10 +17,11 @@ import jakarta.servlet.http.HttpServletResponse;
 @Component
 class TraceIdFilter extends OncePerRequestFilter {
     
+    @Nullable
     private final Tracer tracer;
 
-    public TraceIdFilter(Tracer tracer) {
-        this.tracer = tracer;
+    public TraceIdFilter(ObjectProvider<Tracer> tracerProvider) {
+        this.tracer = tracerProvider.getIfAvailable();
     }
 
     @Override
@@ -32,8 +34,10 @@ class TraceIdFilter extends OncePerRequestFilter {
     }
 
     private @Nullable String getTraceId() {
+        if (this.tracer == null) {
+            return null;
+        }
         TraceContext context = this.tracer.currentTraceContext().context();
         return context != null ? context.traceId() : null;
     }
-    
 }
