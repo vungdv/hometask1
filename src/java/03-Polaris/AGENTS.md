@@ -58,3 +58,36 @@
   1. Does this change work end-to-end on its own, or does it leave a layer stubbed/unwired?
   2. Does this change modify domain logic, repositories, or tables belonging to more than one bounded context?
   3. If yes to (2), is the cross-context interaction happening through a published contract, with each side changed separately?
+
+---
+
+## Principle 3: Cross-Cutting Engineering Discipline — Observability, Quality & Anti-Monolith Modularity
+
+> **Core Tenet:** Cross-cutting concerns are foundational architectural requirements, not optional afterthought add-ons. Every component must be observable by default, verified through automated tests, and decomposed into single-responsibility units — zero tolerance for "god classes" or "god files".
+
+### 1. Observability by Default (The Three Pillars + Context)
+- **Unified Distributed Tracing:**
+  - Every external entrypoint (HTTP request, message queue consumer, RPC/MCP tool call, scheduled job) must establish or continue a distributed trace.
+  - Always propagate standard W3C Trace Context headers (`traceparent`, `tracestate`) across network and process boundaries.
+  - Record execution status, semantic attributes, and exceptions on the active span.
+- **Correlated Structured Logging:**
+  - Never emit unstructured, unformatted string logs in production or tooling layers.
+  - All logs must be structured (machine-readable JSON or key-value) and automatically inject the active `trace_id` and `span_id`.
+  - Isolate log streams from protocol transports (e.g., logging to `stderr` or OTLP, never polluting protocol `stdout`).
+- **Telemetry-Driven Metrics:**
+  - Standardize on core operational metrics for all components: invocation counters (labeled by status/outcome), latency histograms, and cross-boundary error rates.
+  - Export metrics via standard protocols (e.g., OpenTelemetry OTLP / Prometheus scrapers) using non-blocking, asynchronous delivery to ensure telemetry never impedes application responsiveness.
+
+### 2. Test-Driven Verification by Default (TDD & Fast Feedback)
+- **Automated Verification Floor:** No feature, refactor, or bug fix is complete without automated tests proving its correctness.
+- **Seam & Contract Testing:** When slicing vertical features or decoupling modules, write tests against explicit interface seams. Mock only at boundary interfaces; verify business logic with fast, deterministic unit and contract tests.
+- **Cross-Cutting Verification:** Test suites must exercise not only the "happy path", but also error paths, resilience timeouts, edge conditions, and telemetry propagation (e.g., ensuring trace headers are properly formed and error spans recorded).
+
+### 3. Anti-God Class & Anti-God File Architecture
+- **Single Responsibility Discipline:**
+  - No single class, module, or file may aggregate multiple distinct responsibilities (e.g., combining configuration, authentication handshakes, local HTTP servers, API clients, protocol parsing, and business logic into one file).
+  - Deconstruct monoliths into explicit single-purpose modules: `config`, `auth`, `client`, `domain/tools`, `server/transport`, `telemetry`, and `cli`.
+- **Walkable Seams & Dependency Direction:**
+  - Dependencies must flow in one direction (high-level orchestration depends on domain/client abstractions; infrastructure adapters depend on interfaces). Avoid cyclical imports and circular service references.
+- **Preserve Contracts via Facades:**
+  - Refactoring an oversized class or file must not force callers to change their integration points immediately. Use the Facade pattern at the original entrypoint to maintain backward compatibility while cleanly delegating to the modular subsystem.
