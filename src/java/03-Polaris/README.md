@@ -24,7 +24,7 @@ flowchart TB
     end
 
     subgraph L2["Integration & Gateway Layer"]
-        MCPServer["Polaris MCP Server<br/>(scripts/mcp_polaris_products.py)"]
+        MCPServer["Polaris MCP Server<br/>(mcp/mcp_polaris_products.py)"]
         Nginx["Nginx Reverse Proxy<br/>(Ports 80 / 443 TLS)"]
     end
 
@@ -81,7 +81,7 @@ flowchart TB
 |---|---|---|---|---|---|
 | **nginx** | `nginx` | `nginx:alpine` | `http://localhost:80`<br/>`https://polaris.local`<br/>`https://id.polaris.local` | Custom certs via `mkcert` | Reverse proxy and TLS termination gateway |
 | **polaris** | `polaris` | `build: .` (Spring Boot) | Routed via Nginx (`https://polaris.local`) | - | Core backend application API and business logic |
-| **polaris-mcp** | - | `scripts/mcp_polaris_products.py` | Stdio JSON-RPC 2.0 | Connects via `https://polaris.local` | Model Context Protocol server exposing product search and details to AI assistants |
+| **polaris-mcp** | - | `mcp/mcp_polaris_products.py` | Stdio JSON-RPC 2.0 | Connects via `https://polaris.local` | Model Context Protocol server exposing product search and details to AI assistants |
 | **keycloak** | `keycloak` | `quay.io/keycloak/keycloak:26.2` | Routed via Nginx (`https://id.polaris.local`) | Admin: `admin` / `admin` | Identity and Access Management (OAuth2 / OIDC) |
 | **postgres** | `keycloak-postgres` | `postgres:16` | Internal only (`postgres:5432`) | `keycloak` / `keycloak` | Persistent relational database for Keycloak |
 | **otel-collector** | `otel-collector` | `otel/opentelemetry-collector-contrib:latest` | `4317` (gRPC OTLP)<br/>`4318` (HTTP OTLP)<br/>`8889` (Prometheus scrape) | - | Central telemetry collector, processor, and exporter |

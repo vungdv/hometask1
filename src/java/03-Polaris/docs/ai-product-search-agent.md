@@ -13,7 +13,7 @@ sequenceDiagram
     autonumber
     actor User
     participant Agent as AI Agent (Claude / Antigravity / LLM)
-    participant MCP as Polaris MCP Server (scripts/mcp_polaris_products.py)
+    participant MCP as Polaris MCP Server (mcp/mcp_polaris_products.py)
     participant Polaris as Polaris Backend (Spring Boot)
     participant DB as H2 Database (products table)
 
@@ -32,7 +32,7 @@ sequenceDiagram
 
 ## 2. MCP Server Configuration
 
-The MCP server is located at `scripts/mcp_polaris_products.py`.
+The MCP server is located at `mcp/mcp_polaris_products.py` (backed by the modular `polaris_mcp` package).
 
 ### Claude Desktop / Antigravity / Cursor MCP Configuration
 Add the server to your MCP configuration file (e.g. `claude_desktop_config.json`):
@@ -43,11 +43,13 @@ Add the server to your MCP configuration file (e.g. `claude_desktop_config.json`
     "polaris-products": {
       "command": "python3",
       "args": [
-        "/Users/vung.do/projects/hometask1/src/java/03-Polaris/scripts/mcp_polaris_products.py"
+        "/Users/vung.do/projects/hometask1/src/java/03-Polaris/mcp/mcp_polaris_products.py"
       ],
       "env": {
         "POLARIS_API_URL": "https://polaris.local",
-        "POLARIS_INSECURE_TLS": "true"
+        "POLARIS_INSECURE_TLS": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+        "OTEL_SERVICE_NAME": "polaris-mcp-server"
       }
     }
   }
@@ -99,15 +101,15 @@ You are the Polaris Product Discovery Assistant. Your mission is to help users f
 
 ## 5. Local CLI Testing
 
-Developers can test the integration directly using the CLI flags on [`scripts/mcp_polaris_products.py`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/scripts/mcp_polaris_products.py):
+Developers can test the integration directly using the CLI flags on [`mcp/mcp_polaris_products.py`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/mcp/mcp_polaris_products.py):
 
 ```bash
 # Test searching for available earbuds
-python3 scripts/mcp_polaris_products.py --test-search "earbuds"
+python3 mcp/mcp_polaris_products.py --test-search "earbuds"
 
 # Test searching for accessories in stock
-python3 scripts/mcp_polaris_products.py --test-search "charger" --category "Accessories"
+python3 mcp/mcp_polaris_products.py --test-search "charger" --category "Accessories"
 
 # Test lookup by SKU
-python3 scripts/mcp_polaris_products.py --test-sku "NG-WATCH-01"
+python3 mcp/mcp_polaris_products.py --test-sku "NG-WATCH-01"
 ```
