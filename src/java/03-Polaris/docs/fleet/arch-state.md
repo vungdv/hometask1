@@ -7,8 +7,9 @@
 
 - **Active Contracts:**
   - `Catalog Context`: v1 (OpenAPI spec in `OpenApiConfig.java` / `ProductController.java`)
-  - `Order Context`: v1 (REST endpoints in `OrderController.java`)
+  - `Order Context`: v1 (OpenAPI spec in `OrderController.java`, DTO contracts in `vn.danang.polaris.dto`)
   - `MCP Gateway Context`: v1 (Tools in `mcp/polaris_mcp/tools/`)
 
 - **Open Slice Work Orders:**
-  - *None currently open. Ready for dispatch.*
+  - [WO-001] Order Context API Contract Hardening & Test Suite -> Assigned: domain-dev-agent | Status: Verified
+  - [WO-002] External API Performance & Contract Test Suite (k6) -> Assigned: domain-dev-agent | Status: Verified

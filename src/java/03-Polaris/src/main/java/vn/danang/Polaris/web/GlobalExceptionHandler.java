@@ -25,4 +25,12 @@ public class GlobalExceptionHandler {
         problem.setType(URI.create("https://polaris.local/errors/bad-request"));
         return problem;
     }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ProblemDetail handleIllegalStateException(IllegalStateException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Order State Conflict");
+        problem.setType(URI.create("https://polaris.local/errors/conflict"));
+        return problem;
+    }
 }

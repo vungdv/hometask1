@@ -15,6 +15,7 @@ import vn.danang.polaris.entity.Product;
 import vn.danang.polaris.repository.CustomerRepository;
 import vn.danang.polaris.repository.OrderRepository;
 import vn.danang.polaris.repository.ProductRepository;
+import vn.danang.polaris.web.ResourceNotFoundException;
 
 @Service
 public class OrderService {
@@ -57,7 +58,7 @@ public class OrderService {
     @Transactional
     public Order cancelOrder(String orderNumber) {
         Order order = orderRepo.findByOrderNumber(orderNumber)
-                .orElseThrow(() -> new IllegalArgumentException("Order not found: " + orderNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with order number: " + orderNumber));
 
         if (!order.getStatus().isCancellable()) {
             throw new IllegalStateException(
@@ -70,6 +71,6 @@ public class OrderService {
 
     public Order getOrderStatus(String orderNumber) {
         return orderRepo.findByOrderNumber(orderNumber)
-                .orElseThrow(() -> new IllegalArgumentException("Order not found: " + orderNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with order number: " + orderNumber));
     }
 }
