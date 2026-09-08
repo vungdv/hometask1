@@ -291,8 +291,14 @@ async function handleCliMode(mermaid, args) {
       process.exit(1);
     }
     const hookPath = path.resolve(hooksDir, 'pre-commit');
-    const scriptPath = path.resolve(process.cwd(), 'scripts', 'validate-mermaid.mjs');
-    const hookContent = `#!/bin/sh\nnode "${scriptPath}" --staged\n`;
+    const hookContent = `#!/bin/sh
+GIT_ROOT="$(git rev-parse --show-toplevel)"
+if [ -f "$GIT_ROOT/src/java/03-Polaris/scripts/validate-mermaid.mjs" ]; then
+  node "$GIT_ROOT/src/java/03-Polaris/scripts/validate-mermaid.mjs" --staged
+elif [ -f "$GIT_ROOT/scripts/validate-mermaid.mjs" ]; then
+  node "$GIT_ROOT/scripts/validate-mermaid.mjs" --staged
+fi
+`;
     fs.writeFileSync(hookPath, hookContent, { mode: 0o755 });
     console.log(`Successfully installed Git pre-commit hook at ${hookPath}`);
     return;

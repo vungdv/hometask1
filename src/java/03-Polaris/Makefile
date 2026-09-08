@@ -1,4 +1,4 @@
-.PHONY: pull build up down
+.PHONY: pull build up down validate-docs setup-hooks
 
 pull: 
 	docker compose pull
@@ -14,3 +14,7 @@ gcx:
 	docker exec -it gcx-cli sh
 agy-ls:
 	ls -t ~/.gemini/antigravity-cli/brain | head -n 10
+validate-docs:
+	node scripts/validate-mermaid.mjs --all
+setup-hooks:
+	node scripts/validate-mermaid.mjs --install-git-hook
