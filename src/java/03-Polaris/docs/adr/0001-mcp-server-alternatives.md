@@ -162,8 +162,8 @@ flowchart TB
     OAuthFilter -->|Validate JWT| Keycloak
     OAuthFilter --> MCPEndpoint
     MCPEndpoint --> ToolRegistry
-    ToolRegistry -->|In-Process Method Call <3ms| ProductSvc
-    ToolRegistry -->|In-Process Method Call <3ms| OrderSvc
+    ToolRegistry -->|"In-Process Method Call (<3ms)"| ProductSvc
+    ToolRegistry -->|"In-Process Method Call (<3ms)"| OrderSvc
     ProductSvc --> ProductRepo
     OrderSvc --> OrderRepo
 
@@ -226,7 +226,7 @@ flowchart TB
     end
 
     subgraph Ingress["TLS Ingress"]
-        Nginx["Nginx Reverse Proxy (:443)"]
+        Nginx["Nginx Reverse Proxy (Port 443)"]
     end
 
     subgraph PolarisBackend["Polaris Spring Boot"]
@@ -235,11 +235,11 @@ flowchart TB
         Services["Domain Services"]
     end
 
-    Claude -->|MCP JSON-RPC (STDIO / SSE)| McpCore
+    Claude -->|"MCP JSON-RPC (STDIO / SSE)"| McpCore
     McpCore --> ManualSchemas
     ManualSchemas --> HttpClient
     SidecarAuth --> HttpClient
-    HttpClient -->|HTTP REST Forwarding ~15-30ms| Nginx
+    HttpClient -->|"HTTP REST Forwarding (15-30ms)"| Nginx
     Nginx --> Security
     Security --> RestControllers
     RestControllers --> Services
@@ -295,29 +295,29 @@ flowchart TB
 sequenceDiagram
     autonumber
     actor Agent as AI Assistant (Claude / Orchestrator)
-    participant Nginx as Nginx (:443 / TLS)
+    participant Nginx as Nginx (TLS Port 443)
     participant Sec as Spring Security (OAuth2)
     participant MCP as Polaris MCP Handler (/mcp/sse)
     participant Svc as ProductService (Java In-Process)
     participant DB as H2 Database (JPA)
-    participant OTel as OpenTelemetry Collector (:4318)
+    participant OTel as OpenTelemetry Collector (Port 4318)
 
-    Agent->>Nginx: POST /mcp/message (tools/call: search_available_products) [Bearer JWT, traceparent]
+    Agent->>Nginx: POST /mcp/message [tools/call - search_available_products] (Bearer JWT, traceparent)
     Nginx->>Sec: Forward request with headers
     Sec->>Sec: Validate JWT signature & claims against Keycloak JWKS
     Sec->>MCP: Dispatch authenticated request (SecurityContext populated)
-    Note over MCP: Start Span: "mcp.tool_call search_available_products"
-    MCP->>Svc: searchProducts(query="charger", maxPrice=30, available=true)
-    Note over Svc: Start Child Span: "ProductService.searchProducts"
-    Svc->>DB: Execute JPA Specification Query (stock_qty > 0 AND is_active = true)
-    DB-->>Svc: List<Product> entity results
-    Svc-->>MCP: Page<ProductResponse> (strongly-typed record)
+    Note over MCP: Start Span - mcp.tool_call search_available_products
+    MCP->>Svc: searchProducts(query='charger', maxPrice=30, available=true)
+    Note over Svc: Start Child Span - ProductService.searchProducts
+    Svc->>DB: Execute JPA Specification Query (stock_qty &gt; 0 AND is_active = true)
+    DB-->>Svc: List[Product] entity results
+    Svc-->>MCP: Page[ProductResponse] (strongly-typed record)
     Note over MCP: Format clean LLM summary; End Spans (Status=OK)
     MCP-->>Nginx: 200 OK SSE Event (JSON-RPC Result)
     Nginx-->>Agent: Tool Response with available product details
 
     par Async Telemetry Export
-        MCP-->>OTel: Export contiguous trace: [mcp.tool_call -> service -> db.query]
+        MCP-->>OTel: Export contiguous trace: [mcp.tool_call to service to db.query]
         MCP-->>OTel: Record metrics (mcp_tool_calls_total, mcp_tool_duration_seconds)
     end
 ```
@@ -329,18 +329,18 @@ sequenceDiagram
     autonumber
     actor Desktop as Claude Desktop / Local IDE (STDIO)
     participant Shim as Lightweight CLI Shim (polaris-mcp-cli)
-    participant Polaris as Live Polaris Server (http://localhost:8080)
+    participant Polaris as Live Polaris Server (localhost:8080)
     participant Svc as ProductService (In-Process)
 
-    Note over Desktop,Shim: Claude launches shim via STDIO in <10ms
-    Desktop->>Shim: stdin: {"jsonrpc":"2.0","method":"tools/call",...}
+    Note over Desktop,Shim: Claude launches shim via STDIO in under 10ms
+    Desktop->>Shim: stdin - JSON-RPC tools/call request
     Note over Shim: Translates stdio to HTTP/SSE without launching a JVM
-    Shim->>Polaris: POST /mcp/message (Content-Type: application/json, traceparent)
+    Shim->>Polaris: POST /mcp/message (application/json, traceparent)
     Note over Shim,Polaris: Propagates W3C traceparent context across loopback HTTP hop
-    Polaris->>Svc: productService.searchProducts(...) [<3ms]
-    Svc-->>Polaris: Page<ProductResponse>
+    Polaris->>Svc: productService.searchProducts(...) [under 3ms]
+    Svc-->>Polaris: Page[ProductResponse]
     Polaris-->>Shim: HTTP 200 SSE stream response
-    Shim-->>Desktop: stdout: {"jsonrpc":"2.0","result":{...}}
+    Shim-->>Desktop: stdout - JSON-RPC result payload
     Note over Desktop: Zero JVM cold-start penalty; sub-15ms total turnaround
 ```
 
