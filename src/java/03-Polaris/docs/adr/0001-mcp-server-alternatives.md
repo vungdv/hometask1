@@ -309,10 +309,10 @@ sequenceDiagram
     Note over MCP: Start Span - mcp.tool_call search_available_products
     MCP->>Svc: searchProducts(query='charger', maxPrice=30, available=true)
     Note over Svc: Start Child Span - ProductService.searchProducts
-    Svc->>DB: Execute JPA Specification Query (stock_qty &gt; 0 AND is_active = true)
+    Svc->>DB: Execute JPA Specification Query (stock_qty > 0 AND is_active = true)
     DB-->>Svc: List[Product] entity results
     Svc-->>MCP: Page[ProductResponse] (strongly-typed record)
-    Note over MCP: Format clean LLM summary; End Spans (Status=OK)
+    Note over MCP: Format clean LLM summary, End Spans (Status=OK)
     MCP-->>Nginx: 200 OK SSE Event (JSON-RPC Result)
     Nginx-->>Agent: Tool Response with available product details
 
@@ -341,7 +341,7 @@ sequenceDiagram
     Svc-->>Polaris: Page[ProductResponse]
     Polaris-->>Shim: HTTP 200 SSE stream response
     Shim-->>Desktop: stdout - JSON-RPC result payload
-    Note over Desktop: Zero JVM cold-start penalty; sub-15ms total turnaround
+    Note over Desktop: Zero JVM cold-start penalty, sub-15ms total turnaround
 ```
 
 ## Decision Outcome
