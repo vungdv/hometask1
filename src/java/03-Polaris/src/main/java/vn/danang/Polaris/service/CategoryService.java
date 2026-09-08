@@ -1,0 +1,106 @@
+package vn.danang.polaris.service;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import vn.danang.polaris.dto.CategoryResponse;
+import vn.danang.polaris.dto.ProductResponse;
+import vn.danang.polaris.entity.Category;
+import vn.danang.polaris.entity.Product;
+import vn.danang.polaris.repository.CategoryRepository;
+import vn.danang.polaris.repository.ProductRepository;
+import vn.danang.polaris.repository.ProductSpecifications;
+import vn.danang.polaris.web.ResourceNotFoundException;
+
+@Service
+@Transactional(readOnly = true)
+public class CategoryService {
+
+    private final CategoryRepository categoryRepository;
+    private final ProductRepository productRepository;
+
+    public CategoryService(CategoryRepository categoryRepository, ProductRepository productRepository) {
+        this.categoryRepository = categoryRepository;
+        this.productRepository = productRepository;
+    }
+
+    public List<CategoryResponse> getCategories(boolean rootOnly) {
+        Map<Long, Long> countsMap = getProductCountsMap();
+
+        if (rootOnly) {
+            List<Category> rootCategories = categoryRepository.findByParentIsNullAndIsActiveTrueOrderByDisplayOrderAsc();
+            return rootCategories.stream()
+                    .map(cat -> mapToResponse(cat, countsMap))
+                    .toList();
+        }
+
+        List<Category> allCategories = categoryRepository.findByIsActiveTrueOrderByIdAsc();
+        return allCategories.stream()
+                .map(cat -> mapToResponse(cat, countsMap))
+                .toList();
+    }
+
+    public CategoryResponse getCategoryById(Long id) {
+        Category category = categoryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + id));
+
+        Map<Long, Long> countsMap = getProductCountsMap();
+        return mapToResponse(category, countsMap);
+    }
+
+    public CategoryResponse getCategoryByCode(String code) {
+        Category category = categoryRepository.findByCodeIgnoreCase(code)
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found with code: " + code));
+
+        Map<Long, Long> countsMap = getProductCountsMap();
+        return mapToResponse(category, countsMap);
+    }
+
+    public Page<ProductResponse> getCategoryProducts(Long categoryId, Pageable pageable) {
+        if (!categoryRepository.existsById(categoryId)) {
+            throw new ResourceNotFoundException("Category not found with id: " + categoryId);
+        }
+
+        Specification<Product> spec = ProductSpecifications.hasCategoryId(categoryId);
+        return productRepository.findAll(spec, pageable)
+                .map(ProductResponse::from);
+    }
+
+    private Map<Long, Long> getProductCountsMap() {
+        List<Object[]> results = productRepository.countProductsGroupedByCategoryId();
+        return results.stream()
+                .collect(Collectors.toMap(
+                        row -> (Long) row[0],
+                        row -> ((Number) row[1]).longValue(),
+                        (existing, replacement) -> existing
+                ));
+    }
+
+    private CategoryResponse mapToResponse(Category category, Map<Long, Long> countsMap) {
+        List<Category> activeChildren = category.getSubcategories() != null
+                ? category.getSubcategories().stream()
+                        .filter(c -> Boolean.TRUE.equals(c.getIsActive()))
+                        .toList()
+                : Collections.emptyList();
+
+        long directCount = countsMap.getOrDefault(category.getId(), 0L);
+        long childrenCount = activeChildren.stream()
+                .mapToLong(c -> countsMap.getOrDefault(c.getId(), 0L))
+                .sum();
+        long totalCount = directCount + childrenCount;
+
+        List<CategoryResponse> childResponses = activeChildren.stream()
+                .map(c -> CategoryResponse.from(c, countsMap.getOrDefault(c.getId(), 0L), Collections.emptyList()))
+                .toList();
+
+        return CategoryResponse.from(category, totalCount, childResponses);
+    }
+}

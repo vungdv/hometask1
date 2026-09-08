@@ -56,7 +56,7 @@ public class ProductControllerTest {
         );
 
         Page<ProductResponse> page = new PageImpl<>(List.of(sample), PageRequest.of(0, 20), 1);
-        when(productService.searchProducts(eq("wireless"), eq("Audio"), any(), any(), eq(true), any(Pageable.class)))
+        when(productService.searchProducts(eq("wireless"), eq("Audio"), eq(null), any(), any(), eq(true), any(Pageable.class)))
                 .thenReturn(page);
 
         mockMvc.perform(get("/api/v1/products")
@@ -74,6 +74,36 @@ public class ProductControllerTest {
                 .andExpect(jsonPath("$.content[0].stockQuantity").value(120))
                 .andExpect(jsonPath("$.content[0].isAvailable").value(true))
                 .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    void searchProducts_withCategoryId_shouldFilterByCategoryId() throws Exception {
+        ProductResponse sample = new ProductResponse(
+                1L,
+                "NG-EARBUD-01",
+                "Nova Wireless Earbuds",
+                "High-fidelity wireless earbuds",
+                "Audio & Sound",
+                new BigDecimal("49.90"),
+                120,
+                true,
+                true,
+                Instant.now(),
+                2L,
+                "audio"
+        );
+
+        Page<ProductResponse> page = new PageImpl<>(List.of(sample), PageRequest.of(0, 20), 1);
+        when(productService.searchProducts(any(), any(), eq(2L), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/v1/products")
+                        .param("categoryId", "2")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].categoryId").value(2))
+                .andExpect(jsonPath("$.content[0].categoryCode").value("audio"));
     }
 
     @Test

@@ -30,12 +30,14 @@ public class ProductController {
     }
 
     @GetMapping
-    @Operation(summary = "Search products", description = "Search and filter products by query keyword, category, price range, and stock availability.")
+    @Operation(summary = "Search products", description = "Search and filter products by query keyword, category, category ID, price range, and stock availability.")
     public Page<ProductResponse> search(
             @Parameter(description = "Keyword to match against product name, SKU, or description")
             @RequestParam(required = false) String query,
-            @Parameter(description = "Category filter (e.g., Audio, Wearables, Accessories)")
+            @Parameter(description = "Category filter by code or name (e.g., Audio, Wearables, Accessories)")
             @RequestParam(required = false) String category,
+            @Parameter(description = "Category ID filter (matches products in category or its subcategories)")
+            @RequestParam(required = false) Long categoryId,
             @Parameter(description = "Minimum unit price")
             @RequestParam(required = false) BigDecimal minPrice,
             @Parameter(description = "Maximum unit price")
@@ -44,7 +46,7 @@ public class ProductController {
             @RequestParam(required = false) Boolean available,
             @PageableDefault(page = 0, size = 20, sort = "id", direction = Sort.Direction.ASC) Pageable pageable) {
 
-        return productService.searchProducts(query, category, minPrice, maxPrice, available, pageable);
+        return productService.searchProducts(query, category, categoryId, minPrice, maxPrice, available, pageable);
     }
 
     @GetMapping("/{id}")

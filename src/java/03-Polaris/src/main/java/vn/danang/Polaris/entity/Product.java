@@ -8,6 +8,9 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -21,7 +24,27 @@ public class Product {
     private String name;
     private String description;
     private String category;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id")
+    private Category categoryEntity;
+
     private BigDecimal price;
     private Integer stockQty;
     private Boolean isActive = true;
+
+    public String getCategory() {
+        if (categoryEntity != null && categoryEntity.getName() != null) {
+            return categoryEntity.getName();
+        }
+        return this.category;
+    }
+
+    public Long getCategoryId() {
+        return categoryEntity != null ? categoryEntity.getId() : null;
+    }
+
+    public String getCategoryCode() {
+        return categoryEntity != null ? categoryEntity.getCode() : null;
+    }
 }

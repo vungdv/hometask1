@@ -11,9 +11,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
 
+import org.springframework.transaction.annotation.Transactional;
+
 import vn.danang.polaris.entity.Product;
 
 @SpringBootTest
+@Transactional
 public class ProductRepositoryTest {
 
     @Autowired
@@ -56,6 +59,51 @@ public class ProductRepositoryTest {
 
         assertThat(results).hasSize(1);
         assertThat(results.get(0).getSku()).isEqualTo("NG-CHARGER-01");
+    }
+
+    @Autowired
+    private CategoryRepository categoryRepository;
+
+    @Test
+    void searchByCategory_byCodeOrName_shouldMatch() {
+        Specification<Product> byCodeSpec = Specification
+                .where(ProductSpecifications.hasCategory("audio"));
+        List<Product> audioByCode = productRepository.findAll(byCodeSpec);
+        assertThat(audioByCode).isNotEmpty();
+        assertThat(audioByCode).allMatch(p -> "audio".equals(p.getCategoryCode()));
+
+        Specification<Product> byNameSpec = Specification
+                .where(ProductSpecifications.hasCategory("Audio & Sound"));
+        List<Product> audioByName = productRepository.findAll(byNameSpec);
+        assertThat(audioByName).hasSameElementsAs(audioByCode);
+
+        // Parent category matching
+        Specification<Product> byParentSpec = Specification
+                .where(ProductSpecifications.hasCategory("electronics"));
+        List<Product> electronicsProducts = productRepository.findAll(byParentSpec);
+        assertThat(electronicsProducts).isNotEmpty();
+        assertThat(electronicsProducts).extracting(p -> p.getCategoryEntity().getParent().getCode())
+                .containsOnly("electronics");
+    }
+
+    @Test
+    void searchByCategoryId_shouldMatchCategoryAndSubcategories() {
+        var electronics = categoryRepository.findByCode("electronics").orElseThrow();
+        Specification<Product> rootSpec = Specification
+                .where(ProductSpecifications.hasCategoryId(electronics.getId()));
+
+        List<Product> rootProducts = productRepository.findAll(rootSpec);
+        assertThat(rootProducts).isNotEmpty();
+        assertThat(rootProducts).allMatch(p -> electronics.getId().equals(p.getCategoryEntity().getParent().getId()));
+
+        var audio = categoryRepository.findByCode("audio").orElseThrow();
+        Specification<Product> childSpec = Specification
+                .where(ProductSpecifications.hasCategoryId(audio.getId()));
+
+        List<Product> childProducts = productRepository.findAll(childSpec);
+        assertThat(childProducts).hasSize(3);
+        assertThat(childProducts).extracting(Product::getSku)
+                .containsExactlyInAnyOrder("NG-EARBUD-01", "NG-SPEAKER-01", "NG-HEADPHONE-01");
     }
 
     @Test

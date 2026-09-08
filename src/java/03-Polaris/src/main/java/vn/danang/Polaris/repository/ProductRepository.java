@@ -1,13 +1,22 @@
 package vn.danang.polaris.repository;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import vn.danang.polaris.entity.Product;
 
 public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
     Optional<Product> findBySku(String sku);
     Optional<Product> findBySkuIgnoreCase(String sku);
+
+    @Query("SELECT p.categoryEntity.id, COUNT(p) FROM Product p WHERE p.categoryEntity IS NOT NULL GROUP BY p.categoryEntity.id")
+    List<Object[]> countProductsGroupedByCategoryId();
+
+    @Query("SELECT COUNT(p) FROM Product p WHERE p.categoryEntity.id = :categoryId OR p.categoryEntity.parent.id = :categoryId")
+    long countByCategoryIdOrParentCategoryId(@Param("categoryId") Long categoryId);
 }

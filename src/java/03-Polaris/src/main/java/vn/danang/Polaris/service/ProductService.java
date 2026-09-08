@@ -31,10 +31,22 @@ public class ProductService {
             BigDecimal maxPrice,
             Boolean available,
             Pageable pageable) {
+        return searchProducts(query, category, null, minPrice, maxPrice, available, pageable);
+    }
+
+    public Page<ProductResponse> searchProducts(
+            String query,
+            String category,
+            Long categoryId,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            Boolean available,
+            Pageable pageable) {
 
         Specification<Product> spec = Specification
                 .where(ProductSpecifications.hasKeyword(query))
                 .and(ProductSpecifications.hasCategory(category))
+                .and(ProductSpecifications.hasCategoryId(categoryId))
                 .and(ProductSpecifications.minPrice(minPrice))
                 .and(ProductSpecifications.maxPrice(maxPrice))
                 .and(ProductSpecifications.isAvailable(available));

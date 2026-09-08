@@ -2,8 +2,11 @@ package vn.danang.polaris.repository;
 
 import java.math.BigDecimal;
 
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
 import org.springframework.data.jpa.domain.Specification;
 
+import vn.danang.polaris.entity.Category;
 import vn.danang.polaris.entity.Product;
 
 public final class ProductSpecifications {
@@ -29,7 +32,32 @@ public final class ProductSpecifications {
             if (category == null || category.isBlank()) {
                 return cb.conjunction();
             }
-            return cb.equal(cb.lower(root.get("category")), category.trim().toLowerCase());
+            String target = category.trim().toLowerCase();
+            Join<Product, Category> categoryJoin = root.join("categoryEntity", JoinType.LEFT);
+            Join<Category, Category> parentJoin = categoryJoin.join("parent", JoinType.LEFT);
+
+            return cb.or(
+                cb.equal(cb.lower(root.get("category")), target),
+                cb.equal(cb.lower(categoryJoin.get("code")), target),
+                cb.equal(cb.lower(categoryJoin.get("name")), target),
+                cb.equal(cb.lower(parentJoin.get("code")), target),
+                cb.equal(cb.lower(parentJoin.get("name")), target)
+            );
+        };
+    }
+
+    public static Specification<Product> hasCategoryId(Long categoryId) {
+        return (root, cq, cb) -> {
+            if (categoryId == null) {
+                return cb.conjunction();
+            }
+            Join<Product, Category> categoryJoin = root.join("categoryEntity", JoinType.LEFT);
+            Join<Category, Category> parentJoin = categoryJoin.join("parent", JoinType.LEFT);
+
+            return cb.or(
+                cb.equal(categoryJoin.get("id"), categoryId),
+                cb.equal(parentJoin.get("id"), categoryId)
+            );
         };
     }
 
