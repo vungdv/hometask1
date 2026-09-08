@@ -8,9 +8,17 @@ Polaris includes a production-grade local telemetry stack adhering to OpenTeleme
 
 ```mermaid
 flowchart LR
+    subgraph Browser["User Agent"]
+        User["Browser / Client"]
+    end
+
+    subgraph Security["Identity & Access"]
+        Keycloak["Keycloak<br/>(https://id.polaris.local)"]
+        Nginx["Nginx TLS Proxy<br/>(:443)"]
+    end
+
     subgraph Apps["Applications"]
         Polaris["Polaris Backend<br/>(Spring Boot)"]
-        Keycloak["Keycloak<br/>(OAuth2 / OIDC)"]
     end
 
     subgraph Collector["Telemetry Collection"]
@@ -28,6 +36,12 @@ flowchart LR
         GCX["GCX CLI<br/>(Grafana CLI)"]
     end
 
+    User -->|1. Auth Redirect| Keycloak
+    Keycloak -->|2. Auth Code| User
+    User -->|3. Callback :3000| Grafana
+    Grafana -->|4. Back-channel Token Exchange| Nginx
+    Nginx -->|Proxy :8080| Keycloak
+
     Polaris -->|OTLP Traces, Metrics, Logs :4318| OTel
     Keycloak -->|OTLP Traces :4317| OTel
     OTel -->|Traces| Tempo
@@ -37,7 +51,7 @@ flowchart LR
     Grafana -->|Query| Tempo
     Grafana -->|Query| Loki
     Grafana -->|Query| Prometheus
-    GCX -->|API| Grafana
+    GCX -->|API Basic Auth| Grafana
 ```
 
 ---
@@ -69,9 +83,16 @@ flowchart LR
   docker compose exec logseeding python logseeding.py --url http://loki:3100 --stream --interval 1.0
   ```
 
-### 4. Grafana & GCX CLI
-- **Grafana Web Dashboard**: Accessible at [http://localhost:3000](http://localhost:3000) (Credentials: `admin` / `admin`).
+### 4. Grafana SSO & Observability Visualization
+- **Grafana Web Dashboard**: Accessible at [http://localhost:3000](http://localhost:3000).
   - Pre-provisioned datasources: Prometheus (default), Loki, and Tempo.
+- **Keycloak SSO Authentication (OIDC / OAuth2 Generic)**:
+  - **Protocol & Standard**: Standard OpenID Connect 1.0 Authorization Code Flow adhering to AGENTS.md Principle 1.
+  - **Client ID**: `grafana` (Confidential client).
+  - **Front-Channel Flow**: Browser initiates login, redirects to Keycloak at `https://id.polaris.local/realms/polaris/protocol/openid-connect/auth`, and returns with authorization code to `http://localhost:3000/login/generic_oauth`.
+  - **Back-Channel Token Exchange & TLS Trust**: The Grafana container connects back-channel to Keycloak's token and userinfo endpoints via Nginx (`https://id.polaris.local`). TLS verification is strictly enforced using `./nginx/rootCA.pem` mounted to `/etc/grafana/certs/rootCA.pem` and configured via `GF_AUTH_GENERIC_OAUTH_TLS_CLIENT_CA`.
+  - **Role-Based Access Control (RBAC)**: Maps Keycloak client roles (`admin`, `editor`, `viewer`) and realm roles to Grafana organization roles (`Admin`, `Editor`, `Viewer`) via JMESPath expression. Users with the `admin` role can be granted Grafana server admin access (`GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN=true`).
+  - **Dual Authentication**: Grafana retains standard username/password login (`admin`/`admin`) alongside Keycloak SSO, ensuring automated tooling (`gcx-cli`) and emergency access continue seamlessly without disruption.
 - **Grafana CLI (GCX)**: A pre-authenticated command-line container for interacting with Grafana:
   ```bash
   # Check CLI help
@@ -88,12 +109,12 @@ flowchart LR
 
 ## Infrastructure Catalog
 
-| Service | Container Name | Image / Source | Host Port / URL | Credentials | Purpose |
+| Service | Container Name | Image / Source | Host Port / URL | Credentials / Auth | Purpose |
 |---|---|---|---|---|---|
 | **otel-collector** | `otel-collector` | `otel/opentelemetry-collector-contrib` | `4317` (gRPC), `4318` (HTTP), `8889` (metrics) | - | Central telemetry ingestion and routing |
 | **prometheus** | `prometheus` | `prom/prometheus:latest` | `http://localhost:9090` | - | Time-series metrics storage and engine |
 | **tempo** | `tempo` | `grafana/tempo:latest` | `http://localhost:3200`, `4319` | - | Distributed tracing backend |
 | **loki** | `loki` | `grafana/loki:3.1.0` | `http://localhost:3100` | - | High-efficiency log aggregation |
-| **grafana** | `grafana` | `grafana/grafana:latest` | `http://localhost:3000` | `admin` / `admin` | Unified visualization dashboard |
+| **grafana** | `grafana` | `grafana/grafana:latest` | `http://localhost:3000` | Keycloak SSO (OIDC) / `admin:admin` | Unified visualization dashboard |
 | **logseeding** | `logseeding` | `python:3.11-slim` | Internal only | - | Synthetic log stream generator |
-| **gcx-cli** | `gcx-cli` | `debian:bookworm-slim` | CLI (`make gcx` / `./gcx.sh`) | Pre-authenticated | Grafana automation CLI |
+| **gcx-cli** | `gcx-cli` | `debian:bookworm-slim` | CLI (`make gcx` / `./gcx.sh`) | Pre-authenticated Basic Auth | Grafana automation CLI |

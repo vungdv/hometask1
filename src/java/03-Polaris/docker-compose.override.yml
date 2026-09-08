@@ -97,6 +97,25 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./telemetry/grafana/provisioning:/etc/grafana/provisioning
+      - ./nginx/rootCA.pem:/etc/grafana/certs/rootCA.pem:ro
+
+    environment:
+      - GF_SERVER_ROOT_URL=http://localhost:3000/
+      - GF_AUTH_GENERIC_OAUTH_ENABLED=true
+      - GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
+      - GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_ID=grafana
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=grafana-client-secret
+      - GF_AUTH_GENERIC_OAUTH_SCOPES=openid email profile roles
+      - GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://id.polaris.local/realms/polaris/protocol/openid-connect/auth
+      - GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://id.polaris.local/realms/polaris/protocol/openid-connect/token
+      - GF_AUTH_GENERIC_OAUTH_API_URL=https://id.polaris.local/realms/polaris/protocol/openid-connect/userinfo
+      - GF_AUTH_GENERIC_OAUTH_TLS_CLIENT_CA=/etc/grafana/certs/rootCA.pem
+      - GF_AUTH_GENERIC_OAUTH_TLS_SKIP_VERIFY_INSECURE=false
+      - GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains(resource_access.grafana.roles[*], 'admin') && 'Admin' || contains(realm_access.roles[*], 'admin') && 'Admin' || contains(resource_access.grafana.roles[*], 'editor') && 'Editor' || contains(realm_access.roles[*], 'editor') && 'Editor' || contains(resource_access.grafana.roles[*], 'viewer') && 'Viewer' || contains(realm_access.roles[*], 'viewer') && 'Viewer' || 'Viewer'
+      - GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN=true
+      - GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN=false
+      - GF_AUTH_DISABLE_LOGIN_FORM=false
   gcx-cli:
     image: debian:bookworm-slim
     container_name: gcx-cli

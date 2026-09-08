@@ -4,6 +4,16 @@ description: Polaris Vertical Slice Developer. Implements bounded context slices
 subagent: true
 primary: false
 model: inherit
+tools:
+  - view_file
+  - replace_file_content
+  - write_to_file
+  - run_command
+  - grep_search
+  - find_by_name
+  - list_dir
+  - send_message
+  - manage_task
 ---
 
 # Role: Polaris Vertical Slice Developer

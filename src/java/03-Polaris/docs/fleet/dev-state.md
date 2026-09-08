@@ -1,13 +1,13 @@
 # Developer State
 
-- **Active Domain:** Order / Tests
-- **Active Work Order:** [WO-001] Order Context API Contract Hardening & Test Suite, [WO-002] External API Performance & Contract Test Suite (k6)
+- **Active Domain:** Gateway / Observability & Keycloak Cross-Cutting
+- **Active Work Order:** [WO-003] Grafana SSO Integration with Keycloak (OIDC/RBAC & TLS Trust)
 - **Seam Progress:**
-  - [x] Flyway Migration (`V{N}__*.sql`) - Schema existing (V1-V3)
-  - [x] Entity & Repository - Order, OrderItem, Customer, Product entities & repos
-  - [x] Domain Service & Invariants - OrderService throws ResourceNotFoundException on missing orders & IllegalStateException on invalid cancellations
-  - [x] REST Controller & RFC 7807 Exception Mapping - OrderController returning ResponseEntity<OrderResponse>, GlobalExceptionHandler handling 404, 400, 409
-  - [x] Automated Tests (Green) - 22/22 unit & integration tests passing; k6 performance & contract script configured
-- **Blockers / Next Step:** None. All tasks completed and verified green.
+  - [x] Flyway Migration (`V{N}__*.sql`) - N/A (Realm & Compose config only)
+  - [x] Keycloak Configuration (`keycloak/realm-export.json` & running instance)
+  - [x] Grafana Compose Configuration (`docker-compose.override.yml`)
+  - [x] Container Deployment & Backchannel TLS Verification
+  - [x] Automated / End-to-End Verification (Green)
+- **Blockers / Next Step:** None. All WO-003 acceptance criteria verified and passing.
 
 

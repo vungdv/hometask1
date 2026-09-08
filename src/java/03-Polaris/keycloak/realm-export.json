@@ -61,8 +61,59 @@
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "+"
       }
+    },
+    {
+      "clientId": "grafana",
+      "name": "Grafana Observability",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "grafana-client-secret",
+      "redirectUris": [
+        "http://localhost:3000/login/generic_oauth",
+        "http://127.0.0.1:3000/login/generic_oauth"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+      ],
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:3000/login"
+      }
     }
   ],
+  "roles": {
+    "realm": [
+      {
+        "name": "admin"
+      },
+      {
+        "name": "editor"
+      },
+      {
+        "name": "viewer"
+      }
+    ],
+    "client": {
+      "grafana": [
+        {
+          "name": "admin",
+          "clientRole": true
+        },
+        {
+          "name": "editor",
+          "clientRole": true
+        },
+        {
+          "name": "viewer",
+          "clientRole": true
+        }
+      ]
+    }
+  },
   "users": [
     {
       "username": "testuser",
@@ -78,9 +129,19 @@
           "temporary": false
         }
       ],
-      "realmRoles": ["offline_access", "uma_authorization"],
+      "realmRoles": [
+        "offline_access",
+        "uma_authorization",
+        "admin"
+      ],
       "clientRoles": {
-        "account": ["view-profile", "manage-account"]
+        "account": [
+          "view-profile",
+          "manage-account"
+        ],
+        "grafana": [
+          "admin"
+        ]
       }
     }
   ]
