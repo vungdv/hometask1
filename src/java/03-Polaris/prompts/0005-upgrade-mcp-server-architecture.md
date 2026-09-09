@@ -1,0 +1,1 @@
+@[.agents/agents/arch-agent.md] coordiate to implement new architecture for MCP Server based on @[docs/adr/0001-mcp-server-alternatives.md]
