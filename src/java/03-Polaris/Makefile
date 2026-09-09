@@ -5,7 +5,7 @@ pull:
 build:
 	docker compose build
 up:
-	docker compose up -d
+	docker compose up -d --build
 down: 
 	docker compose down --volumes --remove-orphans
 restart-%:
@@ -18,3 +18,5 @@ validate-docs:
 	node scripts/validate-mermaid.mjs --all
 setup-hooks:
 	node scripts/validate-mermaid.mjs --install-git-hook
+polaris-sql:
+	docker compose exec polaris-db psql -U polaris -d polaris

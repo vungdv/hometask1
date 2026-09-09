@@ -1,8 +1,8 @@
 # Architecture State
 
 - **Active Domains:**
-  - `Catalog`: Product catalog exploration and availability search (`/api/v1/products`, JPA Specification, H2 DB).
-  - `Order`: Order placement, status tracking, cancellation state machine (`/api/v1/orders`, H2 DB).
+  - `Catalog`: Product catalog exploration and availability search (`/api/v1/products`, JPA Specification, PostgreSQL / H2 DB).
+  - `Order`: Order placement, status tracking, cancellation state machine (`/api/v1/orders`, PostgreSQL / H2 DB).
   - `Gateway`: MCP JSON-RPC service (`mcp/polaris_mcp`), Keycloak OAuth2/OIDC integration.
 
 - **Active Contracts:**
@@ -12,6 +12,7 @@
 - **Architecture Decision Records:**
   - [ADR-0001: Architectural Alternatives for Exposing Polaris Services via Model Context Protocol (MCP)](../adr/0001-mcp-server-alternatives.md)
   - [ADR-0002: Architectural Strategies for Pagination & Sort Validation: Boundary Placement and Single Responsibility](../adr/0002-pagination-sort-validation-architecture.md)
+  - [ADR-0003: Architectural Strategy for Polaris Persistence: Transition from Embedded H2 to Dedicated PostgreSQL Container Database](../adr/0003-postgresql-container-persistence.md)
 
 - **Open Slice Work Orders:**
   - [WO-001] Order Context API Contract Hardening & Test Suite -> Assigned: domain-dev-agent | Status: Verified
@@ -23,6 +24,8 @@
   - [WO-007] Upgrade Java MCP SDK to v2.0.1 GA -> Assigned: domain-dev-agent | Status: Verified
   - [WO-008] Enforce OAuth2 Authentication on MCP Gateway Endpoints & Fix Security Bypass -> Assigned: domain-dev-agent | Status: Verified
   - [WO-009] Comprehensive Order Lifecycle API & AI Shop Agent MCP Suite -> Assigned: domain-dev-agent | Status: Verified
+  - [WO-010] Transition Polaris Persistence from H2 to PostgreSQL Container Database -> Assigned: domain-dev-agent | Status: Verified
+
 
 
   

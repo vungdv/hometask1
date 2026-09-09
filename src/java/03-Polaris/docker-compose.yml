@@ -30,10 +30,10 @@ services:
       # Access Keycloak through its canonical public issuer URL.
       # Internally, id.polaris.local resolves to the nginx container.
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://id.${POLARIS_DOMAIN}/realms/polaris 
-      SPRING_DATASOURCE_URL: jdbc:h2:file:/app/data/polaris
-      SPRING_DATASOURCE_DRIVER-CLASS-NAME: org.h2.Driver
-      SPRING_DATASOURCE_USERNAME: sa
-      SPRING_DATASOURCE_PASSWORD: ""
+      SPRING_DATASOURCE_URL: jdbc:postgresql://polaris-db:5432/polaris
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_USERNAME: polaris
+      SPRING_DATASOURCE_PASSWORD: polaris
       SPRINGDOC_SWAGGER-UI_OAUTH_CLIENT-ID: "polaris-app"
       SPRINGDOC_SWAGGER-UI_OAUTH_USE-PKCE-WITH-AUTHORIZATION-CODE-GRANT: "true"
       JAVA_TOOL_OPTIONS: "-Djavax.net.ssl.trustStore=/certs/truststore.jks"
@@ -51,8 +51,27 @@ services:
         condition: service_healthy
       otel-collector:
         condition: service_started
+      polaris-db:
+        condition: service_healthy
     networks:
       - polaris-net
+  polaris-db:
+    image: postgres:16
+    container_name: polaris-postgres
+    environment:
+      POSTGRES_DB: polaris
+      POSTGRES_USER: polaris
+      POSTGRES_PASSWORD: polaris
+    volumes:
+      - polaris_db_data:/var/lib/postgresql/data
+    networks:
+      - polaris-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polaris -d polaris"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   postgres:
     image: postgres:16
     container_name: keycloak-postgres
@@ -102,3 +121,4 @@ services:
 
 volumes:
   keycloak_db_data:
+  polaris_db_data:
