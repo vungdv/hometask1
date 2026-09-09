@@ -16,4 +16,5 @@
   - [WO-002] External API Performance & Contract Test Suite (k6) -> Assigned: domain-dev-agent | Status: Verified
   - [WO-003] Grafana SSO Integration with Keycloak (OIDC/RBAC & TLS Trust) -> Assigned: domain-dev-agent | Status: Verified
   - [WO-004] Product Catalog Hierarchy & Taxonomy Domain Slice -> Assigned: domain-dev-agent | Status: Verified
+  - [WO-005] Catalog Pagination & Sort Contract Hardening with Actionable RFC 7807 Error Feedback -> Assigned: domain-dev-agent | Status: Verified
   

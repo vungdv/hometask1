@@ -184,4 +184,15 @@ public class CategoryControllerTest {
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.detail").value("Category not found with id: 999"));
     }
+
+    @Test
+    void getCategoryProducts_invalidSortProperty_shouldReturn400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/v1/categories/2/products")
+                        .param("sort", "string")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid Sort Property"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/invalid-sort"));
+    }
 }

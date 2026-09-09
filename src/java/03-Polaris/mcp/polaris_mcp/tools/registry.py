@@ -55,6 +55,28 @@ TOOLS: List[Dict[str, Any]] = [
                     "description": "True to only return items with stockQty > 0 (default: true)",
                     "default": True,
                 },
+                "page": {
+                    "type": "integer",
+                    "description": "Zero-based page index (must be between 0 and 10000, default: 0)",
+                    "default": 0,
+                    "minimum": 0,
+                    "maximum": 10000,
+                },
+                "size": {
+                    "type": "integer",
+                    "description": "Number of items per page (must be between 1 and 100, default: 20)",
+                    "default": 20,
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+                "sort": {
+                    "type": "string",
+                    "description": (
+                        "Sorting criteria in format 'property,direction' (e.g., 'price,asc', 'price,desc', 'name,asc'). "
+                        "Allowed properties: id, sku, name, category, price, stockQuantity, active, createdAt."
+                    ),
+                    "default": "id,asc",
+                },
             },
         },
     },
@@ -92,6 +114,9 @@ def execute_tool(name: str, args: Dict[str, Any]) -> str:
                     min_price=args.get("min_price"),
                     max_price=args.get("max_price"),
                     available_only=args.get("available_only", True),
+                    page=args.get("page"),
+                    size=args.get("size"),
+                    sort=args.get("sort"),
                 )
             elif name == "get_product_by_sku":
                 res = tool_get_product_by_sku(args.get("sku", ""))

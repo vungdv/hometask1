@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import vn.danang.polaris.dto.CategoryResponse;
 import vn.danang.polaris.dto.ProductResponse;
@@ -56,10 +58,17 @@ public class CategoryController {
 
     @GetMapping("/{id}/products")
     @Operation(summary = "Get products under category", description = "Retrieve products under the given category (and its direct subcategories), paged.")
+    @Parameters({
+        @Parameter(name = "page", description = "Zero-based page index (0..10000)", schema = @Schema(type = "integer", defaultValue = "0", minimum = "0", maximum = "10000")),
+        @Parameter(name = "size", description = "The size of the page to be returned (1..100)", schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100")),
+        @Parameter(name = "sort", description = "Sorting criteria in the format: property(,asc|desc). Allowed properties: [id, sku, name, category, price, stockQuantity, stockQty, active, createdAt]", example = "id,asc", schema = @Schema(type = "string", defaultValue = "id,asc"))
+    })
     public Page<ProductResponse> getCategoryProducts(
             @Parameter(description = "Category database ID")
             @PathVariable Long id,
+            @Parameter(hidden = true)
             @PageableDefault(page = 0, size = 20, sort = "id", direction = Sort.Direction.ASC) Pageable pageable) {
-        return categoryService.getCategoryProducts(id, pageable);
+        Pageable sanitized = PageableValidator.validateAndSanitize(pageable);
+        return categoryService.getCategoryProducts(id, sanitized);
     }
 }

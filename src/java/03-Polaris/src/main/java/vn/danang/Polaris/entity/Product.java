@@ -2,6 +2,7 @@
 package vn.danang.polaris.entity;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -32,6 +33,7 @@ public class Product {
     private BigDecimal price;
     private Integer stockQty;
     private Boolean isActive = true;
+    private Instant createdAt;
 
     public String getCategory() {
         if (categoryEntity != null && categoryEntity.getName() != null) {

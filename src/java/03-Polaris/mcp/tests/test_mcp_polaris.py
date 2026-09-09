@@ -180,6 +180,63 @@ class TestJSONRPCProtocol(unittest.TestCase):
         res = handle_json_rpc(req)
         self.assertEqual(res["error"]["code"], -32601)
 
+    def test_search_tool_schema_has_pagination_and_sort(self):
+        search_tool = next(t for t in TOOLS if t["name"] == "search_available_products")
+        props = search_tool["inputSchema"]["properties"]
+        self.assertIn("page", props)
+        self.assertIn("size", props)
+        self.assertIn("sort", props)
+        self.assertEqual(props["page"]["type"], "integer")
+        self.assertEqual(props["size"]["type"], "integer")
+        self.assertEqual(props["sort"]["type"], "string")
+
+    @patch("polaris_mcp.tools.product_search.http_get")
+    def test_search_tool_with_pagination_and_sort(self, mock_http_get):
+        mock_http_get.return_value = {
+            "content": [
+                {
+                    "sku": "NG-EARBUD-01",
+                    "name": "Nova Wireless Earbuds",
+                    "category": "Audio",
+                    "price": 49.90,
+                    "stockQuantity": 120,
+                    "isAvailable": True,
+                }
+            ],
+            "totalElements": 1,
+        }
+        res = execute_tool(
+            "search_available_products",
+            {"query": "wireless", "page": 0, "size": 10, "sort": "price,asc"},
+        )
+        self.assertIn("Found 1 product(s):", res)
+        self.assertIn("[NG-EARBUD-01]", res)
+        mock_http_get.assert_called_once_with(
+            "/api/v1/products",
+            {
+                "query": "wireless",
+                "category": None,
+                "minPrice": None,
+                "maxPrice": None,
+                "available": True,
+                "page": 0,
+                "size": 10,
+                "sort": "price,asc",
+            },
+        )
+
+    @patch("polaris_mcp.tools.product_search.http_get")
+    def test_search_tool_handles_problem_detail_error(self, mock_http_get):
+        mock_http_get.return_value = {
+            "error": "Invalid sort property 'string'. Allowed sort properties are: [id, sku, name, category, price, stockQuantity, stockQty, active, createdAt]. Format: property(,asc|desc)."
+        }
+        res = execute_tool(
+            "search_available_products",
+            {"sort": "string"},
+        )
+        self.assertIn("Error querying products: Invalid sort property 'string'", res)
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -13,14 +13,20 @@ def tool_search_available_products(
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     available_only: bool = True,
+    page: Optional[int] = None,
+    size: Optional[int] = None,
+    sort: Optional[str] = None,
 ) -> str:
-    """Searches for products in the catalog with availability, category, and price filtering."""
+    """Searches for products in the catalog with availability, category, price filtering, pagination, and sorting."""
     params = {
         "query": query,
         "category": category,
         "minPrice": min_price,
         "maxPrice": max_price,
         "available": available_only if available_only is not None else True,
+        "page": page,
+        "size": size,
+        "sort": sort,
     }
     result = http_get("/api/v1/products", params)
     if "error" in result:

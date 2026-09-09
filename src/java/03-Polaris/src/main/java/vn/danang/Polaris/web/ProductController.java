@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import vn.danang.polaris.dto.ProductResponse;
 import vn.danang.polaris.service.ProductService;
@@ -30,7 +32,14 @@ public class ProductController {
     }
 
     @GetMapping
+    // OpenAPI annotations for documentation
     @Operation(summary = "Search products", description = "Search and filter products by query keyword, category, category ID, price range, and stock availability.")
+    @Parameters({
+        @Parameter(name = "page", description = "Zero-based page index (0..10000)", schema = @Schema(type = "integer", defaultValue = "0", minimum = "0", maximum = "10000")),
+        @Parameter(name = "size", description = "The size of the page to be returned (1..100)", schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100")),
+        @Parameter(name = "sort", description = "Sorting criteria in the format: property(,asc|desc). Allowed properties: [id, sku, name, category, price, stockQuantity, stockQty, active, createdAt]", example = "id,asc", schema = @Schema(type = "string", defaultValue = "id,asc"))
+    })
+    // End of OpenAPI annotations
     public Page<ProductResponse> search(
             @Parameter(description = "Keyword to match against product name, SKU, or description")
             @RequestParam(required = false) String query,
@@ -44,9 +53,11 @@ public class ProductController {
             @RequestParam(required = false) BigDecimal maxPrice,
             @Parameter(description = "Filter by availability in stock (true: stock_qty > 0 and active, false: out of stock)")
             @RequestParam(required = false) Boolean available,
+            @Parameter(hidden = true)
             @PageableDefault(page = 0, size = 20, sort = "id", direction = Sort.Direction.ASC) Pageable pageable) {
 
-        return productService.searchProducts(query, category, categoryId, minPrice, maxPrice, available, pageable);
+        Pageable sanitized = PageableValidator.validateAndSanitize(pageable);
+        return productService.searchProducts(query, category, categoryId, minPrice, maxPrice, available, sanitized);
     }
 
     @GetMapping("/{id}")

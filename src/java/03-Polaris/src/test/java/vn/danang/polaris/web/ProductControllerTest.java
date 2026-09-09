@@ -10,7 +10,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
@@ -24,13 +23,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import vn.danang.polaris.config.SecurityConfig;
-import vn.danang.polaris.config.WebConfig;
 import vn.danang.polaris.dto.ProductResponse;
 import vn.danang.polaris.service.ProductService;
 import vn.danang.polaris.web.support.JwtMockFactory;
 
 @WebMvcTest(ProductController.class)
-@ImportAutoConfiguration(WebConfig.class)
 @Import({SecurityConfig.class, GlobalExceptionHandler.class})
 public class ProductControllerTest {
 
@@ -175,5 +172,119 @@ public class ProductControllerTest {
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.detail").value("Product not found with SKU: NON-EXISTENT"));
+    }
+
+    @Test
+    void searchProducts_invalidSortProperty_shouldReturn400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/v1/products")
+                        .param("sort", "string")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid Sort Property"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/invalid-sort"))
+                .andExpect(jsonPath("$.detail").value("Invalid sort property 'string'. Allowed sort properties are: [id, sku, name, category, price, stockQuantity, stockQty, active, createdAt]. Format: property(,asc|desc)."))
+                .andExpect(jsonPath("$.invalid_property").value("string"))
+                .andExpect(jsonPath("$.allowed_properties", hasSize(9)));
+    }
+
+    @Test
+    void searchProducts_pageSizeTooLarge_shouldReturn400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/v1/products")
+                        .param("size", "1073741824")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid Pagination Parameter"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/invalid-pagination"))
+                .andExpect(jsonPath("$.detail").value("Page size must be between 1 and 100. Received: 1073741824."))
+                .andExpect(jsonPath("$.invalid_param").value("size"))
+                .andExpect(jsonPath("$.min").value(1))
+                .andExpect(jsonPath("$.max").value(100))
+                .andExpect(jsonPath("$.received").value(1073741824));
+    }
+
+    @Test
+    void searchProducts_pageSizeBelowOne_shouldReturn400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/v1/products")
+                        .param("size", "0")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid Pagination Parameter"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/invalid-pagination"))
+                .andExpect(jsonPath("$.detail").value("Page size must be between 1 and 100. Received: 0."))
+                .andExpect(jsonPath("$.invalid_param").value("size"))
+                .andExpect(jsonPath("$.min").value(1))
+                .andExpect(jsonPath("$.max").value(100))
+                .andExpect(jsonPath("$.received").value(0));
+    }
+
+    @Test
+    void searchProducts_pageIndexTooLarge_shouldReturn400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/v1/products")
+                        .param("page", "1073741824")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid Pagination Parameter"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/invalid-pagination"))
+                .andExpect(jsonPath("$.detail").value("Page index must be between 0 and 10000. Received: 1073741824."))
+                .andExpect(jsonPath("$.invalid_param").value("page"))
+                .andExpect(jsonPath("$.min").value(0))
+                .andExpect(jsonPath("$.max").value(10000))
+                .andExpect(jsonPath("$.received").value(1073741824));
+    }
+
+    @Test
+    void searchProducts_pageIndexNegative_shouldReturn400ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/v1/products")
+                        .param("page", "-1")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid Pagination Parameter"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/invalid-pagination"))
+                .andExpect(jsonPath("$.detail").value("Page index must be between 0 and 10000. Received: -1."))
+                .andExpect(jsonPath("$.invalid_param").value("page"))
+                .andExpect(jsonPath("$.min").value(0))
+                .andExpect(jsonPath("$.max").value(10000))
+                .andExpect(jsonPath("$.received").value(-1));
+    }
+
+    @Test
+    void searchProducts_sortByAliasStockQuantity_shouldReturn200() throws Exception {
+        ProductResponse sample = new ProductResponse(
+                1L, "NG-EARBUD-01", "Nova Wireless Earbuds", "Description",
+                "Audio", new BigDecimal("49.90"), 120, true, true, Instant.now()
+        );
+        Page<ProductResponse> page = new PageImpl<>(List.of(sample), PageRequest.of(0, 20), 1);
+        when(productService.searchProducts(any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/v1/products")
+                        .param("sort", "stockQuantity,desc")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(1)));
+    }
+
+    @Test
+    void searchProducts_validSortAndPagination_shouldReturn200() throws Exception {
+        ProductResponse sample = new ProductResponse(
+                1L, "NG-EARBUD-01", "Nova Wireless Earbuds", "Description",
+                "Audio", new BigDecimal("49.90"), 120, true, true, Instant.now()
+        );
+        Page<ProductResponse> page = new PageImpl<>(List.of(sample), PageRequest.of(0, 10), 1);
+        when(productService.searchProducts(any(), any(), any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/v1/products")
+                        .param("page", "0")
+                        .param("size", "10")
+                        .param("sort", "price,asc")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(1)));
     }
 }
