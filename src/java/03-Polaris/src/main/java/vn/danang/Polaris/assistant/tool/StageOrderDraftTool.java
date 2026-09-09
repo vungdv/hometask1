@@ -21,10 +21,20 @@ public class StageOrderDraftTool implements AssistantTool {
 
     private final ProductService productService;
     private final AssistantDraftService draftService;
+    private final vn.danang.polaris.assistant.security.AssistantSecurityScoper securityScoper;
 
-    public StageOrderDraftTool(ProductService productService, AssistantDraftService draftService) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public StageOrderDraftTool(
+            ProductService productService,
+            AssistantDraftService draftService,
+            vn.danang.polaris.assistant.security.AssistantSecurityScoper securityScoper) {
         this.productService = productService;
         this.draftService = draftService;
+        this.securityScoper = securityScoper;
+    }
+
+    public StageOrderDraftTool(ProductService productService, AssistantDraftService draftService) {
+        this(productService, draftService, new vn.danang.polaris.assistant.security.AssistantSecurityScoper(null));
     }
 
     @Override
@@ -60,10 +70,32 @@ public class StageOrderDraftTool implements AssistantTool {
         }
 
         Long customerId = parseLong(arguments.get("customerId"));
-        if (customerId == null && context.customerId() != null) {
+        if (customerId != null) {
+            if (securityScoper != null && !securityScoper.canActAsCustomer(customerId, context)) {
+                Map<String, Object> forbiddenCard = vn.danang.polaris.assistant.widget.ProblemWidgetFactory.forForbidden(
+                        "customerId",
+                        customerId,
+                        "Access denied: Retail shoppers cannot stage orders on behalf of other customers."
+                );
+                return ToolExecutionResult.failureWithWidget(
+                        "stage_order_draft",
+                        "Access denied: You cannot stage orders for another customer.",
+                        "PROBLEM_CARD",
+                        forbiddenCard
+                );
+            }
+            if (securityScoper != null && context.isStaff() && !securityScoper.customerExists(customerId)) {
+                Map<String, Object> notFoundCard = vn.danang.polaris.assistant.widget.ProblemWidgetFactory.forCustomerNotFound(customerId);
+                return ToolExecutionResult.failureWithWidget(
+                        "stage_order_draft",
+                        "Customer not found with ID: " + customerId,
+                        "PROBLEM_CARD",
+                        notFoundCard
+                );
+            }
+        } else if (context.customerId() != null) {
             customerId = context.customerId();
-        }
-        if (customerId == null) {
+        } else {
             customerId = 1L; // default fallback customer
         }
 
@@ -95,16 +127,8 @@ public class StageOrderDraftTool implements AssistantTool {
 
             int availableStock = product.stockQuantity() != null ? product.stockQuantity() : 0;
             if (availableStock < quantity) {
-                Map<String, Object> problemCard = Map.of(
-                    "title", "Insufficient Stock",
-                    "status", 400,
-                    "sku", sku,
-                    "requested_quantity", quantity,
-                    "available_quantity", availableStock,
-                    "detail", String.format("Insufficient stock for product '%s'. Requested: %d, available: %d.",
-                            sku, quantity, availableStock),
-                    "remedy", String.format("Reduce order quantity for '%s' to %d or fewer units.", sku, availableStock)
-                );
+                Map<String, Object> problemCard = vn.danang.polaris.assistant.widget.ProblemWidgetFactory.forInsufficientStock(
+                        sku, product.name(), quantity, availableStock);
                 return ToolExecutionResult.failureWithWidget(
                         "stage_order_draft",
                         "Insufficient stock for product " + sku,

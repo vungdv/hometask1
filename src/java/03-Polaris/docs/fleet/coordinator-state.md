@@ -1,11 +1,11 @@
 # Polaris Fleet Coordinator State
 
 - **Active Milestone:** Q4 Milestone: Conversational Commerce & Web AI Assistant Core
-- **Current Phase:** Phase 3: Vertical Slice Execution (Completed WO-013)
+- **Current Phase:** Phase 3: Vertical Slice Execution (Dispatching WO-014)
 - **Active Initiatives:**
   - **[INIT-006] Internal Staff & Shopper AI Chat Web Assistant:**
     - PRD: `docs/fleet/prds/PRD-006-web-chat-ai-assistant.md` (Status: PRD Approved - In Execution)
-    - Active Work Orders: [WO-013] Assistant Dual-Transport REST & SSE Streaming Controller Slice
+    - Active Work Orders: [WO-014] Assistant Role Scoping & Self-Healing RFC 7807 Diagnostic Widget Slice
     - Active Subagents: domain-dev-agent (dc75d086-f92e-4dfe-8f41-59e14992c666)
 
 ---

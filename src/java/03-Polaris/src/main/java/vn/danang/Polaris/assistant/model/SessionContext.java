@@ -9,5 +9,16 @@ public record SessionContext(
     String userId,
     Long customerId,
     List<AssistantMessage> history,
-    String userPrompt
-) {}
+    String userPrompt,
+    String operatorId,
+    boolean isStaff
+) {
+    public SessionContext(
+            String sessionId,
+            String userId,
+            Long customerId,
+            List<AssistantMessage> history,
+            String userPrompt) {
+        this(sessionId, userId, customerId, history, userPrompt, null, false);
+    }
+}

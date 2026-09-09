@@ -18,9 +18,16 @@ import vn.danang.polaris.web.exception.ResourceNotFoundException;
 public class CancelOrderReviewTool implements AssistantTool {
 
     private final OrderService orderService;
+    private final vn.danang.polaris.assistant.security.AssistantSecurityScoper securityScoper;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public CancelOrderReviewTool(OrderService orderService, vn.danang.polaris.assistant.security.AssistantSecurityScoper securityScoper) {
+        this.orderService = orderService;
+        this.securityScoper = securityScoper;
+    }
 
     public CancelOrderReviewTool(OrderService orderService) {
-        this.orderService = orderService;
+        this(orderService, new vn.danang.polaris.assistant.security.AssistantSecurityScoper(null));
     }
 
     @Override
@@ -52,15 +59,24 @@ public class CancelOrderReviewTool implements AssistantTool {
             return ToolExecutionResult.failure("cancel_order_review", e.getMessage());
         }
 
+        if (securityScoper != null && !securityScoper.canAccessOrder(order, context)) {
+            Map<String, Object> problemCard = vn.danang.polaris.assistant.widget.ProblemWidgetFactory.forForbidden(
+                    "orderNumber",
+                    orderNumber,
+                    "Access denied: You do not have permission to view or manage resources for another customer."
+            );
+            return ToolExecutionResult.failureWithWidget(
+                    "cancel_order_review",
+                    "Access denied: You do not have permission to cancel this order.",
+                    "PROBLEM_CARD",
+                    problemCard
+            );
+        }
+
         if (!order.getStatus().isCancellable()) {
-            Map<String, Object> problemCard = Map.of(
-                "title", "Order State Conflict",
-                "status", 409,
-                "orderNumber", orderNumber,
-                "currentStatus", order.getStatus().name(),
-                "detail", "Order " + orderNumber + " cannot be cancelled — current status is " + order.getStatus() + ".",
-                "allowed_states_for_action", List.of("PLACED", "CONFIRMED"),
-                "remedy", "Only orders in PLACED or CONFIRMED state can be cancelled. Shipped orders must go through the return/refund workflow."
+            Map<String, Object> problemCard = vn.danang.polaris.assistant.widget.ProblemWidgetFactory.forOrderStateConflict(
+                    orderNumber,
+                    order.getStatus().name()
             );
             return ToolExecutionResult.failureWithWidget(
                     "cancel_order_review",

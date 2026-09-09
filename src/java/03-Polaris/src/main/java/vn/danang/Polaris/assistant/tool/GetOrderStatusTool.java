@@ -14,9 +14,16 @@ import vn.danang.polaris.web.exception.ResourceNotFoundException;
 public class GetOrderStatusTool implements AssistantTool {
 
     private final OrderService orderService;
+    private final vn.danang.polaris.assistant.security.AssistantSecurityScoper securityScoper;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public GetOrderStatusTool(OrderService orderService, vn.danang.polaris.assistant.security.AssistantSecurityScoper securityScoper) {
+        this.orderService = orderService;
+        this.securityScoper = securityScoper;
+    }
 
     public GetOrderStatusTool(OrderService orderService) {
-        this.orderService = orderService;
+        this(orderService, new vn.danang.polaris.assistant.security.AssistantSecurityScoper(null));
     }
 
     @Override
@@ -43,6 +50,21 @@ public class GetOrderStatusTool implements AssistantTool {
 
         try {
             Order order = orderService.getOrderStatus(orderNumber);
+
+            if (securityScoper != null && !securityScoper.canAccessOrder(order, context)) {
+                Map<String, Object> problemCard = vn.danang.polaris.assistant.widget.ProblemWidgetFactory.forForbidden(
+                        "orderNumber",
+                        orderNumber,
+                        "Access denied: You do not have permission to view or manage resources for another customer."
+                );
+                return ToolExecutionResult.failureWithWidget(
+                        "get_order_status",
+                        "Access denied: You do not have permission to view this order.",
+                        "PROBLEM_CARD",
+                        problemCard
+                );
+            }
+
             OrderResponse response = OrderResponse.from(order);
             return ToolExecutionResult.successWithWidget(
                     "get_order_status",

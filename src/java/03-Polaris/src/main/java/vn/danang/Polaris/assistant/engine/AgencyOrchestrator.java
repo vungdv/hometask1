@@ -35,6 +35,23 @@ public class AgencyOrchestrator {
     private final AssistantSessionRepository sessionRepository;
     private final AssistantMessageRepository messageRepository;
     private final ExecutorService assistantExecutor;
+    private final vn.danang.polaris.assistant.security.AssistantSecurityScoper securityScoper;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AgencyOrchestrator(
+            AssistantModelClient modelClient,
+            AssistantToolRegistry toolRegistry,
+            AssistantSessionRepository sessionRepository,
+            AssistantMessageRepository messageRepository,
+            @Qualifier("assistantExecutor") ExecutorService assistantExecutor,
+            vn.danang.polaris.assistant.security.AssistantSecurityScoper securityScoper) {
+        this.modelClient = modelClient;
+        this.toolRegistry = toolRegistry;
+        this.sessionRepository = sessionRepository;
+        this.messageRepository = messageRepository;
+        this.assistantExecutor = assistantExecutor;
+        this.securityScoper = securityScoper;
+    }
 
     public AgencyOrchestrator(
             AssistantModelClient modelClient,
@@ -42,11 +59,8 @@ public class AgencyOrchestrator {
             AssistantSessionRepository sessionRepository,
             AssistantMessageRepository messageRepository,
             @Qualifier("assistantExecutor") ExecutorService assistantExecutor) {
-        this.modelClient = modelClient;
-        this.toolRegistry = toolRegistry;
-        this.sessionRepository = sessionRepository;
-        this.messageRepository = messageRepository;
-        this.assistantExecutor = assistantExecutor;
+        this(modelClient, toolRegistry, sessionRepository, messageRepository, assistantExecutor,
+                new vn.danang.polaris.assistant.security.AssistantSecurityScoper(null));
     }
 
     @Transactional
@@ -70,13 +84,20 @@ public class AgencyOrchestrator {
         messageRepository.save(userMessage);
 
         // 2. Build Session Context
+        org.springframework.security.core.Authentication auth =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        boolean isStaff = securityScoper != null && securityScoper.isStaffOrAdmin(auth);
+        String operatorId = (isStaff && auth != null) ? auth.getName() : null;
+
         List<AssistantMessage> history = messageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
         SessionContext context = new SessionContext(
                 sessionId,
                 session.getUserId(),
                 session.getCustomerId(),
                 history,
-                userPrompt
+                userPrompt,
+                operatorId,
+                isStaff
         );
 
         // 3. Accumulators for Assistant Turn

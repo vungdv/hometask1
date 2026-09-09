@@ -160,7 +160,7 @@ flowchart TD
   - Unit & Integration: `mvn test -Dtest=AgencyOrchestratorTest,DeterministicRuleModelClientTest,AssistantToolDispatchTest`
 
 #### Slice Work Order: [WO-013] Assistant Dual-Transport REST & SSE Streaming Controller Slice
-- **Status:** Ready for Execution
+- **Status:** Verified
 - **Target Context:** Assistant Web & Streaming Tier (`vn.danang.polaris.assistant.web`)
 - **Package Layout:**
   - `vn.danang.polaris.assistant.web` (`AssistantController`, `AssistantStreamingController`, `ChatMessageRequest`)

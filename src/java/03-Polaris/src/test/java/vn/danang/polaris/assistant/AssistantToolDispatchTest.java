@@ -258,11 +258,15 @@ class AssistantToolDispatchTest {
         item.setProduct(p);
         item.setQuantity(2);
 
+        Customer customer = new Customer();
+        customer.setId(100L);
+
         Order order = new Order();
         order.setId(10L);
         order.setOrderNumber("ORD-1001");
         order.setStatus(OrderStatus.PLACED);
         order.setTotalAmount(new BigDecimal("99.98"));
+        order.setCustomer(customer);
         order.setItems(List.of(item));
 
         when(orderService.getOrderStatus("ORD-1001")).thenReturn(order);
@@ -283,11 +287,15 @@ class AssistantToolDispatchTest {
 
     @Test
     void cancelOrderReview_whenOrderIsShipped_returnsProblemCard409() {
+        Customer customer = new Customer();
+        customer.setId(100L);
+
         Order order = new Order();
         order.setId(10L);
         order.setOrderNumber("ORD-1002");
         order.setStatus(OrderStatus.DELIVERED);
         order.setTotalAmount(new BigDecimal("99.98"));
+        order.setCustomer(customer);
         order.setItems(List.of());
 
         when(orderService.getOrderStatus("ORD-1002")).thenReturn(order);

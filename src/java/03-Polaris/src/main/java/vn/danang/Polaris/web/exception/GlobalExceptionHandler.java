@@ -65,10 +65,30 @@ public class GlobalExceptionHandler {
         problem.setTitle("Insufficient Stock");
         problem.setType(URI.create("https://polaris.local/errors/out-of-stock"));
         problem.setProperty("sku", ex.getSku());
+        problem.setProperty("invalid_param", "quantity");
         problem.setProperty("requested_quantity", ex.getRequestedQuantity());
         problem.setProperty("available_quantity", ex.getAvailableQuantity());
+        problem.setProperty("expected", Math.max(0, ex.getAvailableQuantity()));
+        problem.setProperty("received", ex.getRequestedQuantity());
         problem.setProperty("remedy", String.format("Reduce order quantity for '%s' to %d or fewer units.",
                 ex.getSku(), ex.getAvailableQuantity()));
+
+        java.util.List<java.util.Map<String, Object>> actions = new java.util.ArrayList<>();
+        if (ex.getAvailableQuantity() > 0) {
+            java.util.Map<String, Object> adjust = new java.util.LinkedHashMap<>();
+            adjust.put("label", "Adjust Quantity to " + ex.getAvailableQuantity());
+            adjust.put("action", "adjust_quantity");
+            adjust.put("sku", ex.getSku());
+            adjust.put("quantity", ex.getAvailableQuantity());
+            actions.add(adjust);
+        }
+        java.util.Map<String, Object> alt = new java.util.LinkedHashMap<>();
+        alt.put("label", "Search Alternatives");
+        alt.put("action", "search_alternatives");
+        alt.put("query", ex.getSku());
+        actions.add(alt);
+
+        problem.setProperty("actions", actions);
         return problem;
     }
 
@@ -175,6 +195,7 @@ public class GlobalExceptionHandler {
         problem.setType(URI.create("https://polaris.local/errors/conflict"));
         problem.setProperty("allowed_states_for_action", java.util.List.of("PLACED", "CONFIRMED"));
         problem.setProperty("remedy", "Only orders in PLACED or CONFIRMED state can be cancelled. Shipped orders must go through the return/refund workflow.");
+        problem.setProperty("actions", java.util.List.of(java.util.Map.of("label", "Return Guidelines", "action", "view_returns")));
         return problem;
     }
 
@@ -187,6 +208,17 @@ public class GlobalExceptionHandler {
             problem.setProperty("draftId", ex.getDraftId());
         }
         problem.setProperty("remedy", "The order draft has expired (15-minute TTL elapsed). Please stage a new order draft.");
+        problem.setProperty("actions", java.util.List.of(java.util.Map.of("label", "Refresh Draft", "action", "refresh_draft")));
+        return problem;
+    }
+
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ProblemDetail handleAccessDeniedException(org.springframework.security.access.AccessDeniedException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+        problem.setTitle("Forbidden");
+        problem.setType(URI.create("https://polaris.local/errors/forbidden"));
+        problem.setProperty("remedy", "You do not have permission to access this resource.");
+        problem.setProperty("actions", java.util.List.of(java.util.Map.of("label", "My Orders", "action", "view_my_orders")));
         return problem;
     }
 

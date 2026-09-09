@@ -253,7 +253,8 @@ public class DeterministicRuleModelClient implements AssistantModelClient {
             if (result.widgetPayload() != null) {
                 listener.onWidget("PROBLEM_CARD", result.widgetPayload());
             }
-            listener.onToken("Order " + orderNumber + " cannot be cancelled.");
+            String msg = (result.error() != null) ? result.error() : ("Order " + orderNumber + " cannot be cancelled.");
+            listener.onToken(msg);
             return;
         }
 
@@ -281,7 +282,11 @@ public class DeterministicRuleModelClient implements AssistantModelClient {
 
         ToolExecutionResult result = statusTool.execute(Map.of("orderNumber", orderNumber), context);
         if (!result.success()) {
-            listener.onToken("Order " + orderNumber + " was not found.");
+            if (result.widgetPayload() != null && "PROBLEM_CARD".equals(result.widgetType())) {
+                listener.onWidget("PROBLEM_CARD", result.widgetPayload());
+            }
+            String msg = (result.error() != null) ? result.error() : ("Order " + orderNumber + " was not found.");
+            listener.onToken(msg);
             return;
         }
 
