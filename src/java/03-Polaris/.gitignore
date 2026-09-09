@@ -167,3 +167,7 @@ Thumbs.db
 .agents/skills/playwright-cli/
 .playwright/
 .playwright-cli/
+
+# Local database and certificates
+data/
+*.jks

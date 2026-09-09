@@ -1,14 +1,16 @@
 # Developer State
 
 - **Active Domain:** Assistant / Web Client / Streaming Infrastructure (PRD-006 / ADR-0004)
-- **Active Work Order:** [Pre-Flight Review] Architectural & Engineering Foundation for PRD-006 Web Chat AI Assistant
+- **Active Work Order:** [WO-011] Assistant Domain Schema & Session/Draft Persistence Slice
 - **Seam Progress:**
-  - [x] Technical Feasibility Audit (Spring Boot 4.1.1, SseEmitter + Java 21 Virtual Threads, Flyway PostgreSQL/H2 ANSI SQL)
-  - [x] SSE Protocol & Framing Contract Defined (`token`, `card`, `error`, `done`, `: ping` heartbeats)
-  - [x] Flyway Migration Schema Drafted (`assistant_session`, `assistant_message`, `assistant_order_draft`, `assistant_order_draft_item`)
-  - [x] Web Client Security Architecture Defined (Keycloak PKCE, `fetch()` + `ReadableStream` over POST for Bearer auth)
-  - [x] MockMvc Async SSE & Security Token Verification Strategy Formulated
-  - [x] `domain-dev-agent.md` Updated with SSE, Web Client, and Persistence Standards
-- **Blockers / Next Step:** Awaiting Fleet Coordinator dispatch of Slice Work Orders for PRD-006 (e.g., Flyway DDL & Persistence -> SseEmitter Controller -> Web Client). Ready for implementation.
+  - [x] Flyway Migration V6 (`V6__assistant_session_draft_schema.sql` - `assistant_sessions`, `assistant_messages`, `assistant_order_drafts`)
+  - [x] Assistant Domain Entities (`AssistantSession`, `AssistantMessage`, `AssistantOrderDraft`, `DraftItemDto`, enums & converters)
+  - [x] Assistant Repositories (`AssistantSessionRepository`, `AssistantMessageRepository`, `AssistantOrderDraftRepository`)
+  - [x] Assistant Domain Services (`AssistantSessionService`, `AssistantDraftService` with 15-min TTL & expiration logic)
+  - [x] Assistant REST Controller (`POST`, `GET`, `DELETE` on `/api/v1/assistant/sessions/**`)
+  - [x] Security Configuration (`SecurityConfig.java` strictly securing `/api/v1/assistant/**`)
+  - [x] Automated Unit & Integration Tests (`AssistantPersistenceIntegrationTest`, `AssistantSessionControllerTest` passing with 100% success)
+  - [x] Live Stack End-to-End Verification via Playwright CLI (Recipe A: Swagger UI OAuth2 PKCE verification with unauthenticated 401, authenticated 201, 200, 204)
+- **Blockers / Next Step:** WO-011 fully verified and complete. Ready for Fleet Coordinator dispatch of [WO-012] Pluggable Model Provider & Agency Orchestrator Engine Slice.
 
 

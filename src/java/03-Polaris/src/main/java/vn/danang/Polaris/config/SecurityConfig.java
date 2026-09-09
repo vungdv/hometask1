@@ -26,6 +26,7 @@ public class SecurityConfig {
                     "/swagger-ui.html",
                     "/v3/api-docs/**"
                 ).permitAll()
+                .requestMatchers("/api/v1/assistant/**").authenticated()
                 .anyRequest().authenticated()
             )
             // jwt is sessionless, so disable session at all.

@@ -84,117 +84,166 @@ flowchart TD
   - [WO-008] Enforce OAuth2 Authentication on MCP Gateway Endpoints & Fix Security Bypass -> Status: Verified
   - [WO-009] Comprehensive Order Lifecycle API & AI Shop Agent MCP Suite -> Status: Verified
   - [WO-010] Transition Polaris Persistence from H2 to PostgreSQL Container Database -> Status: Verified
-  - [WO-011] Assistant Domain Schema & Session/Draft Persistence Slice -> Status: Drafting
-  - [WO-012] Pluggable Model Provider & Agency Orchestrator Engine Slice -> Status: Drafting
-  - [WO-013] Assistant Dual-Transport REST & SSE Streaming Controller Slice -> Status: Drafting
-  - [WO-014] Assistant Role Scoping & Self-Healing RFC 7807 Diagnostic Widget Slice -> Status: Drafting
-  - [WO-015] Polaris Web Chat UI & Keycloak PKCE Integration Slice -> Status: Drafting
+  - [WO-011] Assistant Domain Schema & Session/Draft Persistence Slice -> Status: Ready for Execution
+  - [WO-012] Pluggable Model Provider & Agency Orchestrator Engine Slice -> Status: Ready for Execution
+  - [WO-013] Assistant Dual-Transport REST & SSE Streaming Controller Slice -> Status: Ready for Execution
+  - [WO-014] Assistant Role Scoping & Self-Healing RFC 7807 Diagnostic Widget Slice -> Status: Ready for Execution
+  - [WO-015] Polaris Web Chat UI & Keycloak PKCE Integration Slice -> Status: Ready for Execution
 
 ---
 
 ### Sliced Work Orders Specification (PRD-006 & ADR-0004)
 
 #### Slice Work Order: [WO-011] Assistant Domain Schema & Session/Draft Persistence Slice
-- **Target Context:** Assistant (`vn.danang.polaris.assistant`)
+- **Status:** Implemented & Verified
+- **Target Context:** Assistant Bounded Context (`vn.danang.polaris.assistant`)
+- **Package Layout:**
+  - `vn.danang.polaris.assistant.entity` (`AssistantSession`, `AssistantMessage`, `AssistantOrderDraft`, `SessionStatus`, `DraftStatus`, `MessageRole`)
+  - `vn.danang.polaris.assistant.repository` (`AssistantSessionRepository`, `AssistantMessageRepository`, `AssistantOrderDraftRepository`)
+  - `vn.danang.polaris.assistant.service` (`AssistantSessionService`, `AssistantDraftService`)
+  - `vn.danang.polaris.assistant.dto` (`AssistantSessionResponse`, `AssistantSessionDetailResponse`, `AssistantDraftResponse`, `DraftItemDto`)
+  - `vn.danang.polaris.assistant.web` (`AssistantSessionController`)
 - **Contract Definition:**
   - Internal Domain Services & Repositories:
-    * `AssistantSessionRepository`, `AssistantMessageRepository`, `AssistantOrderDraftRepository`
+    * `AssistantSessionRepository`: `findById(id)`, `findByUserIdAndStatus(userId, status)`
+    * `AssistantMessageRepository`: `findBySessionIdOrderByCreatedAtAsc(sessionId)`
+    * `AssistantOrderDraftRepository`: `findBySessionIdAndStatus(sessionId, status)`, `findExpiredDrafts(now)`
     * `AssistantSessionService`: `createSession(userId, customerId)`, `getSession(sessionId)`, `closeSession(sessionId)`
-    * `AssistantDraftService`: `stageDraft(sessionId, customerId, items)`, `getDraft(draftId)`, `expireDrafts()`
-  - REST Session Management:
-    * `POST /api/v1/assistant/sessions` -> `201 Created` (`AssistantSessionResponse`)
-    * `GET /api/v1/assistant/sessions/{sessionId}` -> `200 OK` (`AssistantSessionDetailResponse` with messages and active draft)
-    * `DELETE /api/v1/assistant/sessions/{sessionId}` -> `204 No Content`
+    * `AssistantDraftService`: `stageDraft(sessionId, customerId, items, totalAmount, ttlMinutes)`, `getDraft(draftId)`, `getActiveDraft(sessionId)`, `expireDrafts()`
+  - REST Session Management Endpoints:
+    * `POST /api/v1/assistant/sessions` -> `201 Created` with `Location: /api/v1/assistant/sessions/{sessionId}`, returns `AssistantSessionResponse(id, userId, customerId, status, createdAt, updatedAt)`
+    * `GET /api/v1/assistant/sessions/{sessionId}` -> `200 OK`, returns `AssistantSessionDetailResponse(id, userId, customerId, status, messages, activeDraft, createdAt, updatedAt)`
+    * `DELETE /api/v1/assistant/sessions/{sessionId}` -> `204 No Content` (transitions session status to `CLOSED`)
 - **Persistence Changes:**
   - Flyway Migration `V6__assistant_session_draft_schema.sql`:
-    * Table `assistant_sessions`: `id VARCHAR(64) PRIMARY KEY`, `user_id VARCHAR(64) NOT NULL`, `customer_id BIGINT`, `status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE'`, `created_at TIMESTAMP WITH TIME ZONE`, `updated_at TIMESTAMP WITH TIME ZONE`, `version BIGINT NOT NULL DEFAULT 0`
-    * Table `assistant_messages`: `id BIGSERIAL PRIMARY KEY`, `session_id VARCHAR(64) NOT NULL REFERENCES assistant_sessions(id) ON DELETE CASCADE`, `role VARCHAR(16) NOT NULL`, `content TEXT`, `widget_type VARCHAR(64)`, `widget_payload JSONB`, `tool_call_id VARCHAR(64)`, `created_at TIMESTAMP WITH TIME ZONE`
-    * Table `assistant_order_drafts`: `id VARCHAR(64) PRIMARY KEY`, `session_id VARCHAR(64) NOT NULL REFERENCES assistant_sessions(id) ON DELETE CASCADE`, `customer_id BIGINT NOT NULL`, `status VARCHAR(32) NOT NULL DEFAULT 'WAITING_CONFIRMATION'`, `items JSONB NOT NULL`, `total_amount NUMERIC(12,2) NOT NULL`, `expires_at TIMESTAMP WITH TIME ZONE NOT NULL`, `confirmed_order_number VARCHAR(64)`, `created_at TIMESTAMP WITH TIME ZONE`, `updated_at TIMESTAMP WITH TIME ZONE`, `version BIGINT NOT NULL DEFAULT 0`
-    * Indexes: `idx_assistant_sessions_user`, `idx_assistant_messages_session`, `idx_assistant_drafts_session`, `idx_assistant_drafts_expiry`
+    * Table `assistant_sessions`: `id VARCHAR(64) PRIMARY KEY`, `user_id VARCHAR(64) NOT NULL`, `customer_id BIGINT`, `status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE'`, `created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP`, `updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP`, `version BIGINT NOT NULL DEFAULT 0`
+    * Table `assistant_messages`: `id BIGSERIAL PRIMARY KEY`, `session_id VARCHAR(64) NOT NULL REFERENCES assistant_sessions(id) ON DELETE CASCADE`, `role VARCHAR(16) NOT NULL`, `content TEXT`, `widget_type VARCHAR(64)`, `widget_payload JSONB`, `tool_call_id VARCHAR(64)`, `created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP`
+    * Table `assistant_order_drafts`: `id VARCHAR(64) PRIMARY KEY`, `session_id VARCHAR(64) NOT NULL REFERENCES assistant_sessions(id) ON DELETE CASCADE`, `customer_id BIGINT NOT NULL`, `status VARCHAR(32) NOT NULL DEFAULT 'WAITING_CONFIRMATION'`, `items JSONB NOT NULL`, `total_amount NUMERIC(12, 2) NOT NULL`, `expires_at TIMESTAMP WITH TIME ZONE NOT NULL`, `confirmed_order_number VARCHAR(64)`, `created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP`, `updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP`, `version BIGINT NOT NULL DEFAULT 0`
+    * Indexes: `idx_assistant_sessions_user` (`user_id, status`), `idx_assistant_messages_session` (`session_id, created_at`), `idx_assistant_drafts_session` (`session_id, status`), `idx_assistant_drafts_expiry` (`status, expires_at`)
+    * Strict Context Boundary: Zero foreign keys targeting Catalog or Order tables. Cross-context references are strictly scalars (`customer_id`, `confirmed_order_number`). Compatible with PostgreSQL 16 and H2.
 - **Acceptance Criteria:**
-  - Given an authenticated user, when creating an assistant session, then session is persisted with status `ACTIVE`.
-  - Given an active session, when staging an order draft, then draft is saved with `WAITING_CONFIRMATION` status, itemized pricing snapshot, and `expires_at` set to 15 minutes in future.
-  - Given an order draft whose TTL has passed (`expires_at < now()`), when queried or updated, then status transitions to `EXPIRED`.
-- **Verification Command:** `mvn test -Dtest=AssistantPersistenceIntegrationTest`
+  - Given an unauthenticated request to `/api/v1/assistant/sessions/**`, returns `401 Unauthorized` (Security Invariant 4).
+  - Given an authenticated caller, when creating an assistant session, then session is persisted with status `ACTIVE` and unique UUID.
+  - Given an active session, when staging an order draft, then draft is saved with `WAITING_CONFIRMATION` status, itemized pricing snapshot JSON, version 0, and `expires_at` set to exactly 15 minutes in the future.
+  - Given an order draft whose TTL has passed (`expires_at < now()`), when queried or evaluated, status transitions to `EXPIRED`.
+- **Verification Commands:**
+  - Unit & Integration: `mvn test -Dtest=AssistantPersistenceIntegrationTest,AssistantSessionControllerTest`
+  - Playwright CLI: Recipe A (`playwright-cli open https://polaris.local/swagger-ui/index.html` - execute `/api/v1/assistant/sessions` operations with and without Bearer token).
 
 #### Slice Work Order: [WO-012] Pluggable Model Provider & Agency Orchestrator Engine Slice
-- **Target Context:** Assistant (`vn.danang.polaris.assistant`)
+- **Status:** Ready for Execution
+- **Target Context:** Assistant Cognitive Engine (`vn.danang.polaris.assistant.engine`, `vn.danang.polaris.assistant.model`, `vn.danang.polaris.assistant.tool`)
+- **Package Layout:**
+  - `vn.danang.polaris.assistant.model` (`AssistantModelClient`, `DeterministicRuleModelClient`, `CloudModelClient`, `SessionContext`, `ModelEvent`, `ThoughtEvent`, `TokenDeltaEvent`, `ToolCallRequestEvent`, `TextCompletionEvent`)
+  - `vn.danang.polaris.assistant.tool` (`AssistantToolRegistry`, `CatalogTools`, `OrderTools`, `ToolDefinition`, `ToolExecutionResult`)
+  - `vn.danang.polaris.assistant.engine` (`AgencyOrchestrator`, `AssistantSecurityContextExecutorConfig`)
 - **Contract Definition:**
   - Interface `AssistantModelClient`:
     * `void streamChat(SessionContext context, List<ToolDefinition> tools, SseEmitter emitter)`
-  - Implementations:
-    * `DeterministicRuleModelClient`: Annotated with `@ConditionalOnProperty(name = "polaris.ai.provider", havingValue = "local", matchIfMissing = true)`. Implements regex intent parsing for catalog discovery, stock checking, order staging, and cancellation.
-    * `CloudModelClient`: Annotated with `@ConditionalOnProperty(name = "polaris.ai.provider", havingValue = "cloud")`. Connects via Spring AI / GenAI SDK.
-  - Domain Tools (Exposed to cognitive engine):
+  - Concrete Providers:
+    * `DeterministicRuleModelClient`: Annotated with `@ConditionalOnProperty(name = "polaris.ai.provider", havingValue = "local", matchIfMissing = true)`. Implements zero-config local rule engine handling intents: search products (`search <query>`, price bounds), stock check (`stock <sku>`), stage order (`order <sku> <qty>`), order tracking (`orders`, `order <orderNumber>`), cancel order (`cancel <orderNumber>`).
+    * `CloudModelClient`: Annotated with `@ConditionalOnProperty(name = "polaris.ai.provider", havingValue = "cloud")`. Connects via Spring AI / Google GenAI SDK.
+  - Cognitive Domain Tools (Exposed to cognitive engine):
     * `search_products(query, categoryId, minPrice, maxPrice)` -> delegates to `ProductService.searchProducts(...)`
     * `get_product_stock(sku)` -> delegates to `ProductService.getProductBySku(...)`
-    * `stage_order_draft(items)` -> intercepts mutation, calculates snapshot totals, saves `AssistantOrderDraft`, and returns draft summary
-  - Asynchronous SecurityContext Propagation:
-    * Bean `DelegatingSecurityContextExecutorService` (`assistantExecutor`) configured to ensure async worker threads inherit caller's JWT `SecurityContext`.
+    * `stage_order_draft(items)` -> intercepts mutation, calculates snapshot pricing, saves draft in DB via `AssistantDraftService`, halts autonomous execution, returns draft summary.
+    * `get_order_status(orderNumber)` -> delegates to `OrderService.getOrderStatus(...)`
+    * `cancel_order_review(orderNumber)` -> inspects status, checks eligibility, stages cancellation review card without committing mutation.
+  - Asynchronous Security Invariant:
+    * Configures `DelegatingSecurityContextExecutorService` (`assistantExecutor`) bean wrapping virtual or pooled threads, ensuring JWT `SecurityContext` propagates to all async agent loops and tool calls (Zero-Bypass security invariant).
 - **Persistence Changes:** None (builds on V6 schema).
 - **Acceptance Criteria:**
-  - Given the application is started with default settings (`polaris.ai.provider=local`), when user asks to search for chargers under $30, then `DeterministicRuleModelClient` executes tool `search_products` and emits progressive thought and token events.
-  - Given an order staging intent, when the model invokes `stage_order_draft`, then the agency loop creates an `AssistantOrderDraft` in status `WAITING_CONFIRMATION` and halts autonomous execution without placing an actual order.
+  - Given default configuration (`polaris.ai.provider=local`), when user asks to search products, `DeterministicRuleModelClient` dispatches `search_products` tool and streams progressive events without cloud API keys.
+  - Given an order placement prompt, when the cognitive engine recognizes the order intent, then it invokes `stage_order_draft` tool, creates an `AssistantOrderDraft` (`WAITING_CONFIRMATION`), and terminates turn with `event: draft` and `event: done` WITHOUT creating an order in `OrderService`.
   - Given tool execution dispatched on an async thread, then `SecurityContextHolder.getContext().getAuthentication()` retains the authenticated caller's JWT token.
-- **Verification Command:** `mvn test -Dtest=AgencyOrchestratorTest,DeterministicRuleModelClientTest`
+- **Verification Commands:**
+  - Unit & Integration: `mvn test -Dtest=AgencyOrchestratorTest,DeterministicRuleModelClientTest,AssistantToolDispatchTest`
 
 #### Slice Work Order: [WO-013] Assistant Dual-Transport REST & SSE Streaming Controller Slice
-- **Target Context:** Assistant (`vn.danang.polaris.assistant.web`)
+- **Status:** Ready for Execution
+- **Target Context:** Assistant Web & Streaming Tier (`vn.danang.polaris.assistant.web`)
+- **Package Layout:**
+  - `vn.danang.polaris.assistant.web` (`AssistantController`, `AssistantStreamingController`, `ChatMessageRequest`)
 - **Contract Definition:**
   - Streaming Endpoint: `POST /api/v1/assistant/sessions/{sessionId}/messages`
-    * Headers: `Accept: text/event-stream`, `Authorization: Bearer <JWT>`
-    * Body: `{"content": "..."}`
+    * Headers: `Accept: text/event-stream`, `Authorization: Bearer <JWT>`, `Content-Type: application/json`
+    * Body: `ChatMessageRequest(String content)`
     * Produces: `text/event-stream;charset=UTF-8`
-    * SSE Events: `thought`, `token`, `widget`, `draft`, `done`
-    * Heartbeat ping: `: keep-alive\n\n` emitted every 15s.
+    * Wire Events:
+      - `event: thought`: `{"step":"SEARCHING_CATALOG","message":"Querying catalog for fast chargers under $30..."}`
+      - `event: token`: `{"delta":"We have 2 fast chargers in stock:"}`
+      - `event: widget`: `{"type":"PRODUCT_LIST","payload":{"items":[...]}}`
+      - `event: draft`: `{"draftId":"dft-9821a","status":"WAITING_CONFIRMATION","expiresAt":"...","items":[...],"totalAmount":49.80}`
+      - `event: done`: `{"sessionId":"sess-101","status":"WAITING_CONFIRMATION"}`
+    * Resiliency: Periodic keep-alive comments (`: keep-alive\n\n`) emitted every 15s. SseEmitter timeout configured to 180,000 ms with lifecycle callbacks (`onCompletion`, `onTimeout`, `onError`).
   - Mutation Confirmation Endpoint: `POST /api/v1/assistant/sessions/{sessionId}/drafts/{draftId}/confirm`
     * Headers: `Authorization: Bearer <JWT>`, `Idempotency-Key: <UUIDv4>`
-    * Status: `201 Created` with `Location: /api/v1/orders/{orderNumber}` and `OrderResponse` body.
-    * Status: `409 Conflict` (RFC 7807) if draft is not in `WAITING_CONFIRMATION` or has expired.
-  - Mutation Rejection Endpoint: `POST /api/v1/assistant/sessions/{sessionId}/drafts/{draftId}/cancel`
+    * Returns: `201 Created` with `Location: /api/v1/orders/{orderNumber}` and `OrderResponse` body.
+    * Returns: `409 Conflict` (RFC 7807) if draft is expired, cancelled, already confirmed, or stock depleted during pre-commit re-verification.
+  - Mutation Rejection / Cancellation Endpoint: `POST /api/v1/assistant/sessions/{sessionId}/drafts/{draftId}/cancel`
     * Headers: `Authorization: Bearer <JWT>`
-    * Status: `200 OK` (updates draft to `CANCELLED`).
+    * Returns: `200 OK` (updates draft status to `CANCELLED`).
 - **Persistence Changes:** None.
 - **Acceptance Criteria:**
-  - Given an unauthenticated request to any `/api/v1/assistant/**` endpoint, when invoked, then Spring Security returns `401 Unauthorized` (Security Invariant 4).
-  - Given a valid message prompt, when received over SSE, then the client receives structured SSE events in real time terminating with `event: done`.
-  - Given an active draft in `WAITING_CONFIRMATION`, when `confirm` is called with a unique `Idempotency-Key`, then an order is created via `OrderService.createOrder`, draft transitions to `CONFIRMED`, and `201 Created` is returned.
-  - Given an expired draft (past 15 minutes), when `confirm` is called, then returns RFC 7807 `409 Conflict` with title "Draft Expired".
-- **Verification Command:** `mvn test -Dtest=AssistantControllerTest,AssistantStreamingIntegrationTest`
+  - Given an unauthenticated request to `/api/v1/assistant/sessions/{sessionId}/messages` or `.../confirm`, returns `401 Unauthorized` (Security Invariant 4).
+  - Given a valid chat message, when streaming, client receives valid SSE formatted frames ending with `event: done`.
+  - Given an active draft in `WAITING_CONFIRMATION`, when `confirm` is called with `Idempotency-Key`, then creates order via `OrderService.createOrder` with idempotency key, marks draft `CONFIRMED`, and returns `201 Created`.
+  - Given an expired draft (`expires_at < now()`), when `confirm` is called, returns RFC 7807 `409 Conflict` (`https://polaris.local/errors/draft-expired`).
+- **Verification Commands:**
+  - Unit & Integration: `mvn test -Dtest=AssistantControllerTest,AssistantStreamingIntegrationTest`
+  - Playwright CLI: Recipe A (`playwright-cli open https://polaris.local/swagger-ui/index.html` - test SSE streaming and draft confirm endpoints with OAuth2 token).
 
 #### Slice Work Order: [WO-014] Assistant Role Scoping & Self-Healing RFC 7807 Diagnostic Widget Slice
-- **Target Context:** Assistant (`vn.danang.polaris.assistant`)
+- **Status:** Ready for Execution
+- **Target Context:** Assistant Security & Diagnostic Tier (`vn.danang.polaris.assistant.security`, `vn.danang.polaris.assistant.web`)
+- **Package Layout:**
+  - `vn.danang.polaris.assistant.security` (`AssistantSecurityContext`, `AssistantIdentityScopingAspect`)
+  - `vn.danang.polaris.assistant.widget` (`ProblemWidgetFactory`, `WidgetResponse`, `ProblemCardPayload`, `RemedyAction`)
 - **Contract Definition:**
-  - Identity Scoping:
-    * For `ROLE_USER`: Assistant resolves `customerId` from JWT claims (`sub` / `preferred_username`). Direct parameter specification of customer ID is forbidden; returns `403 Forbidden` if attempting cross-customer access.
-    * For `ROLE_STAFF`: Assistant allows specifying `customerId`, verifies existence, and injects `operator_id` into audit metadata.
-  - Error-to-Widget Transformation:
-    * Intercepts RFC 7807 exceptions (`InsufficientStockException`, `OrderStateConflictException`, `DraftExpiredException`).
-    * Emits `event: widget` with `type: "PROBLEM_CARD"`, containing `invalid_param`, `received`, `allowed_values`, and clickable `remedy` action triggers.
+  - Strict Identity Scoping & Anti-IDOR Enforcement:
+    * `AssistantSecurityContext`: Extracts authenticated user details and roles (`ROLE_USER`, `ROLE_STAFF`, `ROLE_ADMIN`).
+    * For `ROLE_USER`: Binds `customerId` strictly to caller's identity (`sub` / `preferred_username`). Rejects any request specifying or attempting to access another customer's ID with RFC 7807 `403 Forbidden`.
+    * For `ROLE_STAFF` / `ROLE_ADMIN`: Allows explicit `customer_id` assignment for assisted sales; injects staff `operator_id` into order metadata/audit trail.
+  - RFC 7807 Error-to-Widget Translation:
+    * Intercepts `InsufficientStockException`, `OrderStateConflictException`, `DraftExpiredException`, `AccessDeniedException`.
+    * Formats machine-actionable widget: `event: widget`, `type: "PROBLEM_CARD"`, payload containing `title`, `detail`, `invalid_param`, `received`, `allowed_values`, and array of clickable `remedy` action triggers (e.g. `[Adjust Quantity to 5]`, `[Search Alternatives]`).
 - **Persistence Changes:** None.
 - **Acceptance Criteria:**
-  - Given a user authenticated as `ROLE_USER`, when prompting to view or cancel another customer's order, then returns RFC 7807 `403 Forbidden` Problem Card.
-  - Given an `InsufficientStockException` thrown during staging (requested 10, available 5), then a Problem Card is emitted with remedy `[Adjust Quantity to 5]`.
-- **Verification Command:** `mvn test -Dtest=AssistantSecurityScopingTest,AssistantProblemWidgetTest`
+  - Given a user authenticated as `ROLE_USER` (customer 2), when attempting to view or cancel orders for customer 1, then returns RFC 7807 `403 Forbidden` Problem Card with zero customer 1 data leaked.
+  - Given an `InsufficientStockException` thrown during staging (e.g. requested 10, available 5), then a Problem Card is emitted containing remedy `[Adjust Quantity to 5]`.
+  - Given an attempt to cancel an order in `SHIPPED` status, then returns RFC 7807 `409 Conflict` Problem Card explaining terminal fulfillment state.
+- **Verification Commands:**
+  - Unit & Integration: `mvn test -Dtest=AssistantSecurityScopingTest,AssistantProblemWidgetTest`
+  - Playwright CLI: Recipe D (`playwright-cli open https://polaris.local/swagger-ui/index.html` - test negative access control and stock constraint error feedback).
 
 #### Slice Work Order: [WO-015] Polaris Web Chat UI & Keycloak PKCE Integration Slice
-- **Target Context:** Presentation / Web Client (`src/main/resources/static/chat/**` or dedicated client module)
+- **Status:** Ready for Execution
+- **Target Context:** Presentation / Web Client (`src/main/resources/static/chat/**`, `vn.danang.polaris.assistant.web.ChatViewController`)
+- **Package & Static Asset Layout:**
+  - `src/main/resources/static/chat/index.html` (accessible semantic HTML5 layout)
+  - `src/main/resources/static/chat/app.js` (OIDC PKCE client, SSE reader, card renderer, confirmation handlers)
+  - `src/main/resources/static/chat/style.css` (responsive design, WCAG high-contrast focus rings, status badges)
+  - `vn.danang.polaris.assistant.web.ChatViewController` (maps `GET /chat` and forwarders)
+  - `vn.danang.polaris.config.SecurityConfig` (permits public `GET /chat/**` and `/static/**`, while strictly enforcing JWT authentication on `/api/v1/assistant/**`)
 - **Contract Definition:**
-  - Static Web Application: `index.html`, `app.js`, `style.css`
-  - Auth Flow: Keycloak OIDC Authorization Code Flow with PKCE (RFC 7636, S256). In-memory token management, silent refresh.
-  - Streaming Consumer: `fetch()` with `ReadableStream` (`pipeThrough(new TextDecoderStream())`), parsing `event: thought`, `event: token`, `event: widget`, `event: draft`, `event: done`.
-  - UI Card Components:
-    * `ProductCard`: displays SKU, title, category, price, and real-time stock badge.
-    * `OrderDraftCard`: itemized items, subtotals, grand total, 15-minute countdown timer, and "Submit Order" button.
-    * `OrderConfirmedCard`: order number badge, status `PLACED`, line items.
-    * `ProblemCard`: diagnostic title, details, and clickable remedy action buttons.
-  - Accessibility: WCAG 2.1 AA compliant, screen reader announcements via `role="log" aria-live="polite"`, keyboard accessible buttons.
+  - Web Assets: Static chat application served at `/chat`.
+  - OIDC PKCE Client: Keycloak Authorization Code Flow with PKCE (RFC 7636, S256). In-memory token storage, silent background refresh before token expiry. Client ID: `polaris-web`.
+  - Streaming Parser: `fetch()` with `ReadableStream` (`pipeThrough(new TextDecoderStream())`) parsing SSE events (`thought`, `token`, `widget`, `draft`, `done`).
+  - Interactive Card Components:
+    * `ProductCard`: Thumbnail, name, SKU, price, real-time stock badge, "Add to Draft" action.
+    * `OrderDraftCard`: Line items, quantities, pricing breakdown, 15-minute countdown timer, "Submit Order" button, "Cancel Draft" button.
+    * `OrderConfirmedCard`: Order number badge (`ORD-XXXXX`), status `PLACED`, total amount, item summary.
+    * `ProblemCard`: RFC 7807 error diagnostic card with clickable remedy buttons (`[Adjust Quantity]`, `[Search Alternatives]`).
+  - Accessibility & Usability: WCAG 2.1 AA compliant, `role="log" aria-live="polite" aria-atomic="false"`, keyboard navigation, mobile-responsive layout.
 - **Persistence Changes:** None.
 - **Acceptance Criteria:**
-  - Given an unauthenticated browser, when opening the chat UI, then redirects to Keycloak login with PKCE parameters.
-  - Given an authenticated session, when typing "Find chargers under $30", then the response streams in real time and product cards render.
-  - Given a staged order draft, when "Submit Order" is clicked, then client sends `POST .../confirm` with UUIDv4 `Idempotency-Key` and displays confirmed order card.
-- **Verification Command:** `mvn test -Dtest=WebChatClientIntegrationTest`
+  - Given an unauthenticated browser navigating to `/chat`, automatically redirects to Keycloak login with PKCE parameters (`code_challenge`, `code_challenge_method=S256`).
+  - Given an authenticated user, typing "Find chargers under $30", tokens stream smoothly and product cards render with live stock.
+  - Given a staged order draft card, clicking "Submit Order" executes `POST /api/v1/assistant/sessions/{id}/drafts/{draftId}/confirm` with a generated UUIDv4 `Idempotency-Key` and transitions UI to confirmed order card.
+  - Given out-of-stock response, problem card renders with remedy button that updates staged quantity on click.
+- **Verification Commands:**
+  - Unit & Integration: `mvn test -Dtest=WebChatClientIntegrationTest`
+  - Playwright CLI Live Stack: Recipe B (`playwright-cli open https://polaris.local/chat`, capturing `.playwright-cli/chat-stream-verified.yml` and `.playwright-cli/chat-stream-verified.png`).
 
 ---
 
