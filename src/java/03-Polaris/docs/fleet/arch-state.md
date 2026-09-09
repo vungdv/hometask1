@@ -84,8 +84,8 @@ flowchart TD
   - [WO-008] Enforce OAuth2 Authentication on MCP Gateway Endpoints & Fix Security Bypass -> Status: Verified
   - [WO-009] Comprehensive Order Lifecycle API & AI Shop Agent MCP Suite -> Status: Verified
   - [WO-010] Transition Polaris Persistence from H2 to PostgreSQL Container Database -> Status: Verified
-  - [WO-011] Assistant Domain Schema & Session/Draft Persistence Slice -> Status: Ready for Execution
-  - [WO-012] Pluggable Model Provider & Agency Orchestrator Engine Slice -> Status: Ready for Execution
+  - [WO-011] Assistant Domain Schema & Session/Draft Persistence Slice -> Status: Verified
+  - [WO-012] Pluggable Model Provider & Agency Orchestrator Engine Slice -> Status: Verified
   - [WO-013] Assistant Dual-Transport REST & SSE Streaming Controller Slice -> Status: Ready for Execution
   - [WO-014] Assistant Role Scoping & Self-Healing RFC 7807 Diagnostic Widget Slice -> Status: Ready for Execution
   - [WO-015] Polaris Web Chat UI & Keycloak PKCE Integration Slice -> Status: Ready for Execution
@@ -95,7 +95,7 @@ flowchart TD
 ### Sliced Work Orders Specification (PRD-006 & ADR-0004)
 
 #### Slice Work Order: [WO-011] Assistant Domain Schema & Session/Draft Persistence Slice
-- **Status:** Implemented & Verified
+- **Status:** Verified
 - **Target Context:** Assistant Bounded Context (`vn.danang.polaris.assistant`)
 - **Package Layout:**
   - `vn.danang.polaris.assistant.entity` (`AssistantSession`, `AssistantMessage`, `AssistantOrderDraft`, `SessionStatus`, `DraftStatus`, `MessageRole`)
