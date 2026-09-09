@@ -22,6 +22,7 @@
   - [WO-006] Native Spring Boot MCP Server Architecture Implementation -> Assigned: domain-dev-agent | Status: Verified
   - [WO-007] Upgrade Java MCP SDK to v2.0.1 GA -> Assigned: domain-dev-agent | Status: Verified
   - [WO-008] Enforce OAuth2 Authentication on MCP Gateway Endpoints & Fix Security Bypass -> Assigned: domain-dev-agent | Status: Verified
+  - [WO-009] Comprehensive Order Lifecycle API & AI Shop Agent MCP Suite -> Assigned: domain-dev-agent | Status: Verified
 
 
   

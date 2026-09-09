@@ -40,6 +40,7 @@ public class Order {
     private BigDecimal totalAmount;
     private Instant placedAt;
     private Instant updatedAt;
+    private String idempotencyKey;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItem> items = new ArrayList<>();

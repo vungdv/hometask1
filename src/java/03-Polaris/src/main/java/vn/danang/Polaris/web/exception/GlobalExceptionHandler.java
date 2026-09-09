@@ -34,9 +34,12 @@ public class GlobalExceptionHandler {
         problem.setTitle("Invalid Pagination Parameter");
         problem.setType(URI.create("https://polaris.local/errors/invalid-pagination"));
         problem.setProperty("invalid_param", ex.getInvalidParam());
+        problem.setProperty("location", "query");
         problem.setProperty("min", ex.getMin());
         problem.setProperty("max", ex.getMax());
         problem.setProperty("received", ex.getReceived());
+        problem.setProperty("remedy", String.format("Set parameter '%s' to an integer between %d and %d. Example: ?%s=%d",
+                ex.getInvalidParam(), ex.getMin(), ex.getMax(), ex.getInvalidParam(), ex.getMin()));
         return problem;
     }
 
@@ -47,6 +50,49 @@ public class GlobalExceptionHandler {
         problem.setType(URI.create("https://polaris.local/errors/invalid-sort"));
         problem.setProperty("invalid_property", ex.getInvalidProperty());
         problem.setProperty("allowed_properties", ex.getAllowedProperties());
+        problem.setProperty("invalid_param", "sort");
+        problem.setProperty("location", "query");
+        problem.setProperty("received", ex.getInvalidProperty());
+        problem.setProperty("allowed_values", ex.getAllowedProperties());
+        String sampleProp = ex.getAllowedProperties().isEmpty() ? "id" : ex.getAllowedProperties().get(0);
+        problem.setProperty("remedy", "Sort by one of the allowed properties in 'allowed_properties' with optional direction. Example: ?sort=" + sampleProp + ",asc");
+        return problem;
+    }
+
+    @ExceptionHandler(InsufficientStockException.class)
+    public ProblemDetail handleInsufficientStockException(InsufficientStockException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setTitle("Insufficient Stock");
+        problem.setType(URI.create("https://polaris.local/errors/out-of-stock"));
+        problem.setProperty("sku", ex.getSku());
+        problem.setProperty("requested_quantity", ex.getRequestedQuantity());
+        problem.setProperty("available_quantity", ex.getAvailableQuantity());
+        problem.setProperty("remedy", String.format("Reduce order quantity for '%s' to %d or fewer units.",
+                ex.getSku(), ex.getAvailableQuantity()));
+        return problem;
+    }
+
+    @ExceptionHandler(org.springframework.web.bind.MethodArgumentNotValidException.class)
+    public ProblemDetail handleMethodArgumentNotValidException(org.springframework.web.bind.MethodArgumentNotValidException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Validation failed for request body.");
+        problem.setTitle("Validation Error");
+        problem.setType(URI.create("https://polaris.local/errors/validation-error"));
+
+        java.util.List<java.util.Map<String, Object>> errors = new java.util.ArrayList<>();
+        for (org.springframework.validation.FieldError fieldError : ex.getBindingResult().getFieldErrors()) {
+            java.util.Map<String, Object> err = new java.util.LinkedHashMap<>();
+            err.put("field", fieldError.getField());
+            err.put("rejected", fieldError.getRejectedValue());
+            err.put("message", fieldError.getDefaultMessage());
+            err.put("remedy", "Provide a valid value for " + fieldError.getField() + ".");
+            errors.add(err);
+        }
+        problem.setProperty("errors", errors);
+        if (!errors.isEmpty()) {
+            problem.setProperty("invalid_param", errors.get(0).get("field"));
+            problem.setProperty("received", errors.get(0).get("rejected"));
+            problem.setProperty("remedy", errors.get(0).get("remedy"));
+        }
         return problem;
     }
 
@@ -127,6 +173,8 @@ public class GlobalExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
         problem.setTitle("Order State Conflict");
         problem.setType(URI.create("https://polaris.local/errors/conflict"));
+        problem.setProperty("allowed_states_for_action", java.util.List.of("PLACED", "CONFIRMED"));
+        problem.setProperty("remedy", "Only orders in PLACED or CONFIRMED state can be cancelled. Shipped orders must go through the return/refund workflow.");
         return problem;
     }
 

@@ -27,6 +27,10 @@ public final class PageableValidator {
             "id", "sku", "name", "category", "price", "stockQuantity", "stockQty", "active", "createdAt"
     );
 
+    public static final List<String> ALLOWED_ORDER_SORT_PROPERTIES = List.of(
+            "id", "orderNumber", "status", "totalAmount", "placedAt", "updatedAt"
+    );
+
     private static final Set<String> VALID_SORT_PROPERTIES = Set.of(
             "id", "sku", "name", "category", "price", "stockQuantity", "stockQty", "isActive", "active", "createdAt"
     );
@@ -35,6 +39,25 @@ public final class PageableValidator {
     }
 
     public static Pageable validateAndSanitize(Pageable pageable) {
+        return validateAndSanitize(pageable, ALLOWED_SORT_PROPERTIES, VALID_SORT_PROPERTIES, "id", Sort.Direction.ASC);
+    }
+
+    public static Pageable validateAndSanitizeOrder(Pageable pageable) {
+        return validateAndSanitize(
+                pageable,
+                ALLOWED_ORDER_SORT_PROPERTIES,
+                Set.copyOf(ALLOWED_ORDER_SORT_PROPERTIES),
+                "placedAt",
+                Sort.Direction.DESC
+        );
+    }
+
+    public static Pageable validateAndSanitize(
+            Pageable pageable,
+            List<String> allowedProperties,
+            Set<String> validProperties,
+            String defaultSortProperty,
+            Sort.Direction defaultDirection) {
         var requestAttributes = RequestContextHolder.getRequestAttributes();
         if (requestAttributes instanceof ServletRequestAttributes servletAttrs) {
             HttpServletRequest request = servletAttrs.getRequest();
@@ -62,7 +85,7 @@ public final class PageableValidator {
         }
 
         if (pageable == null || pageable.isUnpaged()) {
-            return PageRequest.of(DEFAULT_PAGE, DEFAULT_SIZE, Sort.by(Sort.Direction.ASC, "id"));
+            return PageRequest.of(DEFAULT_PAGE, DEFAULT_SIZE, Sort.by(defaultDirection, defaultSortProperty));
         }
 
         int page = pageable.getPageNumber();
@@ -83,8 +106,8 @@ public final class PageableValidator {
         List<Sort.Order> sanitizedOrders = new ArrayList<>();
         for (Sort.Order order : sort) {
             String property = order.getProperty();
-            if (!VALID_SORT_PROPERTIES.contains(property)) {
-                throw new InvalidSortPropertyException(property);
+            if (!validProperties.contains(property)) {
+                throw new InvalidSortPropertyException(property, allowedProperties);
             }
 
             String mappedProperty = property;

@@ -31,14 +31,24 @@
 | **PRD-002** | Order Lifecycle & Cancellation Domain Operations | Order | **Delivered** | Q3 Hardening |
 | **PRD-003** | Enterprise Authentication & Identity Integration | Gateway / Security | **Delivered** | Q3 Hardening |
 | **PRD-004** | Advanced Catalog Filtering & Self-Correcting Pagination | Catalog | **Delivered** | Q3 Hardening |
+| **PRD-005** | Comprehensive Order Lifecycle Capabilities & AI Shop Agent Integration | Order / Gateway / MCP | **Delivered** | Q3 Hardening |
 
 ---
 
-### 3. Active / Backlog Feature Candidates
+### 3. Delivered Capabilities
+- [x] **[PRD-001]** Product Discovery & Stock Query MCP Tools (Accepted)
+- [x] **[PRD-002]** Order Lifecycle & Cancellation Domain Operations (Accepted)
+- [x] **[PRD-003]** Enterprise Authentication & Identity Integration (Accepted)
+- [x] **[PRD-004]** Advanced Catalog Filtering & Self-Correcting Pagination (Accepted)
+- [x] **[PRD-005]** Comprehensive Order Lifecycle Capabilities & AI Shop Agent Integration (Accepted on 2026-09-09)
 
-- **[PRD-005 Candidate] Shopping Cart & Multi-Item Checkout Flow:**
+---
+
+### 4. Active / Backlog Feature Candidates
+
+- **[PRD-006 Candidate] Shopping Cart & Multi-Item Checkout Flow:**
   - *Context:* Order / Catalog
   - *Objective:* Enable shoppers and AI agents to stage items in an active cart, reserve stock temporarily, and execute multi-item checkout.
-- **[PRD-006 Candidate] Promotion & Discount Voucher Engine:**
+- **[PRD-007 Candidate] Promotion & Discount Voucher Engine:**
   - *Context:* Pricing / Order
   - *Objective:* Apply targeted percentage and fixed discounts to orders with coupon code validation.

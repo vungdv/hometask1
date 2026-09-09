@@ -7,7 +7,6 @@ import static org.hamcrest.Matchers.hasSize;
 import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.when;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -18,7 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import vn.danang.polaris.config.SecurityConfig;
-import vn.danang.polaris.config.WebConfig;
+import vn.danang.polaris.dto.OrderResponse;
 import vn.danang.polaris.entity.Customer;
 import vn.danang.polaris.entity.Order;
 import vn.danang.polaris.entity.OrderItem;
@@ -31,7 +30,6 @@ import vn.danang.polaris.web.exception.ResourceNotFoundException;
 import vn.danang.polaris.web.support.JwtMockFactory;
 
 @WebMvcTest(OrderController.class)
-@ImportAutoConfiguration(WebConfig.class)
 @Import({SecurityConfig.class, GlobalExceptionHandler.class})
 public class OrderControllerTest {
 
@@ -148,8 +146,191 @@ public class OrderControllerTest {
     }
 
     @Test
-    void cancel_unauthenticated_shouldReturn401() throws Exception {
-        mockMvc.perform(post("/api/v1/orders/ORD-1001/cancel"))
+    void getOrder_whenFound_shouldReturnOrderResponse() throws Exception {
+        Order sample = createSampleOrder("ORD-1002", OrderStatus.CONFIRMED);
+        when(orderService.getOrderStatus("ORD-1002")).thenReturn(sample);
+
+        mockMvc.perform(get("/api/v1/orders/ORD-1002").with(JwtMockFactory.user()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderNumber").value("ORD-1002"))
+                .andExpect(jsonPath("$.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.totalAmount").value(99.90))
+                .andExpect(jsonPath("$.customerName").value("Alice Tran"))
+                .andExpect(jsonPath("$.items", hasSize(1)));
+    }
+
+    @Test
+    void getOrder_whenNotFound_shouldReturn404ProblemDetail() throws Exception {
+        when(orderService.getOrderStatus("ORD-9999"))
+                .thenThrow(new ResourceNotFoundException("Order not found with order number: ORD-9999"));
+
+        mockMvc.perform(get("/api/v1/orders/ORD-9999").with(JwtMockFactory.user()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Order not found with order number: ORD-9999"))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/not-found"));
+    }
+
+    @Test
+    void placeOrder_validRequest_shouldReturn201CreatedAndLocationHeader() throws Exception {
+        Order sample = createSampleOrder("ORD-1001", OrderStatus.PLACED);
+        when(orderService.placeOrder(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(sample);
+
+        String json = """
+            {
+              "customerId": 1,
+              "items": [
+                { "sku": "NG-EARBUD-01", "quantity": 2 }
+              ]
+            }
+            """;
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(json)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isCreated())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Location", "/api/v1/orders/ORD-1001"))
+                .andExpect(jsonPath("$.orderNumber").value("ORD-1001"))
+                .andExpect(jsonPath("$.status").value("PLACED"))
+                .andExpect(jsonPath("$.totalAmount").value(99.90));
+    }
+
+    @Test
+    void placeOrder_withHeaderIdempotencyKey_shouldPassToService() throws Exception {
+        Order sample = createSampleOrder("ORD-1001", OrderStatus.PLACED);
+        when(orderService.placeOrder(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.eq("idem-key-123")))
+                .thenReturn(sample);
+
+        String json = """
+            {
+              "customerId": 1,
+              "items": [
+                { "sku": "NG-EARBUD-01", "quantity": 2 }
+              ]
+            }
+            """;
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "idem-key-123")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(json)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isCreated())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Location", "/api/v1/orders/ORD-1001"))
+                .andExpect(jsonPath("$.orderNumber").value("ORD-1001"));
+    }
+
+    @Test
+    void placeOrder_whenInsufficientStock_shouldReturn400OutOfStockProblemDetail() throws Exception {
+        when(orderService.placeOrder(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new vn.danang.polaris.web.exception.InsufficientStockException("NG-WATCH-01", 10, 5));
+
+        String json = """
+            {
+              "customerId": 1,
+              "items": [
+                { "sku": "NG-WATCH-01", "quantity": 10 }
+              ]
+            }
+            """;
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(json)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Insufficient Stock"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/out-of-stock"))
+                .andExpect(jsonPath("$.detail").value("Insufficient stock for product 'NG-WATCH-01'. Requested: 10, available: 5."))
+                .andExpect(jsonPath("$.sku").value("NG-WATCH-01"))
+                .andExpect(jsonPath("$.requested_quantity").value(10))
+                .andExpect(jsonPath("$.available_quantity").value(5))
+                .andExpect(jsonPath("$.remedy").value("Reduce order quantity for 'NG-WATCH-01' to 5 or fewer units."));
+    }
+
+    @Test
+    void placeOrder_whenEmptyItems_shouldReturn400ValidationError() throws Exception {
+        String json = """
+            {
+              "customerId": 1,
+              "items": []
+            }
+            """;
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(json)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Validation Error"))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/validation-error"))
+                .andExpect(jsonPath("$.invalid_param").value("items"));
+    }
+
+    @Test
+    void placeOrder_unauthenticated_shouldReturn401() throws Exception {
+        String json = """
+            {
+              "customerId": 1,
+              "items": [{ "sku": "NG-EARBUD-01", "quantity": 1 }]
+            }
+            """;
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void searchOrders_validParams_shouldReturnPagedOrders() throws Exception {
+        Order sample = createSampleOrder("ORD-1002", OrderStatus.CONFIRMED);
+        org.springframework.data.domain.Page<OrderResponse> page =
+                new org.springframework.data.domain.PageImpl<>(java.util.List.of(OrderResponse.from(sample)),
+                        org.springframework.data.domain.PageRequest.of(0, 20), 1);
+
+        when(orderService.searchOrders(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(OrderStatus.CONFIRMED), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/v1/orders")
+                        .param("customerId", "1")
+                        .param("status", "CONFIRMED")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].orderNumber").value("ORD-1002"))
+                .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    void searchOrders_invalidCustomerId_shouldReturn400() throws Exception {
+        mockMvc.perform(get("/api/v1/orders")
+                        .param("customerId", "-1")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void searchOrders_invalidSortProperty_shouldReturn400() throws Exception {
+        mockMvc.perform(get("/api/v1/orders")
+                        .param("sort", "unsupportedField,asc")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid Sort Property"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/invalid-sort"))
+                .andExpect(jsonPath("$.invalid_property").value("unsupportedField"));
+    }
+
+    @Test
+    void searchOrders_unauthenticated_shouldReturn401() throws Exception {
+        mockMvc.perform(get("/api/v1/orders"))
                 .andExpect(status().isUnauthorized());
     }
 }

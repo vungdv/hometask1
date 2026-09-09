@@ -66,4 +66,25 @@ public class ProductService {
                 .map(ProductResponse::from)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
     }
+
+    @Transactional
+    public Product deductStock(String sku, int quantity) {
+        Product product = productRepository.findBySkuIgnoreCase(sku)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
+        int currentStock = product.getStockQty() != null ? product.getStockQty() : 0;
+        if (currentStock < quantity) {
+            throw new vn.danang.polaris.web.exception.InsufficientStockException(product.getSku(), quantity, currentStock);
+        }
+        product.setStockQty(currentStock - quantity);
+        return productRepository.save(product);
+    }
+
+    @Transactional
+    public Product restoreStock(String sku, int quantity) {
+        Product product = productRepository.findBySkuIgnoreCase(sku)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
+        int currentStock = product.getStockQty() != null ? product.getStockQty() : 0;
+        product.setStockQty(currentStock + quantity);
+        return productRepository.save(product);
+    }
 }
