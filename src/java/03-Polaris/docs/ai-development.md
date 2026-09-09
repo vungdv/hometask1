@@ -46,10 +46,11 @@ Add Polaris to your `claude_desktop_config.json`:
 ```
 
 ### Option B: Google Antigravity
-Polaris is configured with Antigravity multi-agent roles and real-time lifecycle hooks:
+Polaris is configured with Antigravity multi-agent roles arranged in a decoupled Hub-and-Spoke architecture:
 - **Subagent Fleet**:
+  - `coordinator-agent`: Central workflow orchestrator that mediates all communication, quality gates, and state tracking across the specialized spokes while maintaining context air-gapping. Maintains [`docs/fleet/coordinator-state.md`](fleet/coordinator-state.md).
   - `product-manager`: Defines product vision, conducts market research, authors PRDs with business acceptance criteria, and maintains [`docs/fleet/product-state.md`](fleet/product-state.md).
-  - `arch-agent`: Governs system architecture, maintains bounded contexts, authors OpenAPI/DDL contracts, slices PRDs into Work Orders, and updates [`docs/fleet/arch-state.md`](fleet/arch-state.md).
+  - `arch-agent`: Governs system architecture, maintains bounded contexts, authors OpenAPI/DDL contracts, slices features into Work Orders, and updates [`docs/fleet/arch-state.md`](fleet/arch-state.md).
   - `domain-dev-agent`: Implements bounded context vertical slices (Flyway &rarr; JPA &rarr; Service &rarr; Controller &rarr; Tests) and updates [`docs/fleet/dev-state.md`](fleet/dev-state.md).
 - **Real-Time PreToolUse Hook**: Automatically active via [`.agents/hooks.json`](../.agents/hooks.json) to validate Mermaid diagrams in memory before any edit is written to disk.
 

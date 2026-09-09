@@ -1,7 +1,7 @@
 # Polaris Product State & Roadmap
 
-- **Active Milestone:** Q3 Production Hardening & AI Agent Tool Core
-- **Product Vision:** Build a cloud-native, AI-agent-ready e-commerce platform that pairs traditional commerce capabilities (Catalog, Order, Pricing) with native Model Context Protocol (MCP) integrations and self-healing API feedback.
+- **Active Milestone:** Q4 Milestone: Conversational Commerce & Web AI Assistant Core
+- **Product Vision:** Build a cloud-native, AI-agent-ready e-commerce platform that pairs traditional commerce capabilities (Catalog, Order, Pricing) with native Model Context Protocol (MCP) integrations, conversational chat surfaces, and self-healing API feedback.
 
 ---
 
@@ -21,6 +21,12 @@
    - Enterprise-grade OAuth2/OIDC security across both REST and MCP JSON-RPC gateways.
    - End-to-end distributed tracing observability (W3C `traceparent`).
 
+4. **Theme 4: Conversational Commerce & Multi-Surface Clients**
+   - Interactive Web Chat AI Assistant for retail shoppers and internal store staff.
+   - Grounded natural language catalog exploration, ambiguous item disambiguation, and conversational cart staging.
+   - Mandatory Human-in-the-Loop confirmation gates for state-mutating actions.
+   - Cross-device server-side session persistence and strict anti-IDOR authorization boundaries.
+
 ---
 
 ### 2. PRD Registry & Delivery Status
@@ -32,6 +38,7 @@
 | **PRD-003** | Enterprise Authentication & Identity Integration | Gateway / Security | **Delivered** | Q3 Hardening |
 | **PRD-004** | Advanced Catalog Filtering & Self-Correcting Pagination | Catalog | **Delivered** | Q3 Hardening |
 | **PRD-005** | Comprehensive Order Lifecycle Capabilities & AI Shop Agent Integration | Order / Gateway / MCP | **Delivered** | Q3 Hardening |
+| **PRD-006** | Internal Staff & Shopper AI Chat Web Assistant | Web Client / Catalog / Order / Gateway | **Ready for Architecture** | Q4 Conversational Core |
 
 ---
 
@@ -46,9 +53,12 @@
 
 ### 4. Active / Backlog Feature Candidates
 
-- **[PRD-006 Candidate] Shopping Cart & Multi-Item Checkout Flow:**
+- **[PRD-007 Candidate] Persistent Shopping Cart & Stock Reservation Engine:**
   - *Context:* Order / Catalog
-  - *Objective:* Enable shoppers and AI agents to stage items in an active cart, reserve stock temporarily, and execute multi-item checkout.
-- **[PRD-007 Candidate] Promotion & Discount Voucher Engine:**
+  - *Objective:* Provide persistent multi-session shopping carts with temporary stock holds and cart abandonment detection.
+- **[PRD-008 Candidate] Promotion & Discount Voucher Engine:**
   - *Context:* Pricing / Order
   - *Objective:* Apply targeted percentage and fixed discounts to orders with coupon code validation.
+- **[PRD-009 Candidate] Webhook Notifications & External Event Streaming:**
+  - *Context:* Gateway / Order
+  - *Objective:* Stream CloudEvents for order lifecycle changes to external webhook consumers.

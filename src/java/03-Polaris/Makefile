@@ -1,4 +1,4 @@
-.PHONY: pull build up down validate-docs setup-hooks
+.PHONY: pull build up down validate-docs setup-hooks test status playwright-ui playwright-close
 
 pull: 
 	docker compose pull
@@ -8,8 +8,12 @@ up:
 	docker compose up -d --build
 down: 
 	docker compose down --volumes --remove-orphans
+status:
+	docker compose ps
 restart-%:
 	docker compose restart $*
+test:
+	mvn clean test
 gcx: 
 	docker exec -it gcx-cli sh
 agy-ls:
@@ -20,3 +24,7 @@ setup-hooks:
 	node scripts/validate-mermaid.mjs --install-git-hook
 polaris-sql:
 	docker compose exec polaris-db psql -U polaris -d polaris
+playwright-ui:
+	playwright-cli open https://polaris.local/swagger-ui/index.html
+playwright-close:
+	playwright-cli close-all

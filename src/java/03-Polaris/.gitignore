@@ -161,3 +161,9 @@ application-local.yml
 # =============================================================================
 .DS_Store
 Thumbs.db
+
+# playwright
+.agents/skills/playwright/
+.agents/skills/playwright-cli/
+.playwright/
+.playwright-cli/

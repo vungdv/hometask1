@@ -99,11 +99,34 @@ make up
 
 | Target | Command | Purpose |
 |---|---|---|
-| **Start Stack** | `make up` | Starts all services in the background |
+| **Start Stack** | `make up` | Starts all services in the background (Core + LGTM stack) |
+| **Check Stack Status**| `make status` | Inspects container health, ports, and lifecycle states |
 | **Stop Stack** | `make down` | Stops containers, networks, and persistent dev volumes |
 | **Rebuild Images** | `make build` | Rebuilds the Polaris Spring Boot application image |
 | **Restart Service** | `make restart-<service>` | Restarts a single container (e.g. `make restart-polaris`) |
-| **Run Unit Tests** | `mvn clean test` | Executes local Java unit & domain integration tests |
+| **Run Unit & Integ Tests** | `make test` / `mvn clean test` | Executes local Java unit & domain integration tests |
+| **Playwright UI Testing** | `make playwright-ui` | Opens Swagger UI in Playwright for browser automation |
+| **Close Playwright** | `make playwright-close` | Closes all open Playwright browser sessions |
+| **Access Polaris DB** | `make polaris-sql` | Opens psql shell into the containerized PostgreSQL DB |
+
+---
+
+## The 4-Step Vertical Slice Development & Verification Lifecycle
+
+Every domain feature, API enhancement, or bug fix follows a strict 4-step verification and delivery funnel:
+
+```text
+[Step 1: Implementation] ──> [Step 2: Automated Tests] ──> [Step 3: Playwright E2E] ──> [Step 4: Atomic Commit & Fresh Handoff]
+Flyway DDL -> Entities       JUnit 5 Domain Tests          Live Stack (docker-compose)    git commit -m "feat: WO-xxx..."
+JPA Specs  -> Domain Svc     MockMvc Slice Tests (Auth)    OAuth2 PKCE Login via Keycloak Clean working directory
+REST Api   -> RFC 7807       @DataJpaTest Specs & DB       Swagger UI / Web Chat Stream   Pristine state for next slice
+Web Client -> PKCE / SSE     W3C Trace Header Proof        Grafana Traces & Loki Logs
+```
+
+1. **Step 1: Implementation (Vertical Completeness):** Complete implementation without stubbing (Flyway DDL &rarr; Entities &rarr; Service &rarr; Controller &rarr; Web Client).
+2. **Step 2: Automated Testing (Unit & Integration):** Complete suite of unit, MockMvc slice, and repository tests (`mvn clean test`).
+3. **Step 3: Playwright CLI E2E Verification (Live Stack):** Execute live browser automation against the comprehensive local stack (`docker-compose.yml` + `docker-compose.override.yml`), verifying OAuth2 PKCE auth, real API requests, SSE streaming, and telemetry in Grafana.
+4. **Step 4: Atomic Commit & Fresh Slice Transition:** After capturing evidence of successful tests, make an atomic Git commit with the verified slice and start completely fresh on the next slice with a clean working tree.
 
 ---
 
@@ -111,8 +134,11 @@ make up
 
 To keep daily development focused, detailed guides for specialized areas are maintained separately:
 
+- 🛠️ [**Technical & Implementation Guidelines**](docs/fleet/technical-guidelines.md): Code conventions, RFC 7807 Problem Details, SSE Virtual Threads, **Comprehensive Local Stack Architecture**, **4-Step Slice Lifecycle**, and **Playwright CLI Verification Recipes**.
+
 - 🤖 [**AI Assistant & Development Guide**](docs/ai-development.md): Integration guide for **Claude Code**, **Antigravity**, **Cursor**, MCP server setup (`mcp/mcp_polaris_products.py`), and diagram validation guards.
 - 🔍 [**AI Product Search Agent Specification**](docs/ai-product-search-agent.md): Tool definitions, schemas, and system prompt engineering for product search assistants.
 - 📊 [**Observability & Telemetry (LGTM Stack)**](docs/observability.md): Distributed tracing (Tempo), metrics collection (Prometheus), structured logging (Loki), and GCX CLI automation.
 - 📐 [**Architecture Decision Records (ADRs)**](docs/adr/): Formal architecture records (e.g., [ADR 0001: MCP Server Alternatives](docs/adr/0001-mcp-server-alternatives.md)).
 - 🔐 [**Local HTTPS & Truststore Architecture**](scripts/setup-local.md): In-depth manual instructions for `mkcert`, Java truststore creation, and TLS troubleshooting.
+
