@@ -168,9 +168,22 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public Order getOrderStatus(String orderNumber) {
-        return orderRepo.findByOrderNumber(orderNumber)
+        Order order = orderRepo.findByOrderNumber(orderNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with order number: " + orderNumber));
+        if (order.getCustomer() != null) {
+            order.getCustomer().getFullName();
+        }
+        if (order.getItems() != null) {
+            for (OrderItem item : order.getItems()) {
+                if (item.getProduct() != null) {
+                    item.getProduct().getName();
+                    item.getProduct().getSku();
+                }
+            }
+        }
+        return order;
     }
+
 
     @Transactional(readOnly = true)
     public Page<OrderResponse> searchOrders(Long customerId, OrderStatus status, Pageable pageable) {

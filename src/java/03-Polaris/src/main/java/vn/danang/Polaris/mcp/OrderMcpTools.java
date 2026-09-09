@@ -22,6 +22,7 @@ import vn.danang.polaris.dto.OrderResponse;
 import vn.danang.polaris.entity.Order;
 import vn.danang.polaris.entity.OrderItem;
 import vn.danang.polaris.entity.OrderStatus;
+import org.springframework.transaction.annotation.Transactional;
 import vn.danang.polaris.service.OrderService;
 import vn.danang.polaris.web.exception.InsufficientStockException;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
@@ -224,6 +225,7 @@ public class OrderMcpTools {
         return getOrderStatus(orderNumber);
     }
 
+    @Transactional(readOnly = true)
     public McpSchema.CallToolResult getOrderStatus(String orderNumber) {
         try {
             Order order = orderService.getOrderStatus(orderNumber.trim());
