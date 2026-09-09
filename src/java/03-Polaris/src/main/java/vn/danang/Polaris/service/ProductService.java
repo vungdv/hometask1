@@ -12,8 +12,7 @@ import vn.danang.polaris.dto.ProductResponse;
 import vn.danang.polaris.entity.Product;
 import vn.danang.polaris.repository.ProductRepository;
 import vn.danang.polaris.repository.ProductSpecifications;
-import vn.danang.polaris.web.PageableValidator;
-import vn.danang.polaris.web.ResourceNotFoundException;
+import vn.danang.polaris.web.exception.ResourceNotFoundException;
 
 @Service
 @Transactional(readOnly = true)
@@ -44,8 +43,6 @@ public class ProductService {
             Boolean available,
             Pageable pageable) {
 
-        Pageable sanitizedPageable = PageableValidator.validateAndSanitize(pageable);
-
         Specification<Product> spec = Specification
                 .where(ProductSpecifications.hasKeyword(query))
                 .and(ProductSpecifications.hasCategory(category))
@@ -54,7 +51,7 @@ public class ProductService {
                 .and(ProductSpecifications.maxPrice(maxPrice))
                 .and(ProductSpecifications.isAvailable(available));
 
-        return productRepository.findAll(spec, sanitizedPageable)
+        return productRepository.findAll(spec, pageable)
                 .map(ProductResponse::from);
     }
 

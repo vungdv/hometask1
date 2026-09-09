@@ -29,6 +29,9 @@ import vn.danang.polaris.config.WebConfig;
 import vn.danang.polaris.dto.CategoryResponse;
 import vn.danang.polaris.dto.ProductResponse;
 import vn.danang.polaris.service.CategoryService;
+import vn.danang.polaris.web.controller.CategoryController;
+import vn.danang.polaris.web.exception.GlobalExceptionHandler;
+import vn.danang.polaris.web.exception.ResourceNotFoundException;
 import vn.danang.polaris.web.support.JwtMockFactory;
 
 @WebMvcTest(CategoryController.class)

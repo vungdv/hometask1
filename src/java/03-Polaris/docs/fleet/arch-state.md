@@ -9,7 +9,9 @@
   - `Catalog Context`: v1 (OpenAPI spec in `ProductController.java`, `CategoryController.java` — `/api/v1/products`, `/api/v1/categories`)
   - `Order Context`: v1 (OpenAPI spec in `OrderController.java`, DTO contracts in `vn.danang.polaris.dto`)
   - `MCP Gateway Context`: v1 (Tools in `mcp/polaris_mcp/tools/`)
-  - `Observability SSO Contract`: OIDC Relying Party integration (`grafana` client in `keycloak/realm-export.json`, Generic OAuth in `docker-compose.override.yml`)
+- **Architecture Decision Records:**
+  - [ADR-0001: Architectural Alternatives for Exposing Polaris Services via Model Context Protocol (MCP)](../adr/0001-mcp-server-alternatives.md)
+  - [ADR-0002: Architectural Strategies for Pagination & Sort Validation: Boundary Placement and Single Responsibility](../adr/0002-pagination-sort-validation-architecture.md)
 
 - **Open Slice Work Orders:**
   - [WO-001] Order Context API Contract Hardening & Test Suite -> Assigned: domain-dev-agent | Status: Verified

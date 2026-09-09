@@ -1,6 +1,8 @@
-package vn.danang.polaris.web;
+package vn.danang.polaris.web.exception;
 
 import java.util.List;
+
+import vn.danang.polaris.web.validator.PageableValidator;
 
 public class InvalidSortPropertyException extends RuntimeException {
 

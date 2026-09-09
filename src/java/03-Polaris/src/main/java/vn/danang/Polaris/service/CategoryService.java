@@ -18,8 +18,7 @@ import vn.danang.polaris.entity.Product;
 import vn.danang.polaris.repository.CategoryRepository;
 import vn.danang.polaris.repository.ProductRepository;
 import vn.danang.polaris.repository.ProductSpecifications;
-import vn.danang.polaris.web.PageableValidator;
-import vn.danang.polaris.web.ResourceNotFoundException;
+import vn.danang.polaris.web.exception.ResourceNotFoundException;
 
 @Service
 @Transactional(readOnly = true)
@@ -70,9 +69,8 @@ public class CategoryService {
             throw new ResourceNotFoundException("Category not found with id: " + categoryId);
         }
 
-        Pageable sanitizedPageable = PageableValidator.validateAndSanitize(pageable);
         Specification<Product> spec = ProductSpecifications.hasCategoryId(categoryId);
-        return productRepository.findAll(spec, sanitizedPageable)
+        return productRepository.findAll(spec, pageable)
                 .map(ProductResponse::from);
     }
 

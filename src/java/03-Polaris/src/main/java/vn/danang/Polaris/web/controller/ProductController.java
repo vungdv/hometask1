@@ -1,4 +1,4 @@
-package vn.danang.polaris.web;
+package vn.danang.polaris.web.controller;
 
 import java.math.BigDecimal;
 
@@ -19,6 +19,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import vn.danang.polaris.dto.ProductResponse;
 import vn.danang.polaris.service.ProductService;
+import vn.danang.polaris.web.validator.PageableValidator;
 
 @RestController
 @RequestMapping("/api/v1/products")

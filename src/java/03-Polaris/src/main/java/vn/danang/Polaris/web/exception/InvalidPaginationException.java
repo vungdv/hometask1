@@ -1,4 +1,4 @@
-package vn.danang.polaris.web;
+package vn.danang.polaris.web.exception;
 
 public class InvalidPaginationException extends RuntimeException {
 

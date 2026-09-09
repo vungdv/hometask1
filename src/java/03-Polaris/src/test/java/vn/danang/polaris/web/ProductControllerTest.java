@@ -25,6 +25,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import vn.danang.polaris.config.SecurityConfig;
 import vn.danang.polaris.dto.ProductResponse;
 import vn.danang.polaris.service.ProductService;
+import vn.danang.polaris.web.controller.ProductController;
+import vn.danang.polaris.web.exception.GlobalExceptionHandler;
+import vn.danang.polaris.web.exception.ResourceNotFoundException;
 import vn.danang.polaris.web.support.JwtMockFactory;
 
 @WebMvcTest(ProductController.class)
