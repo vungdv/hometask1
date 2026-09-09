@@ -178,6 +178,18 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(DraftExpiredException.class)
+    public ProblemDetail handleDraftExpiredException(DraftExpiredException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Draft Expired");
+        problem.setType(URI.create("https://polaris.local/errors/draft-expired"));
+        if (ex.getDraftId() != null) {
+            problem.setProperty("draftId", ex.getDraftId());
+        }
+        problem.setProperty("remedy", "The order draft has expired (15-minute TTL elapsed). Please stage a new order draft.");
+        return problem;
+    }
+
     private static long parseLongOrDefault(Object value, long defaultValue) {
         if (value == null) {
             return defaultValue;

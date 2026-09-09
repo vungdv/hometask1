@@ -234,4 +234,53 @@ public class AssistantPersistenceIntegrationTest {
         assertThat(messages.get(1).getWidgetType()).isEqualTo("PRODUCT_CARD");
         assertThat(messages.get(1).getWidgetPayload()).contains("NG-CHARGER-01");
     }
+
+    @Test
+    void confirmDraft_shouldCreateOrderAndTransitionDraftToConfirmed() {
+        AssistantSession session = sessionService.createSession("user-confirm", 1L);
+        DraftItemDto item = new DraftItemDto("NG-CHARGER-01", "Nova 65W Fast Charger", 2, new BigDecimal("24.90"), new BigDecimal("49.80"));
+        AssistantOrderDraft draft = draftService.stageDraft(session.getId(), 1L, List.of(item), new BigDecimal("49.80"), 15);
+
+        vn.danang.polaris.entity.Order order = draftService.confirmDraft(session.getId(), draft.getId(), "idem-confirm-test-1");
+
+        assertThat(order).isNotNull();
+        assertThat(order.getOrderNumber()).startsWith("ORD-");
+        assertThat(order.getStatus()).isEqualTo(vn.danang.polaris.entity.OrderStatus.PLACED);
+        assertThat(order.getTotalAmount()).isEqualByComparingTo(new BigDecimal("49.80"));
+
+        AssistantOrderDraft reloaded = draftRepository.findById(draft.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(DraftStatus.CONFIRMED);
+        assertThat(reloaded.getConfirmedOrderNumber()).isEqualTo(order.getOrderNumber());
+    }
+
+    @Test
+    void confirmDraft_expiredDraft_shouldThrowDraftExpiredException() {
+        AssistantSession session = sessionService.createSession("user-expired", 1L);
+        DraftItemDto item = new DraftItemDto("NG-CHARGER-01", "Nova 65W Fast Charger", 1, new BigDecimal("24.90"), new BigDecimal("24.90"));
+        AssistantOrderDraft draft = draftService.stageDraft(session.getId(), 1L, List.of(item), new BigDecimal("24.90"), 15);
+
+        // Artificially expire the draft
+        draft.setExpiresAt(Instant.now().minus(Duration.ofMinutes(1)));
+        draftRepository.save(draft);
+
+        assertThatThrownBy(() -> draftService.confirmDraft(session.getId(), draft.getId(), "idem-expired"))
+                .isInstanceOf(vn.danang.polaris.web.exception.DraftExpiredException.class)
+                .hasMessageContaining("expired");
+
+        AssistantOrderDraft reloaded = draftRepository.findById(draft.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(DraftStatus.EXPIRED);
+    }
+
+    @Test
+    void cancelDraft_shouldTransitionDraftToCancelled() {
+        AssistantSession session = sessionService.createSession("user-cancel", 1L);
+        DraftItemDto item = new DraftItemDto("NG-CHARGER-01", "Nova 65W Fast Charger", 1, new BigDecimal("24.90"), new BigDecimal("24.90"));
+        AssistantOrderDraft draft = draftService.stageDraft(session.getId(), 1L, List.of(item), new BigDecimal("24.90"), 15);
+
+        AssistantOrderDraft cancelled = draftService.cancelDraft(session.getId(), draft.getId());
+
+        assertThat(cancelled.getStatus()).isEqualTo(DraftStatus.CANCELLED);
+        AssistantOrderDraft reloaded = draftRepository.findById(draft.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(DraftStatus.CANCELLED);
+    }
 }

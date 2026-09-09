@@ -86,7 +86,7 @@ flowchart TD
   - [WO-010] Transition Polaris Persistence from H2 to PostgreSQL Container Database -> Status: Verified
   - [WO-011] Assistant Domain Schema & Session/Draft Persistence Slice -> Status: Verified
   - [WO-012] Pluggable Model Provider & Agency Orchestrator Engine Slice -> Status: Verified
-  - [WO-013] Assistant Dual-Transport REST & SSE Streaming Controller Slice -> Status: Ready for Execution
+  - [WO-013] Assistant Dual-Transport REST & SSE Streaming Controller Slice -> Status: Verified
   - [WO-014] Assistant Role Scoping & Self-Healing RFC 7807 Diagnostic Widget Slice -> Status: Ready for Execution
   - [WO-015] Polaris Web Chat UI & Keycloak PKCE Integration Slice -> Status: Ready for Execution
 
@@ -131,7 +131,7 @@ flowchart TD
   - Playwright CLI: Recipe A (`playwright-cli open https://polaris.local/swagger-ui/index.html` - execute `/api/v1/assistant/sessions` operations with and without Bearer token).
 
 #### Slice Work Order: [WO-012] Pluggable Model Provider & Agency Orchestrator Engine Slice
-- **Status:** Ready for Execution
+- **Status:** Verified
 - **Target Context:** Assistant Cognitive Engine (`vn.danang.polaris.assistant.engine`, `vn.danang.polaris.assistant.model`, `vn.danang.polaris.assistant.tool`)
 - **Package Layout:**
   - `vn.danang.polaris.assistant.model` (`AssistantModelClient`, `DeterministicRuleModelClient`, `CloudModelClient`, `SessionContext`, `ModelEvent`, `ThoughtEvent`, `TokenDeltaEvent`, `ToolCallRequestEvent`, `TextCompletionEvent`)
