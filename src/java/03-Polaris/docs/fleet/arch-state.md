@@ -21,5 +21,7 @@
   - [WO-005] Catalog Pagination & Sort Contract Hardening with Actionable RFC 7807 Error Feedback -> Assigned: domain-dev-agent | Status: Verified
   - [WO-006] Native Spring Boot MCP Server Architecture Implementation -> Assigned: domain-dev-agent | Status: Verified
   - [WO-007] Upgrade Java MCP SDK to v2.0.1 GA -> Assigned: domain-dev-agent | Status: Verified
+  - [WO-008] Enforce OAuth2 Authentication on MCP Gateway Endpoints & Fix Security Bypass -> Assigned: domain-dev-agent | Status: Verified
+
 
   

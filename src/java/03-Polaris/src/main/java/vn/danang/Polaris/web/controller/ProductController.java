@@ -56,7 +56,8 @@ public class ProductController {
             @RequestParam(required = false) Boolean available,
             @Parameter(hidden = true)
             @PageableDefault(page = 0, size = 20, sort = "id", direction = Sort.Direction.ASC) Pageable pageable) {
-
+        // See ~/docs/adr/0002-pagination-sort-validation-architecture.md 
+        // for details on the decision of this validation and sanitization approach.
         Pageable sanitized = PageableValidator.validateAndSanitize(pageable);
         return productService.searchProducts(query, category, categoryId, minPrice, maxPrice, available, sanitized);
     }

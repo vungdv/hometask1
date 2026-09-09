@@ -18,12 +18,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 import vn.danang.polaris.entity.OrderStatus;
 import vn.danang.polaris.repository.OrderRepository;
+import vn.danang.polaris.web.support.JwtMockFactory;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -332,26 +334,43 @@ class McpServerTest {
         }
 
         @Test
-        @DisplayName("Security: /mcp/sse is accessible without authentication (permitAll)")
-        void mcpSse_isPermittedWithoutAuth() throws Exception {
+        @DisplayName("Security: unauthenticated GET /mcp/sse returns 401 Unauthorized")
+        void mcpSse_unauthenticated_returnsUnauthorized() throws Exception {
             mockMvc.perform(get("/mcp/sse"))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @DisplayName("Security: authenticated GET /mcp/sse is authorized")
+        void mcpSse_authenticated_isAuthorized() throws Exception {
+            mockMvc.perform(get("/mcp/sse").with(JwtMockFactory.user()))
                     .andExpect(result -> {
-                        int status = result.getResponse().getStatus();
-                        assertThat(status).isNotEqualTo(401);
-                        assertThat(status).isNotEqualTo(403);
+                        int statusCode = result.getResponse().getStatus();
+                        assertThat(statusCode).isNotEqualTo(401);
+                        assertThat(statusCode).isNotEqualTo(403);
                     });
         }
 
         @Test
-        @DisplayName("Security: /mcp/message is accessible without authentication or CSRF")
-        void mcpMessage_isPermittedWithoutAuth() throws Exception {
+        @DisplayName("Security: unauthenticated POST /mcp/message returns 401 Unauthorized")
+        void mcpMessage_unauthenticated_returnsUnauthorized() throws Exception {
             mockMvc.perform(post("/mcp/message")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"jsonrpc\":\"2.0\",\"method\":\"ping\",\"id\":1}"))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @DisplayName("Security: authenticated POST /mcp/message is authorized")
+        void mcpMessage_authenticated_isAuthorized() throws Exception {
+            mockMvc.perform(post("/mcp/message")
+                            .with(JwtMockFactory.user())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"jsonrpc\":\"2.0\",\"method\":\"ping\",\"id\":1}"))
                     .andExpect(result -> {
-                        int status = result.getResponse().getStatus();
-                        assertThat(status).isNotEqualTo(401);
-                        assertThat(status).isNotEqualTo(403);
+                        int statusCode = result.getResponse().getStatus();
+                        assertThat(statusCode).isNotEqualTo(401);
+                        assertThat(statusCode).isNotEqualTo(403);
                     });
         }
     }
