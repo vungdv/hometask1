@@ -1,7 +1,7 @@
-# Local HTTPS dev setup (polaris.local / id.polaris.local)
+# Local HTTPS dev setup (polaris.local / id.polaris.local / grafana.polaris.local)
 
-This sets up locally-trusted HTTPS for the app and Keycloak using [mkcert](https://github.com/FiloSottile/mkcert),
-so OAuth2 redirects between Swagger UI and Keycloak work without browser cert warnings breaking the flow.
+This sets up locally-trusted HTTPS for the app, Keycloak, and Grafana using [mkcert](https://github.com/FiloSottile/mkcert),
+so OAuth2 redirects between Swagger UI, Grafana, and Keycloak work without browser cert warnings breaking the flow.
 
 ## Repo layout expected
 
@@ -27,8 +27,8 @@ This will:
 1. Install Homebrew if missing.
 2. Install `mkcert` + `nss` via Homebrew.
 3. Install mkcert's local CA into your system/browser trust stores (`mkcert -install`).
-4. Add `polaris.local` and `id.polaris.local` to `/etc/hosts` (asks for `sudo`).
-5. Generate a cert covering both domains into `nginx/certs/`.
+4. Add `polaris.local`, `id.polaris.local`, and `grafana.polaris.local` to `/etc/hosts` (asks for `sudo`).
+5. Generate a cert covering all domains into `infra/nginx/certs/`.
 6. Copy the mkcert root CA to `rootCA.pem` at repo root, so it can be baked into the app's Docker image
    (needed so the JVM trusts Keycloak's cert when validating JWTs over HTTPS — see Dockerfile snippet below).
 
@@ -65,8 +65,9 @@ RUN keytool -importcert -noprompt -trustcacerts \
 docker compose up --build
 ```
 
-Then visit `https://polaris.local/swagger-ui/index.html` — the padlock should show a valid, trusted
-certificate (no warnings), and clicking **Authorize** should redirect to `https://id.polaris.local` cleanly.
+Then visit:
+- `https://polaris.local/swagger-ui/index.html` — the padlock should show a valid, trusted certificate, and clicking **Authorize** should redirect to `https://id.polaris.local` cleanly.
+- `https://grafana.polaris.local/` — the padlock should show a valid, trusted certificate, and clicking **Sign in with Keycloak** should redirect and authenticate cleanly over HTTPS.
 
 ## Troubleshooting
 

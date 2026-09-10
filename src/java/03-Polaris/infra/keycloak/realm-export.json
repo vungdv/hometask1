@@ -69,10 +69,12 @@
       "publicClient": false,
       "secret": "grafana-client-secret",
       "redirectUris": [
+        "https://grafana.polaris.local/login/generic_oauth",
         "http://localhost:3000/login/generic_oauth",
         "http://127.0.0.1:3000/login/generic_oauth"
       ],
       "webOrigins": [
+        "https://grafana.polaris.local",
         "http://localhost:3000",
         "http://127.0.0.1:3000"
       ],
@@ -81,7 +83,7 @@
       "serviceAccountsEnabled": false,
       "protocol": "openid-connect",
       "attributes": {
-        "post.logout.redirect.uris": "http://localhost:3000/login"
+        "post.logout.redirect.uris": "+"
       }
     }
   ],

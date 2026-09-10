@@ -14,7 +14,7 @@
 set -euo pipefail
 
 # ---- Config ------------------------------------------------------------
-DOMAINS=("polaris.local" "id.polaris.local")
+DOMAINS=("polaris.local" "id.polaris.local" "grafana.polaris.local")
 HOSTS_FILE="/etc/hosts"
 CERT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/infra/nginx/certs"
 CERT_BASENAME="polaris.local"   # mkcert names output after the first domain
@@ -94,16 +94,28 @@ generate_certs() {
   mkdir -p "$CERT_DIR"
   log "Generating certs into ${CERT_DIR} ..."
 
-  local cert_file="${CERT_DIR}/${CERT_BASENAME}+$((${#DOMAINS[@]} - 1)).pem"
-  local key_file="${CERT_DIR}/${CERT_BASENAME}+$((${#DOMAINS[@]} - 1))-key.pem"
+  local cert_file="${CERT_DIR}/polaris.local+1.pem"
+  local key_file="${CERT_DIR}/polaris.local+1-key.pem"
 
   if [[ -f "$cert_file" && -f "$key_file" ]]; then
-    ok "Certs already exist at ${cert_file}. Skipping generation."
-    ok "Delete ${CERT_DIR} and re-run this script to force regeneration."
-  else
-    (cd "$CERT_DIR" && mkcert "${DOMAINS[@]}")
-    ok "Certs generated: ${cert_file}"
+    local sans
+    sans=$(openssl x509 -in "$cert_file" -noout -text 2>/dev/null | grep -A 2 "Subject Alternative Name" || true)
+    local all_covered=true
+    for domain in "${DOMAINS[@]}"; do
+      if [[ "$sans" != *"$domain"* ]]; then
+        all_covered=false
+        break
+      fi
+    done
+    if [[ "$all_covered" == true ]]; then
+      ok "Certs already exist at ${cert_file} and cover all domains. Skipping generation."
+      return
+    fi
+    log "Existing cert does not cover all required domains. Regenerating..."
   fi
+
+  (cd "$CERT_DIR" && mkcert -cert-file "$cert_file" -key-file "$key_file" "polaris.local" "*.polaris.local" "${DOMAINS[@]}")
+  ok "Certs generated: ${cert_file}"
 }
 
 # ---- Step 5: Export CA root for Docker/JVM trust ---------------------------
@@ -134,7 +146,8 @@ print_summary() {
   echo "  Next steps:"
   echo "    1. docker compose up --build"
   echo "    2. Visit https://polaris.local/swagger-ui/index.html"
-  echo "    3. Click Authorize — should redirect to https://id.polaris.local without cert warnings"
+  echo "    3. Visit https://grafana.polaris.local for Grafana Dashboards"
+  echo "    4. Click Authorize / Sign In with Keycloak — should redirect without cert warnings"
   echo ""
 }
 

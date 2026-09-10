@@ -100,7 +100,7 @@ services:
       - ./infra/nginx/rootCA.pem:/etc/grafana/certs/rootCA.pem:ro
 
     environment:
-      - GF_SERVER_ROOT_URL=http://localhost:3000/
+      - GF_SERVER_ROOT_URL=https://grafana.polaris.local/
       - GF_AUTH_GENERIC_OAUTH_ENABLED=true
       - GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
       - GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true
@@ -144,6 +144,10 @@ services:
       - GRAFANA_PASSWORD=admin
     networks:
       - polaris-net
+    depends_on:
+      - grafana
+
+  nginx:
     depends_on:
       - grafana
 

@@ -16,6 +16,7 @@ services:
         aliases:
           - id.polaris.local
           - polaris.local
+          - grafana.polaris.local
   polaris:
     build: .
     container_name: polaris
