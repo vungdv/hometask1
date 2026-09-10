@@ -290,4 +290,46 @@ public class ProductControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)));
     }
+
+    @Test
+    void updateInventory_setQuantity_shouldReturn200() throws Exception {
+        vn.danang.polaris.entity.Product entity = new vn.danang.polaris.entity.Product();
+        entity.setId(1L);
+        entity.setSku("NG-EARBUD-01");
+        entity.setName("Nova Wireless Earbuds");
+        entity.setStockQty(50);
+        entity.setPrice(new BigDecimal("49.90"));
+        entity.setIsActive(true);
+
+        when(productService.updateInventory(eq("NG-EARBUD-01"), eq(50))).thenReturn(entity);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/products/sku/NG-EARBUD-01/inventory")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"quantity\": 50}")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sku").value("NG-EARBUD-01"))
+                .andExpect(jsonPath("$.stockQuantity").value(50));
+    }
+
+    @Test
+    void updateInventory_deltaAdjustment_shouldReturn200() throws Exception {
+        vn.danang.polaris.entity.Product entity = new vn.danang.polaris.entity.Product();
+        entity.setId(1L);
+        entity.setSku("NG-EARBUD-01");
+        entity.setName("Nova Wireless Earbuds");
+        entity.setStockQty(140);
+        entity.setPrice(new BigDecimal("49.90"));
+        entity.setIsActive(true);
+
+        when(productService.adjustInventory(eq("NG-EARBUD-01"), eq(20))).thenReturn(entity);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/products/sku/NG-EARBUD-01/inventory")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"delta\": 20}")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sku").value("NG-EARBUD-01"))
+                .andExpect(jsonPath("$.stockQuantity").value(140));
+    }
 }

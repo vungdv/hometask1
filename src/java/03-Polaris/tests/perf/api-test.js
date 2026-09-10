@@ -1,5 +1,6 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
+import { getAuthToken, getAuthHeaders } from './common/auth.js';
 
 export const options = {
   insecureSkipTLSVerify: true,
@@ -12,10 +13,6 @@ export const options = {
 };
 
 const BASE_URL = __ENV.BASE_URL || 'https://polaris.local';
-const KEYCLOAK_URL = __ENV.KEYCLOAK_URL || 'https://id.polaris.local/realms/polaris/protocol/openid-connect/token';
-const CLIENT_ID = __ENV.CLIENT_ID || 'polaris-local';
-const USERNAME = __ENV.USERNAME || 'testuser';
-const PASSWORD = __ENV.PASSWORD || 'testpass';
 
 function generateTraceparent() {
   const hex = '0123456789abcdef';
@@ -34,36 +31,9 @@ function generateTraceparent() {
 }
 
 export function setup() {
-  if (__ENV.AUTH_TOKEN) {
-    return { token: __ENV.AUTH_TOKEN };
-  }
-
-  const payload = {
-    grant_type: 'password',
-    client_id: CLIENT_ID,
-    username: USERNAME,
-    password: PASSWORD,
+  return {
+    token: getAuthToken(),
   };
-
-  const params = {
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-  };
-
-  const res = http.post(KEYCLOAK_URL, payload, params);
-  if (res.status === 200) {
-    try {
-      const body = JSON.parse(res.body);
-      return { token: body.access_token };
-    } catch (e) {
-      console.warn('Failed to parse Keycloak token response:', e);
-    }
-  } else {
-    console.warn(`Keycloak auth returned status ${res.status}: ${res.body}`);
-  }
-
-  return { token: null };
 }
 
 export default function (data) {
@@ -71,7 +41,7 @@ export default function (data) {
   const headers = {
     'Content-Type': 'application/json',
     'traceparent': trace.traceparent,
-    ...(data && data.token ? { 'Authorization': `Bearer ${data.token}` } : {}),
+    ...getAuthHeaders(data && data.token),
   };
 
   // 1. Catalog Endpoints

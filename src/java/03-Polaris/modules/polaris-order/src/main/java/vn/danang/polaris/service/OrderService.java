@@ -69,9 +69,14 @@ public class OrderService {
         record ResolvedItem(Product product, int quantity) {}
         List<ResolvedItem> resolvedItems = new ArrayList<>();
 
-        // Phase 1: Atomicity verification - check stock for all items before modifying any state
-        for (OrderItemRequest itemReq : requestedItems) {
-            Product product = productRepo.findBySkuIgnoreCase(itemReq.sku())
+        // Sort items deterministically by SKU before acquiring locks to prevent database deadlocks
+        List<OrderItemRequest> sortedItems = requestedItems.stream()
+                .sorted(java.util.Comparator.comparing(item -> item.sku().toLowerCase()))
+                .toList();
+
+        // Phase 1: Atomicity verification - lock and check stock for all items before modifying any state
+        for (OrderItemRequest itemReq : sortedItems) {
+            Product product = productRepo.findBySkuIgnoreCaseForUpdate(itemReq.sku())
                     .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + itemReq.sku()));
 
             int currentStock = product.getStockQty() != null ? product.getStockQty() : 0;
@@ -156,9 +161,11 @@ public class OrderService {
             for (OrderItem item : order.getItems()) {
                 Product product = item.getProduct();
                 if (product != null && item.getQuantity() != null) {
-                    int currentStock = product.getStockQty() != null ? product.getStockQty() : 0;
-                    product.setStockQty(currentStock + item.getQuantity());
-                    productRepo.save(product);
+                    Product lockedProduct = productRepo.findBySkuIgnoreCaseForUpdate(product.getSku())
+                            .orElse(product);
+                    int currentStock = lockedProduct.getStockQty() != null ? lockedProduct.getStockQty() : 0;
+                    lockedProduct.setStockQty(currentStock + item.getQuantity());
+                    productRepo.save(lockedProduct);
                 }
             }
         }

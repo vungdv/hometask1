@@ -77,4 +77,32 @@ public class ProductController {
             @PathVariable String sku) {
         return productService.getProductBySku(sku);
     }
+
+    @org.springframework.web.bind.annotation.PutMapping("/sku/{sku}/inventory")
+    @Operation(summary = "Update product inventory", description = "Update or adjust the available in-stock inventory count for a product with pessimistic write locking.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponses({
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Inventory successfully updated",
+            content = @io.swagger.v3.oas.annotations.media.Content(mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = ProductResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid quantity or negative stock adjustment",
+            content = @io.swagger.v3.oas.annotations.media.Content(mediaType = "application/problem+json", schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = org.springframework.http.ProblemDetail.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Product not found with SKU",
+            content = @io.swagger.v3.oas.annotations.media.Content(mediaType = "application/problem+json", schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = org.springframework.http.ProblemDetail.class)))
+    })
+    public org.springframework.http.ResponseEntity<ProductResponse> updateInventory(
+            @Parameter(description = "Product SKU (e.g., NG-EARBUD-01)")
+            @PathVariable String sku,
+            @jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody vn.danang.polaris.dto.UpdateInventoryRequest request) {
+        vn.danang.polaris.entity.Product updated;
+        if (request.delta() != null) {
+            updated = productService.adjustInventory(sku, request.delta());
+        } else if (request.quantity() != null) {
+            if (request.quantity() < 0) {
+                throw new IllegalArgumentException("Stock quantity cannot be negative: " + request.quantity());
+            }
+            updated = productService.updateInventory(sku, request.quantity());
+        } else {
+            throw new IllegalArgumentException("Either quantity or delta must be provided");
+        }
+        return org.springframework.http.ResponseEntity.ok(ProductResponse.from(updated));
+    }
 }

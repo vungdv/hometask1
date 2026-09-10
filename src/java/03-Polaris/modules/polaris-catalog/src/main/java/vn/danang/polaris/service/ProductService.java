@@ -68,8 +68,32 @@ public class ProductService {
     }
 
     @Transactional
+    public Product updateInventory(String sku, int newQuantity) {
+        if (newQuantity < 0) {
+            throw new IllegalArgumentException("Inventory quantity cannot be negative: " + newQuantity);
+        }
+        Product product = productRepository.findBySkuIgnoreCaseForUpdate(sku)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
+        product.setStockQty(newQuantity);
+        return productRepository.save(product);
+    }
+
+    @Transactional
+    public Product adjustInventory(String sku, int delta) {
+        Product product = productRepository.findBySkuIgnoreCaseForUpdate(sku)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
+        int current = product.getStockQty() != null ? product.getStockQty() : 0;
+        int target = current + delta;
+        if (target < 0) {
+            throw new IllegalArgumentException("Cannot adjust stock below 0. Current: " + current + ", delta: " + delta);
+        }
+        product.setStockQty(target);
+        return productRepository.save(product);
+    }
+
+    @Transactional
     public Product deductStock(String sku, int quantity) {
-        Product product = productRepository.findBySkuIgnoreCase(sku)
+        Product product = productRepository.findBySkuIgnoreCaseForUpdate(sku)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
         int currentStock = product.getStockQty() != null ? product.getStockQty() : 0;
         if (currentStock < quantity) {
@@ -81,7 +105,7 @@ public class ProductService {
 
     @Transactional
     public Product restoreStock(String sku, int quantity) {
-        Product product = productRepository.findBySkuIgnoreCase(sku)
+        Product product = productRepository.findBySkuIgnoreCaseForUpdate(sku)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
         int currentStock = product.getStockQty() != null ? product.getStockQty() : 0;
         product.setStockQty(currentStock + quantity);

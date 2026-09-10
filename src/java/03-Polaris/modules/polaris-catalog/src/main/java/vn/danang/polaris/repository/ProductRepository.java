@@ -14,6 +14,10 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     Optional<Product> findBySku(String sku);
     Optional<Product> findBySkuIgnoreCase(String sku);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Product p WHERE LOWER(p.sku) = LOWER(:sku)")
+    Optional<Product> findBySkuIgnoreCaseForUpdate(@Param("sku") String sku);
+
     @Query("SELECT p.categoryEntity.id, COUNT(p) FROM Product p WHERE p.categoryEntity IS NOT NULL GROUP BY p.categoryEntity.id")
     List<Object[]> countProductsGroupedByCategoryId();
 
