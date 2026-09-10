@@ -1,0 +1,7 @@
+package vn.danang.polaris;
+
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class TestAssistantApplication {
+}

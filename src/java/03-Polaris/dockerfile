@@ -3,10 +3,19 @@ FROM maven:3.9.9-eclipse-temurin-21 AS build
 
 WORKDIR /app
 
+# Copy parent and module POMs
 COPY pom.xml .
-RUN mvn dependency:go-offline -B
+COPY modules/polaris-common/pom.xml modules/polaris-common/
+COPY modules/polaris-catalog/pom.xml modules/polaris-catalog/
+COPY modules/polaris-order/pom.xml modules/polaris-order/
+COPY modules/polaris-assistant/pom.xml modules/polaris-assistant/
+COPY modules/polaris-mcp/pom.xml modules/polaris-mcp/
+COPY apps/polaris-server/pom.xml apps/polaris-server/
 
-COPY src ./src
+# Copy source trees and static assets
+COPY modules ./modules
+COPY apps ./apps
+
 RUN mvn clean package -DskipTests -B
 
 # ---------- Runtime stage ----------
@@ -17,7 +26,7 @@ WORKDIR /app
 RUN addgroup --system spring && adduser --system --ingroup spring spring
 USER spring:spring
 
-COPY --from=build /app/target/*.jar app.jar
+COPY --from=build /app/apps/polaris-server/target/*.jar app.jar
 
 VOLUME /app/data
 

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polaris-mcp-cli"
+version = "0.1.0"
+description = "Polaris Model Context Protocol Client and CLI Bridge"
+authors = [{ name = "Polaris Fleet" }]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27.0",
+    "mcp>=1.0.0",
+]
+
+[project.scripts]
+polaris-mcp-cli = "polaris_mcp.cli:main"

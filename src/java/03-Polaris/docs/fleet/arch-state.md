@@ -72,6 +72,7 @@ flowchart TD
   - [ADR-0002: Architectural Strategies for Pagination & Sort Validation: Boundary Placement and Single Responsibility](../adr/0002-pagination-sort-validation-architecture.md)
   - [ADR-0003: Architectural Strategy for Polaris Persistence: Transition from Embedded H2 to Dedicated PostgreSQL Container Database](../adr/0003-postgresql-container-persistence.md)
   - [ADR-0004: Architectural Topology & Placement of Responsibilities for the Polaris AI Assistant](../adr/0004-web-chat-ai-assistant-architecture.md)
+  - [ADR-0005: Architectural Strategy: Transition to Polyglot Monorepo with Maven Multi-Module Domain Architecture](../adr/0005-transition-to-polyglot-monorepo-architecture.md)
 
 - **Open Slice Work Orders:**
   - [WO-001] Order Context API Contract Hardening & Test Suite -> Status: Verified
@@ -88,7 +89,12 @@ flowchart TD
   - [WO-012] Pluggable Model Provider & Agency Orchestrator Engine Slice -> Status: Verified
   - [WO-013] Assistant Dual-Transport REST & SSE Streaming Controller Slice -> Status: Verified
   - [WO-014] Assistant Role Scoping & Self-Healing RFC 7807 Diagnostic Widget Slice -> Status: Verified
-  - [WO-015] Polaris Web Chat UI & Keycloak PKCE Integration Slice -> Status: Ready for Execution
+  - [WO-015] Polaris Web Chat UI & Keycloak PKCE Integration Slice -> Status: Verified
+  - [WO-016] Monorepo Directory Skeleton & Infrastructure Consolidation -> Status: Verified
+  - [WO-017] Root Parent POM & polaris-common Module Extraction -> Status: Verified
+  - [WO-018] Domain Contexts Modularization (polaris-catalog & polaris-order) -> Status: Verified
+  - [WO-019] Capability Modules & Server Assembly (polaris-assistant, polaris-mcp, polaris-server) -> Status: Verified
+  - [WO-020] Polyglot Apps Decoupling (apps/web-chat, apps/mcp-cli) & Comprehensive Stack Verification -> Status: Verified
 
 ---
 
