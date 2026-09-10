@@ -87,7 +87,7 @@ flowchart TD
   - [WO-011] Assistant Domain Schema & Session/Draft Persistence Slice -> Status: Verified
   - [WO-012] Pluggable Model Provider & Agency Orchestrator Engine Slice -> Status: Verified
   - [WO-013] Assistant Dual-Transport REST & SSE Streaming Controller Slice -> Status: Verified
-  - [WO-014] Assistant Role Scoping & Self-Healing RFC 7807 Diagnostic Widget Slice -> Status: Ready for Execution
+  - [WO-014] Assistant Role Scoping & Self-Healing RFC 7807 Diagnostic Widget Slice -> Status: Verified
   - [WO-015] Polaris Web Chat UI & Keycloak PKCE Integration Slice -> Status: Ready for Execution
 
 ---
@@ -194,7 +194,7 @@ flowchart TD
   - Playwright CLI: Recipe A (`playwright-cli open https://polaris.local/swagger-ui/index.html` - test SSE streaming and draft confirm endpoints with OAuth2 token).
 
 #### Slice Work Order: [WO-014] Assistant Role Scoping & Self-Healing RFC 7807 Diagnostic Widget Slice
-- **Status:** Ready for Execution
+- **Status:** Verified
 - **Target Context:** Assistant Security & Diagnostic Tier (`vn.danang.polaris.assistant.security`, `vn.danang.polaris.assistant.web`)
 - **Package Layout:**
   - `vn.danang.polaris.assistant.security` (`AssistantSecurityContext`, `AssistantIdentityScopingAspect`)

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Polaris Web Chat Assistant</title>
+  <link rel="stylesheet" href="/chat/style.css" />
+</head>
+<body>
+  <div id="app" class="app-layout">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand-zone">
+        <div class="logo-icon" aria-hidden="true">★</div>
+        <div class="brand-titles">
+          <h1 class="brand-name">Polaris AI Assistant</h1>
+          <span class="brand-tagline">Conversational Commerce &amp; Order Operations</span>
+        </div>
+      </div>
+
+      <div class="session-zone">
+        <div class="session-meta">
+          <span class="session-label">Session:</span>
+          <span id="session-id-display" class="session-id" title="Active Session ID">Not connected</span>
+        </div>
+        <div class="user-meta" id="user-meta" hidden>
+          <span id="user-badge" class="badge user-badge">Anonymous</span>
+          <span id="role-badge" class="badge role-badge">ROLE_USER</span>
+          <button id="logout-button" class="btn btn-secondary btn-sm" type="button">Sign Out</button>
+        </div>
+        <button id="login-button" class="btn btn-primary btn-sm" type="button">Sign In (PKCE)</button>
+      </div>
+    </header>
+
+    <!-- Main Chat Workspace -->
+    <main class="chat-workspace">
+      <!-- Unauthenticated Banner / Notice -->
+      <div id="auth-banner" class="auth-banner" hidden>
+        <div class="auth-banner-content">
+          <div class="auth-icon" aria-hidden="true">🔒</div>
+          <div class="auth-text">
+            <h3>Authentication Required</h3>
+            <p>Please sign in with Keycloak via OAuth2 Authorization Code Flow with PKCE (S256) to chat with the assistant and manage orders.</p>
+          </div>
+          <button id="banner-login-btn" class="btn btn-primary" type="button">Sign In with Keycloak</button>
+        </div>
+      </div>
+
+      <!-- Scrollable Message Log -->
+      <section id="chat-log" class="chat-log" role="log" aria-live="polite" aria-atomic="false" aria-label="Conversation message history">
+        <div class="message-bubble system-welcome">
+          <div class="bubble-header">
+            <span class="author-name">Polaris Assistant</span>
+            <time class="message-time">Ready</time>
+          </div>
+          <div class="bubble-content">
+            <p>Welcome to Polaris! I can assist with product discovery, live stock verification, staging itemized 15-minute order drafts, order tracking, and cancellations.</p>
+            <p class="bubble-hint">Select a quick prompt below or type your request to begin.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Quick Action Prompt Chips -->
+      <section class="prompt-chips-bar" aria-label="Quick prompt suggestions">
+        <span class="chips-label">Quick actions:</span>
+        <div class="chips-container" role="toolbar" aria-label="Preset queries">
+          <button class="chip-btn" type="button" data-prompt="Find chargers under $30">🔍 Chargers under $30</button>
+          <button class="chip-btn" type="button" data-prompt="stock NG-CHARGER-01">📦 Stock NG-CHARGER-01</button>
+          <button class="chip-btn" type="button" data-prompt="order 2 NG-CHARGER-01">🛒 Order 2 Chargers</button>
+          <button class="chip-btn" type="button" data-prompt="status of ORD-1001">🚚 Track ORD-1001</button>
+          <button class="chip-btn" type="button" data-prompt="cancel ORD-1001">↩️ Cancel ORD-1001</button>
+        </div>
+      </section>
+
+      <!-- Input Toolbar -->
+      <footer class="input-toolbar">
+        <form id="chat-form" class="chat-form" novalidate>
+          <label for="chat-input" class="sr-only">Your message</label>
+          <textarea
+            id="chat-input"
+            class="chat-textarea"
+            rows="1"
+            placeholder="Type a message (e.g. 'find earbuds under $50', 'order 2 NG-CHARGER-01')... [Enter to send]"
+            aria-label="Your message"
+            required
+          ></textarea>
+          <button id="send-button" class="btn btn-primary send-btn" type="submit" aria-label="Send message">
+            <span class="btn-text">Send</span>
+            <span class="btn-icon" aria-hidden="true">➤</span>
+          </button>
+        </form>
+      </footer>
+    </main>
+  </div>
+
+  <script src="/chat/app.js"></script>
+</body>
+</html>

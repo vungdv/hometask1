@@ -1,7 +1,6 @@
 package vn.danang.polaris.assistant;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -19,11 +18,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -35,7 +32,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import vn.danang.polaris.assistant.dto.AssistantDraftResponse;
 import vn.danang.polaris.assistant.dto.DraftItemDto;
 import vn.danang.polaris.assistant.engine.AgencyOrchestrator;
-import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.AssistantSession;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.entity.SessionStatus;
