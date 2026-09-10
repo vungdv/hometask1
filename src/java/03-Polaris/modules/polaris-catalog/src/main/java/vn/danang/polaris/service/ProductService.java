@@ -122,19 +122,9 @@ public class ProductService {
     }
 
     @Transactional
-    public Product updateInventoryById(Long id, int newQuantity) {
-        if (newQuantity < 0) {
-            throw new IllegalArgumentException("Inventory quantity cannot be negative: " + newQuantity);
-        }
-        //TODO: Consider using a database-level lock or optimistic locking to prevent race conditions in a concurrent environment
-        Product product = productRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
-        product.setStockQty(newQuantity);
-        return productRepository.save(product);
-    }
-
-    @Transactional
     public Product adjustInventoryById(Long id, int delta) {
+        // Pessimistic write lock (SELECT ... FOR UPDATE via LockModeType.PESSIMISTIC_WRITE)
+        // prevents race conditions and lost updates during concurrent delta adjustments (ADR-0007).
         Product product = productRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
         int current = product.getStockQty() != null ? product.getStockQty() : 0;
@@ -147,18 +137,9 @@ public class ProductService {
     }
 
     @Transactional
-    public Product updateInventory(String sku, int newQuantity) {
-        if (newQuantity < 0) {
-            throw new IllegalArgumentException("Inventory quantity cannot be negative: " + newQuantity);
-        }
-        Product product = productRepository.findBySkuIgnoreCaseForUpdate(sku)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
-        product.setStockQty(newQuantity);
-        return productRepository.save(product);
-    }
-
-    @Transactional
     public Product adjustInventory(String sku, int delta) {
+        // Pessimistic write lock (SELECT ... FOR UPDATE via LockModeType.PESSIMISTIC_WRITE)
+        // prevents race conditions and lost updates during concurrent delta adjustments (ADR-0007).
         Product product = productRepository.findBySkuIgnoreCaseForUpdate(sku)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
         int current = product.getStockQty() != null ? product.getStockQty() : 0;

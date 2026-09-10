@@ -10,7 +10,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
-
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.danang.polaris.entity.Product;
@@ -29,6 +28,8 @@ public class ProductRepositoryTest {
 
         Page<Product> availableProducts = productRepository.findAll(spec, PageRequest.of(0, 20));
 
+        // This test depends on the seed data in the test database. 
+        // The seed data should include a mix of in-stock and out-of-stock products.
         // The seed data has 5 in-stock and 1 out-of-stock ('NG-STAND-01')
         assertThat(availableProducts.getContent()).isNotEmpty();
         assertThat(availableProducts.getContent())

@@ -298,28 +298,7 @@ public class ProductControllerTest {
     }
 
     @Test
-    void updateInventory_setQuantity_shouldReturn200() throws Exception {
-        vn.danang.polaris.entity.Product entity = new vn.danang.polaris.entity.Product();
-        entity.setId(1L);
-        entity.setSku("NG-EARBUD-01");
-        entity.setName("Nova Wireless Earbuds");
-        entity.setStockQty(50);
-        entity.setPrice(new BigDecimal("49.90"));
-        entity.setIsActive(true);
-
-        when(productService.updateInventory(eq("NG-EARBUD-01"), eq(50))).thenReturn(entity);
-
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/products/sku/NG-EARBUD-01/inventory")
-                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                        .content("{\"quantity\": 50}")
-                        .with(JwtMockFactory.user()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sku").value("NG-EARBUD-01"))
-                .andExpect(jsonPath("$.stockQuantity").value(50));
-    }
-
-    @Test
-    void updateInventory_deltaAdjustment_shouldReturn200() throws Exception {
+    void adjustInventory_deltaAdjustment_shouldReturn200() throws Exception {
         vn.danang.polaris.entity.Product entity = new vn.danang.polaris.entity.Product();
         entity.setId(1L);
         entity.setSku("NG-EARBUD-01");
@@ -486,30 +465,7 @@ public class ProductControllerTest {
     }
 
     @Test
-    void updateInventoryById_setQuantity_shouldReturn200() throws Exception {
-        vn.danang.polaris.entity.Product entity = new vn.danang.polaris.entity.Product();
-        entity.setId(1L);
-        entity.setSku("NG-EARBUD-01");
-        entity.setName("Nova Wireless Earbuds");
-        entity.setStockQty(50);
-        entity.setPrice(new BigDecimal("49.90"));
-        entity.setIsActive(true);
-
-        when(productService.updateInventoryById(eq(1L), eq(50))).thenReturn(entity);
-
-        mockMvc.perform(put("/api/v1/products/1/inventory")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"quantity\": 50}")
-                        .with(JwtMockFactory.user()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.sku").value("NG-EARBUD-01"))
-                .andExpect(jsonPath("$.stockQuantity").value(50))
-                .andExpect(jsonPath("$.isAvailable").value(true));
-    }
-
-    @Test
-    void updateInventoryById_deltaAdjustment_shouldReturn200() throws Exception {
+    void adjustInventoryById_deltaAdjustment_shouldReturn200() throws Exception {
         vn.danang.polaris.entity.Product entity = new vn.danang.polaris.entity.Product();
         entity.setId(2L);
         entity.setSku("NG-WATCH-01");
@@ -532,7 +488,7 @@ public class ProductControllerTest {
     }
 
     @Test
-    void updateInventoryById_negativeResultingStock_shouldReturn400ProblemDetail() throws Exception {
+    void adjustInventoryById_negativeResultingStock_shouldReturn400ProblemDetail() throws Exception {
         when(productService.adjustInventoryById(eq(3L), eq(-10)))
                 .thenThrow(new IllegalArgumentException("Cannot adjust stock below 0. Current: 5, delta: -10"));
 
@@ -548,13 +504,13 @@ public class ProductControllerTest {
     }
 
     @Test
-    void updateInventoryById_nonExistentProductId_shouldReturn404ProblemDetail() throws Exception {
-        when(productService.updateInventoryById(eq(9999L), eq(20)))
+    void adjustInventoryById_nonExistentProductId_shouldReturn404ProblemDetail() throws Exception {
+        when(productService.adjustInventoryById(eq(9999L), eq(20)))
                 .thenThrow(new ResourceNotFoundException("Product not found with id: 9999"));
 
         mockMvc.perform(put("/api/v1/products/9999/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"quantity\": 20}")
+                        .content("{\"delta\": 20}")
                         .with(JwtMockFactory.user()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
@@ -564,15 +520,14 @@ public class ProductControllerTest {
     }
 
     @Test
-    void updateInventoryById_emptyPayload_shouldReturn400ProblemDetail() throws Exception {
+    void adjustInventoryById_emptyPayload_shouldReturn400ProblemDetail() throws Exception {
         mockMvc.perform(put("/api/v1/products/1/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}")
                         .with(JwtMockFactory.user()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.title").value("Validation Error"))
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
-                .andExpect(jsonPath("$.detail").value("Either quantity or delta must be provided"));
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/validation-error"));
     }
 }

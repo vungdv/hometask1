@@ -77,7 +77,7 @@ public class ProductController {
     @Operation(summary = "Get product by ID", description = "Retrieve single product details by internal numeric ID.")
     public ProductResponse getProductById(
             @Parameter(description = "Product database ID")
-            @PathVariable Long id) {
+            @PathVariable Long id){
         return productService.getProductById(id);
     }
 
@@ -85,7 +85,7 @@ public class ProductController {
     @Operation(summary = "Get product by SKU", description = "Retrieve single product details by business SKU code.")
     public ProductResponse getProductBySku(
             @Parameter(description = "Product SKU (e.g., NG-EARBUD-01)")
-            @PathVariable String sku) {
+            @PathVariable String sku) throws Exception {
         return productService.getProductBySku(sku);
     }
 
@@ -108,58 +108,38 @@ public class ProductController {
     }
 
     @PutMapping("/{id}/inventory")
-    @Operation(summary = "Update product inventory by ID", description = "Update or adjust the available in-stock inventory count for a product by internal numeric ID with pessimistic write locking.")
+    @Operation(summary = "Adjust product inventory by ID", description = "Adjust the available in-stock inventory count for a product by internal numeric ID using a relative delta (+/-) with pessimistic write locking.")
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Inventory successfully updated",
+        @ApiResponse(responseCode = "200", description = "Inventory successfully adjusted",
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductResponse.class))),
-        @ApiResponse(responseCode = "400", description = "Invalid quantity, missing parameter, or negative stock adjustment",
+        @ApiResponse(responseCode = "400", description = "Missing delta parameter or negative resulting stock adjustment",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
         @ApiResponse(responseCode = "404", description = "Product not found with ID",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
-    public ResponseEntity<ProductResponse> updateInventoryById(
+    public ResponseEntity<ProductResponse> adjustInventoryById(
             @Parameter(description = "Product database ID")
             @PathVariable Long id,
             @Valid @RequestBody UpdateInventoryRequest request) {
-        Product updated;
-        if (request.delta() != null) {
-            updated = productService.adjustInventoryById(id, request.delta());
-        } else if (request.quantity() != null) {
-            if (request.quantity() < 0) {
-                throw new IllegalArgumentException("Stock quantity cannot be negative: " + request.quantity());
-            }
-            updated = productService.updateInventoryById(id, request.quantity());
-        } else {
-            throw new IllegalArgumentException("Either quantity or delta must be provided");
-        }
+        Product updated = productService.adjustInventoryById(id, request.delta());
         return ResponseEntity.ok(ProductResponse.from(updated));
     }
 
     @PutMapping("/sku/{sku}/inventory")
-    @Operation(summary = "Update product inventory", description = "Update or adjust the available in-stock inventory count for a product with pessimistic write locking.")
+    @Operation(summary = "Adjust product inventory by SKU", description = "Adjust the available in-stock inventory count for a product by SKU using a relative delta (+/-) with pessimistic write locking.")
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Inventory successfully updated",
+        @ApiResponse(responseCode = "200", description = "Inventory successfully adjusted",
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductResponse.class))),
-        @ApiResponse(responseCode = "400", description = "Invalid quantity or negative stock adjustment",
+        @ApiResponse(responseCode = "400", description = "Missing delta parameter or negative resulting stock adjustment",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
         @ApiResponse(responseCode = "404", description = "Product not found with SKU",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
-    public ResponseEntity<ProductResponse> updateInventory(
+    public ResponseEntity<ProductResponse> adjustInventory(
             @Parameter(description = "Product SKU (e.g., NG-EARBUD-01)")
             @PathVariable String sku,
             @Valid @RequestBody UpdateInventoryRequest request) {
-        Product updated;
-        if (request.delta() != null) {
-            updated = productService.adjustInventory(sku, request.delta());
-        } else if (request.quantity() != null) {
-            if (request.quantity() < 0) {
-                throw new IllegalArgumentException("Stock quantity cannot be negative: " + request.quantity());
-            }
-            updated = productService.updateInventory(sku, request.quantity());
-        } else {
-            throw new IllegalArgumentException("Either quantity or delta must be provided");
-        }
+        Product updated = productService.adjustInventory(sku, request.delta());
         return ResponseEntity.ok(ProductResponse.from(updated));
     }
 }

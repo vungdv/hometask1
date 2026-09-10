@@ -130,10 +130,13 @@ public class ProductApiIntegrationTest {
     }
 
     @Test
-    void updateInventoryById_setQuantity_updatesStockAndAvailability() throws Exception {
+    void adjustInventoryById_relativeDelta_deductsStockToZeroAndUpdatesAvailability() throws Exception {
+        var before = productRepository.findById(1L).orElseThrow();
+        int initialStock = before.getStockQty();
+
         mockMvc.perform(put("/api/v1/products/1/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"quantity\": 0}")
+                        .content("{\"delta\": -" + initialStock + "}")
                         .with(JwtMockFactory.user()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
@@ -145,7 +148,7 @@ public class ProductApiIntegrationTest {
     }
 
     @Test
-    void updateInventoryById_relativeDelta_restocksCorrectly() throws Exception {
+    void adjustInventoryById_relativeDelta_restocksCorrectly() throws Exception {
         var before = productRepository.findById(2L).orElseThrow();
         int initialStock = before.getStockQty();
 
@@ -163,7 +166,7 @@ public class ProductApiIntegrationTest {
     }
 
     @Test
-    void updateInventoryById_negativeResultingStock_returns400() throws Exception {
+    void adjustInventoryById_negativeResultingStock_returns400() throws Exception {
         mockMvc.perform(put("/api/v1/products/1/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"delta\": -999999}")
@@ -175,13 +178,24 @@ public class ProductApiIntegrationTest {
     }
 
     @Test
-    void updateInventoryById_nonExistentProductId_returns404() throws Exception {
+    void adjustInventoryById_nonExistentProductId_returns404() throws Exception {
         mockMvc.perform(put("/api/v1/products/99999/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"quantity\": 50}")
+                        .content("{\"delta\": 50}")
                         .with(JwtMockFactory.user()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    void adjustInventoryById_missingDelta_returns400() throws Exception {
+        mockMvc.perform(put("/api/v1/products/1/inventory")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Validation Error"))
+                .andExpect(jsonPath("$.status").value(400));
     }
 }
