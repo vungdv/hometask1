@@ -45,6 +45,7 @@ services:
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
       # LOGGING_LEVEL_IO_OPENTELEMETRY: DEBUG
       # LOGGING_LEVEL_IO_OPENTELEMETRY_EXPORTER_OTLP: DEBUG
+      LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND: DEBUG
     volumes:
       - ./infra/nginx/truststore.jks:/certs/truststore.jks:ro
     depends_on:

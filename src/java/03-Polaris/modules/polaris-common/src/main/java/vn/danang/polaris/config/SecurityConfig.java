@@ -28,9 +28,9 @@ public class SecurityConfig {
                     "/chat",
                     "/chat/**",
                     "/static/**",
-                    "/favicon.ico"
+                    "/favicon.ico",
+                    "/api/v1/assistant/**"
                 ).permitAll()
-                .requestMatchers("/api/v1/assistant/**").authenticated()
                 .anyRequest().authenticated()
             )
             // jwt is sessionless, so disable session at all.

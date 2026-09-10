@@ -1,4 +1,7 @@
-.PHONY: pull build up down validate-docs setup-hooks test status playwright-ui playwright-close
+.PHONY: pull build up down validate-docs setup-hooks test status playwright-ui playwright-close run
+
+run:
+	mvn spring-boot:run -pl apps/polaris-server
 
 pull: 
 	docker compose pull

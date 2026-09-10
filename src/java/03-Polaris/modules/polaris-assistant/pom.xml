@@ -12,20 +12,12 @@
 	<artifactId>polaris-assistant</artifactId>
 	<packaging>jar</packaging>
 	<name>Polaris :: Assistant</name>
-	<description>Assistant Cognitive Engine and Streaming Bounded Context</description>
+	<description>Polaris AI Chat Assistant</description>
 
 	<dependencies>
 		<dependency>
 			<groupId>vn.danang</groupId>
 			<artifactId>polaris-common</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>vn.danang</groupId>
-			<artifactId>polaris-catalog</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>vn.danang</groupId>
-			<artifactId>polaris-order</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

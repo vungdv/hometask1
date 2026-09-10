@@ -25,6 +25,12 @@ spring:
       resourceserver:
         jwt:
           issuer-uri: https://id.polaris.local/realms/polaris
+
+polaris:
+  ai:
+    provider: gemini
+    api-key: ${GEMINI_API_KEY:${POLARIS_AI_API_KEY:}}
+    model: ${POLARIS_AI_MODEL:gemini-2.5-flash}
 springdoc:
   swagger-ui:
     oauth:
