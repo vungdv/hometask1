@@ -1,2 +1,0 @@
- @[src/main/java/vn/danang/polaris/config/SecurityConfig.java] it bypass authenticate for mcp/*; this seems a mistake? @[.agents/agents/arch-agent.md] why you accept this? investigate and update yourself to get
-  lesson learn

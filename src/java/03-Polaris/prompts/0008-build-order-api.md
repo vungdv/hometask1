@@ -1,1 +1,0 @@
-@[.agents/agents/product-manager.md] build an mvp of comprehensive order apis to prepare for AI shop agent.

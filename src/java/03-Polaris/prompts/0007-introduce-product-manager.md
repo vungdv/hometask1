@@ -1,2 +1,0 @@
-pair with me to define scope for @[.agents/agents/product-manager.md] @[.agents/agents/arch-agent.md] @[.agents/agents/domain-dev-agent.md] to build ai fleet to collaborate each other; each role should not
-  overlap each other and focus on their our scope of expertise.

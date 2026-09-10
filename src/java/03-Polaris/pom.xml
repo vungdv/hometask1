@@ -11,7 +11,7 @@
 
 	<groupId>vn.danang</groupId>
 	<artifactId>polaris-parent</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>0.1.1-SNAPSHOT</version>
 	<packaging>pom</packaging>
 	<name>Polaris :: Parent Reactor</name>
 	<description>Polaris Enterprise Assistant Backend Monorepo</description>
@@ -27,7 +27,7 @@
 
 	<properties>
 		<java.version>21</java.version>
-		<polaris.version>0.0.1-SNAPSHOT</polaris.version>
+		<polaris.version>0.1.1-SNAPSHOT</polaris.version>
 		<mcp.version>2.0.1</mcp.version>
 		<opentelemetry-logback.version>2.27.0-alpha</opentelemetry-logback.version>
 		<springdoc.version>3.0.0</springdoc.version>
