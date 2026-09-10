@@ -1,6 +1,6 @@
 # Polaris - Enterprise Assistant Backend
 
-Polaris is an enterprise backend service powering intelligent e-commerce operations, product discovery, and order lifecycle management. Designed for direct integration with AI assistants and modern web clients, Polaris exposes standards-compliant REST APIs secured by OAuth2/OIDC alongside a standard Model Context Protocol (MCP) server.
+Polaris is an enterprise backend service powering intelligent e-commerce operations, product discovery, conversational shopping, and order lifecycle management. Designed for direct integration with AI assistants and modern web clients, Polaris is organized as a modular polyglot monorepo exposing standards-compliant REST APIs secured by OAuth2/OIDC alongside a native Model Context Protocol (MCP) server.
 
 ---
 
@@ -20,9 +20,20 @@ Polaris is organized around clear bounded contexts adhering to Domain-Driven Des
   $$\text{CREATED / PROCESSING} \longrightarrow \text{CANCELLED}$$
 * **Domain Invariants & Rules**: Enforces business constraints (e.g. orders in `SHIPPED` state cannot be cancelled; invalid cancellations return standardized RFC 7807 Problem Details).
 
-### 3. Identity & Access Context (`https://id.polaris.local`)
+### 3. AI Assistant & Conversational Commerce Context (`/api/v1/assistant/**`, `/chat`)
+* **Perception & Dual-Transport Streaming**: Full-duplex Server-Sent Events (SSE) streaming (`thought`, `token`, `widget`, `draft`, `done`) alongside transactional REST endpoints.
+* **Cognitive Agency Orchestrator**: Pluggable AI engine supporting both zero-config deterministic local rules and external cloud foundation model providers.
+* **Durable Sessions & Cart Staging**: Server-side session history and staged order drafts persisted with a 15-minute Time-To-Live (TTL).
+* **Mandatory Human-in-the-Loop (HITL) Safety Gate**: Strict pre-commit verification and user confirmation (`POST .../drafts/{draftId}/confirm` with `Idempotency-Key`) before order creation; zero autonomous state mutations.
+* **Anti-IDOR Security & Self-Healing Diagnostics**: Role-scoped access control (`ROLE_USER` retail shoppers bounded strictly to caller ID; `ROLE_STAFF`/`ROLE_ADMIN` assisted sales) and self-healing RFC 7807 Problem Cards with actionable remedy buttons.
+
+### 4. Model Context Protocol (MCP) Gateway Context (`/mcp/sse`, `/mcp/message`)
+* **In-Process MCP Server**: Native Spring Boot MCP SDK integration exposing standard JSON-RPC tools (`search_available_products`, `get_product_by_sku`, order query tools) for AI assistants.
+* **Enterprise Security**: OAuth2/OIDC Bearer token authentication strictly enforced across all MCP endpoints (zero security bypass).
+
+### 5. Identity & Access Context (`https://id.polaris.local`)
 * **Standards-Based Authentication**: OAuth 2.0 and OpenID Connect (OIDC) via Keycloak (`polaris` realm).
-* **Cryptographic Token Verification**: Stateless JWT validation with PKCE support for client browsers and autonomous assistants.
+* **Cryptographic Token Verification**: Stateless JWT validation with PKCE support for client browsers, Swagger UI, and autonomous assistants.
 
 ---
 
@@ -30,43 +41,68 @@ Polaris is organized around clear bounded contexts adhering to Domain-Driven Des
 
 ```mermaid
 flowchart TB
-    subgraph Clients["Clients & Interfaces"]
-        Browser["Browser / Swagger UI"]
-        AIAssistant["AI Assistant<br/>(Claude / Antigravity / Cursor)"]
+    subgraph Clients["Clients & Presentation Tier"]
+        WebChat["Web Chat UI<br/>(/chat)"]
+        SwaggerUI["Swagger UI / REST<br/>(/swagger-ui)"]
+        AIAssistant["AI Assistant / MCP Clients<br/>(Claude / Antigravity / Cursor)"]
     end
 
-    subgraph Gateway["Gateway & Identity"]
+    subgraph Gateway["Gateway & Identity Perimeter"]
         Nginx["Nginx Reverse Proxy<br/>(polaris.local :443)"]
         Keycloak["Keycloak IdP<br/>(id.polaris.local :443)"]
     end
 
-    subgraph Core["Polaris Core Application (Spring Boot)"]
-        CatalogCtx["Catalog Context<br/>(/api/v1/products)"]
-        OrderCtx["Order Context<br/>(/api/v1/orders)"]
-        Security["OAuth2 / JWT Security"]
+    subgraph App["Polaris Runtime Application (apps/polaris-server)"]
+        CatalogMod["polaris-catalog<br/>(/api/v1/products)"]
+        OrderMod["polaris-order<br/>(/api/v1/orders)"]
+        AssistantMod["polaris-assistant<br/>(/api/v1/assistant/**)"]
+        McpMod["polaris-mcp<br/>(/mcp/sse)"]
+        CommonMod["polaris-common<br/>(Kernel, RFC 7807, OTel)"]
     end
 
     subgraph Storage["Persistence & Telemetry"]
-        H2[("Polaris DB<br/>(H2)")]
-        Postgres[("Keycloak DB<br/>(PostgreSQL)")]
+        PolarisDB[("Polaris DB<br/>(PostgreSQL 16)")]
+        KeycloakDB[("Keycloak DB<br/>(PostgreSQL 16)")]
         OTel["OpenTelemetry & LGTM Stack<br/>(Traces, Metrics, Logs)"]
     end
 
-    Browser -->|HTTPS| Nginx
+    WebChat -->|HTTPS / PKCE| Nginx
+    SwaggerUI -->|HTTPS / REST| Nginx
     AIAssistant -->|MCP / REST| Nginx
-    Nginx -->|Proxy| Core
-    Nginx -->|Proxy| Keycloak
-    Core -->|Validate Token| Keycloak
-    Core --> H2
-    Keycloak --> Postgres
-    Core -.->|OTLP Telemetry| OTel
+    Nginx -->|Proxy :8080| App
+    Nginx -->|Proxy :8080| Keycloak
+    App -->|Validate Token| Keycloak
+    App --> PolarisDB
+    Keycloak --> KeycloakDB
+    App -.->|OTLP Telemetry| OTel
+```
+
+---
+
+## Modular Monorepo Architecture
+
+Polaris is structured as a polyglot monorepo with a Maven multi-module reactor governing compile-time domain boundaries ([ADR-0005](docs/adr/0005-transition-to-polyglot-monorepo-architecture.md)):
+
+```text
+03-Polaris/
+├── apps/
+│   ├── polaris-server/     # Executable Spring Boot runtime assembly, composite security, and Flyway migrations
+│   └── web-chat/           # Decoupled browser chat UI (OIDC PKCE, SSE streaming, interactive cards)
+├── modules/
+│   ├── polaris-common/     # Shared kernel, RFC 7807 problem details, tracing filters, validation helpers
+│   ├── polaris-catalog/    # Product catalog bounded context, specifications, and REST controllers
+│   ├── polaris-order/      # Order bounded context, state machine, and REST controllers
+│   ├── polaris-assistant/  # AI agency orchestrator, session/draft persistence, and SSE streaming controllers
+│   └── polaris-mcp/        # Native Spring Boot MCP Server (JSON-RPC tools over SSE)
+├── infra/                  # Consolidated platform infrastructure (nginx, keycloak, telemetry)
+└── tests/                  # System verification suites (k6 performance, Playwright browser E2E)
 ```
 
 ---
 
 ## Up the Stack in a Minute
 
-Get the entire environment—including local HTTPS, identity provider, core backend, and telemetry—running locally in under 60 seconds:
+Get the entire environment—including local HTTPS, identity provider, core backend, PostgreSQL databases, and telemetry—running locally in under 60 seconds:
 
 ### 1. Prerequisites
 - Docker & Docker Compose
@@ -89,9 +125,12 @@ make up
 
 | Portal | URL | Credentials / Action |
 |---|---|---|
+| **Polaris Web Chat UI** | [https://polaris.local/chat](https://polaris.local/chat) | Click **Login** &rarr; authenticate via Keycloak PKCE with `testuser` / `testpass` |
 | **Polaris Swagger UI** | [https://polaris.local/swagger-ui/index.html](https://polaris.local/swagger-ui/index.html) | Click **Authorize** &rarr; select `polaris-app` &rarr; log in with `testuser` / `testpass` |
+| **Polaris MCP Endpoint** | [https://polaris.local/mcp/sse](https://polaris.local/mcp/sse) | MCP JSON-RPC SSE endpoint (Requires OAuth2 Bearer token) |
 | **Keycloak Admin** | [https://id.polaris.local](https://id.polaris.local) | Username: `admin` \| Password: `admin` |
-| **Grafana Telemetry** | [http://localhost:3000](http://localhost:3000) | Username: `admin` \| Password: `admin` |
+| **Grafana Telemetry** | [http://localhost:3000](http://localhost:3000) | Username: `admin` \| Password: `admin` (or Keycloak SSO) |
+| **Polaris Database** | Internal `polaris-db:5432` | `make polaris-sql` opens psql into PostgreSQL 16 database |
 
 ---
 
@@ -99,34 +138,16 @@ make up
 
 | Target | Command | Purpose |
 |---|---|---|
-| **Start Stack** | `make up` | Starts all services in the background (Core + LGTM stack) |
+| **Start Stack** | `make up` | Starts all services in the background (Apps + DBs + LGTM stack) |
 | **Check Stack Status**| `make status` | Inspects container health, ports, and lifecycle states |
 | **Stop Stack** | `make down` | Stops containers, networks, and persistent dev volumes |
-| **Rebuild Images** | `make build` | Rebuilds the Polaris Spring Boot application image |
+| **Rebuild Images** | `make build` | Rebuilds the multi-module Polaris Spring Boot application image |
 | **Restart Service** | `make restart-<service>` | Restarts a single container (e.g. `make restart-polaris`) |
-| **Run Unit & Integ Tests** | `make test` / `mvn clean test` | Executes local Java unit & domain integration tests |
+| **Run All Tests** | `make test` / `mvn clean test` | Executes local Java unit & domain integration tests across all modules |
+| **Test Single Module** | `mvn test -pl modules/<module>` | Executes tests for a single module (e.g. `modules/polaris-catalog`) |
 | **Playwright UI Testing** | `make playwright-ui` | Opens Swagger UI in Playwright for browser automation |
 | **Close Playwright** | `make playwright-close` | Closes all open Playwright browser sessions |
 | **Access Polaris DB** | `make polaris-sql` | Opens psql shell into the containerized PostgreSQL DB |
-
----
-
-## The 4-Step Vertical Slice Development & Verification Lifecycle
-
-Every domain feature, API enhancement, or bug fix follows a strict 4-step verification and delivery funnel:
-
-```text
-[Step 1: Implementation] ──> [Step 2: Automated Tests] ──> [Step 3: Playwright E2E] ──> [Step 4: Atomic Commit & Fresh Handoff]
-Flyway DDL -> Entities       JUnit 5 Domain Tests          Live Stack (docker-compose)    git commit -m "feat: WO-xxx..."
-JPA Specs  -> Domain Svc     MockMvc Slice Tests (Auth)    OAuth2 PKCE Login via Keycloak Clean working directory
-REST Api   -> RFC 7807       @DataJpaTest Specs & DB       Swagger UI / Web Chat Stream   Pristine state for next slice
-Web Client -> PKCE / SSE     W3C Trace Header Proof        Grafana Traces & Loki Logs
-```
-
-1. **Step 1: Implementation (Vertical Completeness):** Complete implementation without stubbing (Flyway DDL &rarr; Entities &rarr; Service &rarr; Controller &rarr; Web Client).
-2. **Step 2: Automated Testing (Unit & Integration):** Complete suite of unit, MockMvc slice, and repository tests (`mvn clean test`).
-3. **Step 3: Playwright CLI E2E Verification (Live Stack):** Execute live browser automation against the comprehensive local stack (`docker-compose.yml` + `docker-compose.override.yml`), verifying OAuth2 PKCE auth, real API requests, SSE streaming, and telemetry in Grafana.
-4. **Step 4: Atomic Commit & Fresh Slice Transition:** After capturing evidence of successful tests, make an atomic Git commit with the verified slice and start completely fresh on the next slice with a clean working tree.
 
 ---
 
@@ -135,10 +156,8 @@ Web Client -> PKCE / SSE     W3C Trace Header Proof        Grafana Traces & Loki
 To keep daily development focused, detailed guides for specialized areas are maintained separately:
 
 - 🛠️ [**Technical & Implementation Guidelines**](docs/fleet/technical-guidelines.md): Code conventions, RFC 7807 Problem Details, SSE Virtual Threads, **Comprehensive Local Stack Architecture**, **4-Step Slice Lifecycle**, and **Playwright CLI Verification Recipes**.
-
-- 🤖 [**AI Assistant & Development Guide**](docs/ai-development.md): Integration guide for **Claude Code**, **Antigravity**, **Cursor**, MCP server setup (`mcp/mcp_polaris_products.py`), and diagram validation guards.
+- 🤖 [**AI Assistant & Development Guide**](docs/ai-development.md): Integration guide for **Claude Code**, **Antigravity**, **Cursor**, MCP server setup, and diagram validation guards.
 - 🔍 [**AI Product Search Agent Specification**](docs/ai-product-search-agent.md): Tool definitions, schemas, and system prompt engineering for product search assistants.
 - 📊 [**Observability & Telemetry (LGTM Stack)**](docs/observability.md): Distributed tracing (Tempo), metrics collection (Prometheus), structured logging (Loki), and GCX CLI automation.
-- 📐 [**Architecture Decision Records (ADRs)**](docs/adr/): Formal architecture records (e.g., [ADR 0001: MCP Server Alternatives](docs/adr/0001-mcp-server-alternatives.md)).
+- 📐 [**Architecture Decision Records (ADRs)**](docs/adr/): Formal architecture records (e.g., [ADR 0005: Polyglot Monorepo](docs/adr/0005-transition-to-polyglot-monorepo-architecture.md), [ADR 0004: AI Assistant Architecture](docs/adr/0004-web-chat-ai-assistant-architecture.md), [ADR 0003: PostgreSQL Persistence](docs/adr/0003-postgresql-container-persistence.md)).
 - 🔐 [**Local HTTPS & Truststore Architecture**](scripts/setup-local.md): In-depth manual instructions for `mkcert`, Java truststore creation, and TLS troubleshooting.
-

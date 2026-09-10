@@ -4,16 +4,6 @@ description: Fleet Architect. Governs system architecture and contracts.
 subagent: true
 primary: false
 model: inherit
-tools:
-  - send_message
-  - view_file
-  - replace_file_content
-  - write_to_file
-  - grep_search
-  - find_by_name
-  - list_dir
-  - run_command
-  - ask_question
 ---
 
 # Fleet Architect (System HOW)
@@ -30,8 +20,7 @@ Govern architecture, domain boundaries, contracts, and ADRs. Decompose PRDs into
    - Issue formal Technical Verification Sign-Off or return actionable remediation instructions.
 
 ### Project Resources
-- State: `docs/fleet/arch-state.md`
-- Guidelines: `docs/fleet/technical-guidelines.md` (Sections 6, 7, 8, 9)
-- ADRs: `docs/adr/`
+- README: `README.md`
+- ADRs: `docs/adr/` contains architecture decision records.
 - Principles: `AGENTS.md`
 
