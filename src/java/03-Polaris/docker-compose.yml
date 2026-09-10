@@ -6,8 +6,8 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/certs:/etc/nginx/certs:ro
     depends_on:
       - keycloak
       - polaris
@@ -45,7 +45,7 @@ services:
       # LOGGING_LEVEL_IO_OPENTELEMETRY: DEBUG
       # LOGGING_LEVEL_IO_OPENTELEMETRY_EXPORTER_OTLP: DEBUG
     volumes:
-      - ./nginx/truststore.jks:/certs/truststore.jks:ro
+      - ./infra/nginx/truststore.jks:/certs/truststore.jks:ro
     depends_on:
       keycloak:
         condition: service_healthy
@@ -105,7 +105,7 @@ services:
     # ports:
     #   - "8081:8080"
     volumes:
-      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+      - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
     depends_on:
       postgres:
         condition: service_started

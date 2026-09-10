@@ -10,7 +10,7 @@ services:
       - polaris-net
 
     volumes:
-      - ./telemetry/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./infra/telemetry/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus
 
     command:
@@ -26,7 +26,7 @@ services:
       - polaris-net
 
     volumes:
-      - ./telemetry/loki/loki.yml:/etc/loki/config.yml
+      - ./infra/telemetry/loki/loki.yml:/etc/loki/config.yml
       - loki-data:/loki
 
     command:
@@ -37,7 +37,7 @@ services:
     working_dir: /app
     # Mount your script into the container (edit locally, no rebuild needed)
     volumes:
-      - ./telemetry/sample-logs/logseeding.py:/app/logseeding.py:ro
+      - ./infra/telemetry/sample-logs/logseeding.py:/app/logseeding.py:ro
     # Install requests once, then idle so the container stays up for `docker exec`.
     # requests is installed into a volume-backed dir so it survives restarts
     # (skip re-downloading every time you recreate the container).
@@ -58,7 +58,7 @@ services:
       - polaris-net
 
     volumes:
-      - ./telemetry/tempo/tempo.yml:/etc/tempo/config.yml
+      - ./infra/telemetry/tempo/tempo.yml:/etc/tempo/config.yml
       - tempo-data:/var/tempo
 
     command:
@@ -72,7 +72,7 @@ services:
       - "--config=/etc/otelcol-contrib/config.yaml"
 
     volumes:
-      - ./telemetry/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
+      - ./infra/telemetry/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
 
     ports:
       - "4317:4317" # gRPC OTLP receiver
@@ -96,8 +96,8 @@ services:
 
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./telemetry/grafana/provisioning:/etc/grafana/provisioning
-      - ./nginx/rootCA.pem:/etc/grafana/certs/rootCA.pem:ro
+      - ./infra/telemetry/grafana/provisioning:/etc/grafana/provisioning
+      - ./infra/nginx/rootCA.pem:/etc/grafana/certs/rootCA.pem:ro
 
     environment:
       - GF_SERVER_ROOT_URL=http://localhost:3000/
@@ -125,7 +125,7 @@ services:
     # to attach to.
     entrypoint: ["sh", "-c", "apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && sh /entrypoint.sh"]
     volumes:
-      - ./telemetry/gcx/entrypoint.sh:/entrypoint.sh:ro
+      - ./infra/telemetry/gcx/entrypoint.sh:/entrypoint.sh:ro
       - gcx-bin:/root/.local/bin
       - gcx-config:/root/.config/gcx
     environment:
