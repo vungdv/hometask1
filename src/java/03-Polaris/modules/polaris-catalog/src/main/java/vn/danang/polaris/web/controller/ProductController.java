@@ -1,13 +1,19 @@
 package vn.danang.polaris.web.controller;
 
 import java.math.BigDecimal;
+import java.net.URI;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -15,9 +21,16 @@ import org.springframework.web.bind.annotation.RestController;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import vn.danang.polaris.dto.CreateProductRequest;
 import vn.danang.polaris.dto.ProductResponse;
+import vn.danang.polaris.dto.UpdateInventoryRequest;
+import vn.danang.polaris.entity.Product;
 import vn.danang.polaris.service.ProductService;
 import vn.danang.polaris.web.validator.PageableValidator;
 
@@ -33,14 +46,12 @@ public class ProductController {
     }
 
     @GetMapping
-    // OpenAPI annotations for documentation
     @Operation(summary = "Search products", description = "Search and filter products by query keyword, category, category ID, price range, and stock availability.")
     @Parameters({
         @Parameter(name = "page", description = "Zero-based page index (0..10000)", schema = @Schema(type = "integer", defaultValue = "0", minimum = "0", maximum = "10000")),
         @Parameter(name = "size", description = "The size of the page to be returned (1..100)", schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100")),
         @Parameter(name = "sort", description = "Sorting criteria in the format: property(,asc|desc). Allowed properties: [id, sku, name, category, price, stockQuantity, stockQty, active, createdAt]", example = "id,asc", schema = @Schema(type = "string", defaultValue = "id,asc"))
     })
-    // End of OpenAPI annotations
     public Page<ProductResponse> search(
             @Parameter(description = "Keyword to match against product name, SKU, or description")
             @RequestParam(required = false) String query,
@@ -78,21 +89,67 @@ public class ProductController {
         return productService.getProductBySku(sku);
     }
 
-    @org.springframework.web.bind.annotation.PutMapping("/sku/{sku}/inventory")
-    @Operation(summary = "Update product inventory", description = "Update or adjust the available in-stock inventory count for a product with pessimistic write locking.")
-    @io.swagger.v3.oas.annotations.responses.ApiResponses({
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Inventory successfully updated",
-            content = @io.swagger.v3.oas.annotations.media.Content(mediaType = "application/json", schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = ProductResponse.class))),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid quantity or negative stock adjustment",
-            content = @io.swagger.v3.oas.annotations.media.Content(mediaType = "application/problem+json", schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = org.springframework.http.ProblemDetail.class))),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Product not found with SKU",
-            content = @io.swagger.v3.oas.annotations.media.Content(mediaType = "application/problem+json", schema = @io.swagger.v3.oas.annotations.media.Schema(implementation = org.springframework.http.ProblemDetail.class)))
+    @PostMapping
+    @Operation(summary = "Create product", description = "Onboard a new product into the catalog with case-insensitive unique SKU, price, and optional category/inventory.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "201", description = "Product successfully created",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductResponse.class))),
+        @ApiResponse(responseCode = "400", description = "Invalid request payload or validation constraint violation",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Associated category not found",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "409", description = "Duplicate SKU collision",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
-    public org.springframework.http.ResponseEntity<ProductResponse> updateInventory(
+    public ResponseEntity<ProductResponse> createProduct(@Valid @RequestBody CreateProductRequest request) {
+        ProductResponse created = productService.createProduct(request);
+        URI location = URI.create("/api/v1/products/" + created.id());
+        return ResponseEntity.created(location).body(created);
+    }
+
+    @PutMapping("/{id}/inventory")
+    @Operation(summary = "Update product inventory by ID", description = "Update or adjust the available in-stock inventory count for a product by internal numeric ID with pessimistic write locking.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Inventory successfully updated",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductResponse.class))),
+        @ApiResponse(responseCode = "400", description = "Invalid quantity, missing parameter, or negative stock adjustment",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Product not found with ID",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public ResponseEntity<ProductResponse> updateInventoryById(
+            @Parameter(description = "Product database ID")
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateInventoryRequest request) {
+        Product updated;
+        if (request.delta() != null) {
+            updated = productService.adjustInventoryById(id, request.delta());
+        } else if (request.quantity() != null) {
+            if (request.quantity() < 0) {
+                throw new IllegalArgumentException("Stock quantity cannot be negative: " + request.quantity());
+            }
+            updated = productService.updateInventoryById(id, request.quantity());
+        } else {
+            throw new IllegalArgumentException("Either quantity or delta must be provided");
+        }
+        return ResponseEntity.ok(ProductResponse.from(updated));
+    }
+
+    @PutMapping("/sku/{sku}/inventory")
+    @Operation(summary = "Update product inventory", description = "Update or adjust the available in-stock inventory count for a product with pessimistic write locking.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Inventory successfully updated",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductResponse.class))),
+        @ApiResponse(responseCode = "400", description = "Invalid quantity or negative stock adjustment",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Product not found with SKU",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public ResponseEntity<ProductResponse> updateInventory(
             @Parameter(description = "Product SKU (e.g., NG-EARBUD-01)")
             @PathVariable String sku,
-            @jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody vn.danang.polaris.dto.UpdateInventoryRequest request) {
-        vn.danang.polaris.entity.Product updated;
+            @Valid @RequestBody UpdateInventoryRequest request) {
+        Product updated;
         if (request.delta() != null) {
             updated = productService.adjustInventory(sku, request.delta());
         } else if (request.quantity() != null) {
@@ -103,6 +160,6 @@ public class ProductController {
         } else {
             throw new IllegalArgumentException("Either quantity or delta must be provided");
         }
-        return org.springframework.http.ResponseEntity.ok(ProductResponse.from(updated));
+        return ResponseEntity.ok(ProductResponse.from(updated));
     }
 }

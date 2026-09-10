@@ -118,7 +118,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(InvalidDataAccessApiUsageException.class)
     public ProblemDetail handleInvalidDataAccessApiUsageException(InvalidDataAccessApiUsageException ex) {
-
+        // TODO:
+        // Are there any alternatives to parsing the exception message? 
+        // This is a bit fragile, but Spring Data JPA doesn't provide a better way to handle this.
         String msg = ex.getMessage();
         if (msg != null && (msg.contains("Sort expression") || msg.contains("property references or aliases"))) {
             Matcher matcher = SORT_PROPERTY_PATTERN.matcher(msg);
@@ -126,6 +128,10 @@ public class GlobalExceptionHandler {
                 String prop = matcher.group(1);
                 return handleInvalidSortPropertyException(new InvalidSortPropertyException(prop));
             }
+
+            // TODO:
+            // Different entity may have differient allowed sort properties, 
+            // so this one will soon become outdated. Consider using a more dynamic approach if possible.
             String detail = "Invalid sort property. Allowed sort properties are: "
                     + PageableValidator.ALLOWED_SORT_PROPERTIES + ". Format: property(,asc|desc).";
             ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
@@ -166,6 +172,8 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleIllegalArgumentException(IllegalArgumentException ex, HttpServletRequest request) {
         String msg = ex.getMessage();
         if (msg != null) {
+            // Handle specific pagination errors based on the exception message
+            // It's a bit fragile, but Spring Data JPA doesn't provide a better way to handle this.
             if (msg.contains("Page index must not be less than zero")) {
                 long page = -1;
                 if (request != null && request.getParameter("page") != null) {
@@ -209,6 +217,31 @@ public class GlobalExceptionHandler {
         }
         problem.setProperty("remedy", "The order draft has expired (15-minute TTL elapsed). Please stage a new order draft.");
         problem.setProperty("actions", java.util.List.of(java.util.Map.of("label", "Refresh Draft", "action", "refresh_draft")));
+        return problem;
+    }
+
+    @ExceptionHandler(DuplicateSkuException.class)
+    public ProblemDetail handleDuplicateSkuException(DuplicateSkuException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Duplicate SKU Conflict");
+        problem.setType(URI.create("https://polaris.local/errors/duplicate-sku"));
+        problem.setProperty("sku", ex.getSku());
+        problem.setProperty("remedy", "Choose a unique SKU code or update the existing product.");
+        return problem;
+    }
+
+    @ExceptionHandler(DuplicateResourceException.class)
+    public ProblemDetail handleDuplicateResourceException(DuplicateResourceException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Duplicate Resource Conflict");
+        problem.setType(URI.create("https://polaris.local/errors/conflict"));
+        if (ex.getResourceType() != null) {
+            problem.setProperty("resource_type", ex.getResourceType());
+        }
+        if (ex.getIdentifier() != null) {
+            problem.setProperty("identifier", ex.getIdentifier());
+        }
+        problem.setProperty("remedy", "Verify resource uniqueness or update the existing record.");
         return problem;
     }
 

@@ -19,13 +19,19 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.springframework.http.MediaType;
 import vn.danang.polaris.config.SecurityConfig;
+import vn.danang.polaris.dto.CreateProductRequest;
 import vn.danang.polaris.dto.ProductResponse;
 import vn.danang.polaris.service.ProductService;
 import vn.danang.polaris.web.controller.ProductController;
+import vn.danang.polaris.web.exception.DuplicateSkuException;
 import vn.danang.polaris.web.exception.GlobalExceptionHandler;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
 import vn.danang.polaris.web.support.JwtMockFactory;
@@ -331,5 +337,242 @@ public class ProductControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sku").value("NG-EARBUD-01"))
                 .andExpect(jsonPath("$.stockQuantity").value(140));
+    }
+
+    @Test
+    void createProduct_withRequiredFieldsOnly_shouldReturn201WithLocation() throws Exception {
+        ProductResponse created = new ProductResponse(
+                10L,
+                "NG-KEYBOARD-01",
+                "Nova Mechanical Keyboard",
+                null,
+                null,
+                new BigDecimal("89.99"),
+                0,
+                false,
+                true,
+                Instant.now()
+        );
+        when(productService.createProduct(any(CreateProductRequest.class))).thenReturn(created);
+
+        mockMvc.perform(post("/api/v1/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "sku": "NG-KEYBOARD-01",
+                                    "name": "Nova Mechanical Keyboard",
+                                    "price": 89.99
+                                }
+                                """)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/api/v1/products/10"))
+                .andExpect(jsonPath("$.id").value(10))
+                .andExpect(jsonPath("$.sku").value("NG-KEYBOARD-01"))
+                .andExpect(jsonPath("$.name").value("Nova Mechanical Keyboard"))
+                .andExpect(jsonPath("$.price").value(89.99))
+                .andExpect(jsonPath("$.stockQuantity").value(0))
+                .andExpect(jsonPath("$.isAvailable").value(false))
+                .andExpect(jsonPath("$.active").value(true));
+    }
+
+    @Test
+    void createProduct_withFullOptionalFieldsAndCategory_shouldReturn201() throws Exception {
+        ProductResponse created = new ProductResponse(
+                11L,
+                "NG-SPEAKER-PRO",
+                "Nova SoundCore Portable Speaker",
+                "High-fidelity Bluetooth speaker with 24-hour battery life",
+                "Audio & Sound",
+                new BigDecimal("129.50"),
+                75,
+                true,
+                true,
+                Instant.now(),
+                1L,
+                "audio"
+        );
+        when(productService.createProduct(any(CreateProductRequest.class))).thenReturn(created);
+
+        mockMvc.perform(post("/api/v1/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "sku": "NG-SPEAKER-PRO",
+                                    "name": "Nova SoundCore Portable Speaker",
+                                    "description": "High-fidelity Bluetooth speaker with 24-hour battery life",
+                                    "categoryId": 1,
+                                    "price": 129.50,
+                                    "stockQuantity": 75,
+                                    "active": true
+                                }
+                                """)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/api/v1/products/11"))
+                .andExpect(jsonPath("$.id").value(11))
+                .andExpect(jsonPath("$.sku").value("NG-SPEAKER-PRO"))
+                .andExpect(jsonPath("$.categoryId").value(1))
+                .andExpect(jsonPath("$.category").value("Audio & Sound"))
+                .andExpect(jsonPath("$.stockQuantity").value(75))
+                .andExpect(jsonPath("$.isAvailable").value(true));
+    }
+
+    @Test
+    void createProduct_duplicateSku_shouldReturn409ProblemDetail() throws Exception {
+        when(productService.createProduct(any(CreateProductRequest.class)))
+                .thenThrow(new DuplicateSkuException("NG-EARBUD-01"));
+
+        mockMvc.perform(post("/api/v1/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "sku": "NG-EARBUD-01",
+                                    "name": "Duplicate Earbuds",
+                                    "price": 49.99
+                                }
+                                """)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.title").value("Duplicate SKU Conflict"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/duplicate-sku"))
+                .andExpect(jsonPath("$.sku").value("NG-EARBUD-01"))
+                .andExpect(jsonPath("$.detail").value("A product with SKU 'NG-EARBUD-01' already exists."))
+                .andExpect(jsonPath("$.remedy").value("Choose a unique SKU code or update the existing product."));
+    }
+
+    @Test
+    void createProduct_validationFailure_shouldReturn400ProblemDetail() throws Exception {
+        mockMvc.perform(post("/api/v1/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "sku": "",
+                                    "name": "",
+                                    "price": -10.00,
+                                    "stockQuantity": -5
+                                }
+                                """)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Validation Error"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/validation-error"))
+                .andExpect(jsonPath("$.errors").isArray());
+    }
+
+    @Test
+    void createProduct_nonExistentCategory_shouldReturn404ProblemDetail() throws Exception {
+        when(productService.createProduct(any(CreateProductRequest.class)))
+                .thenThrow(new ResourceNotFoundException("Category not found with id: 9999"));
+
+        mockMvc.perform(post("/api/v1/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "sku": "NG-NEW-ITEM",
+                                    "name": "New Item",
+                                    "categoryId": 9999,
+                                    "price": 29.99
+                                }
+                                """)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/not-found"))
+                .andExpect(jsonPath("$.detail").value("Category not found with id: 9999"));
+    }
+
+    @Test
+    void updateInventoryById_setQuantity_shouldReturn200() throws Exception {
+        vn.danang.polaris.entity.Product entity = new vn.danang.polaris.entity.Product();
+        entity.setId(1L);
+        entity.setSku("NG-EARBUD-01");
+        entity.setName("Nova Wireless Earbuds");
+        entity.setStockQty(50);
+        entity.setPrice(new BigDecimal("49.90"));
+        entity.setIsActive(true);
+
+        when(productService.updateInventoryById(eq(1L), eq(50))).thenReturn(entity);
+
+        mockMvc.perform(put("/api/v1/products/1/inventory")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quantity\": 50}")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.sku").value("NG-EARBUD-01"))
+                .andExpect(jsonPath("$.stockQuantity").value(50))
+                .andExpect(jsonPath("$.isAvailable").value(true));
+    }
+
+    @Test
+    void updateInventoryById_deltaAdjustment_shouldReturn200() throws Exception {
+        vn.danang.polaris.entity.Product entity = new vn.danang.polaris.entity.Product();
+        entity.setId(2L);
+        entity.setSku("NG-WATCH-01");
+        entity.setName("Nova Smart Watch");
+        entity.setStockQty(50);
+        entity.setPrice(new BigDecimal("89.90"));
+        entity.setIsActive(true);
+
+        when(productService.adjustInventoryById(eq(2L), eq(30))).thenReturn(entity);
+
+        mockMvc.perform(put("/api/v1/products/2/inventory")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"delta\": 30}")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(2))
+                .andExpect(jsonPath("$.sku").value("NG-WATCH-01"))
+                .andExpect(jsonPath("$.stockQuantity").value(50))
+                .andExpect(jsonPath("$.isAvailable").value(true));
+    }
+
+    @Test
+    void updateInventoryById_negativeResultingStock_shouldReturn400ProblemDetail() throws Exception {
+        when(productService.adjustInventoryById(eq(3L), eq(-10)))
+                .thenThrow(new IllegalArgumentException("Cannot adjust stock below 0. Current: 5, delta: -10"));
+
+        mockMvc.perform(put("/api/v1/products/3/inventory")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"delta\": -10}")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
+                .andExpect(jsonPath("$.detail").value("Cannot adjust stock below 0. Current: 5, delta: -10"));
+    }
+
+    @Test
+    void updateInventoryById_nonExistentProductId_shouldReturn404ProblemDetail() throws Exception {
+        when(productService.updateInventoryById(eq(9999L), eq(20)))
+                .thenThrow(new ResourceNotFoundException("Product not found with id: 9999"));
+
+        mockMvc.perform(put("/api/v1/products/9999/inventory")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quantity\": 20}")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/not-found"))
+                .andExpect(jsonPath("$.detail").value("Product not found with id: 9999"));
+    }
+
+    @Test
+    void updateInventoryById_emptyPayload_shouldReturn400ProblemDetail() throws Exception {
+        mockMvc.perform(put("/api/v1/products/1/inventory")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
+                .andExpect(jsonPath("$.detail").value("Either quantity or delta must be provided"));
     }
 }

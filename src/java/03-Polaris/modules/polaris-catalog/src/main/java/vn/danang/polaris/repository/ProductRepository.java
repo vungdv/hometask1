@@ -13,10 +13,15 @@ import vn.danang.polaris.entity.Product;
 public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
     Optional<Product> findBySku(String sku);
     Optional<Product> findBySkuIgnoreCase(String sku);
+    boolean existsBySkuIgnoreCase(String sku);
 
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Product p WHERE LOWER(p.sku) = LOWER(:sku)")
     Optional<Product> findBySkuIgnoreCaseForUpdate(@Param("sku") String sku);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Product p WHERE p.id = :id")
+    Optional<Product> findByIdForUpdate(@Param("id") Long id);
 
     @Query("SELECT p.categoryEntity.id, COUNT(p) FROM Product p WHERE p.categoryEntity IS NOT NULL GROUP BY p.categoryEntity.id")
     List<Object[]> countProductsGroupedByCategoryId();

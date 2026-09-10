@@ -1,17 +1,23 @@
 package vn.danang.polaris.service;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import vn.danang.polaris.dto.CreateProductRequest;
 import vn.danang.polaris.dto.ProductResponse;
+import vn.danang.polaris.entity.Category;
 import vn.danang.polaris.entity.Product;
+import vn.danang.polaris.repository.CategoryRepository;
 import vn.danang.polaris.repository.ProductRepository;
 import vn.danang.polaris.repository.ProductSpecifications;
+import vn.danang.polaris.web.exception.DuplicateSkuException;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
 
 @Service
@@ -19,9 +25,16 @@ import vn.danang.polaris.web.exception.ResourceNotFoundException;
 public class ProductService {
 
     private final ProductRepository productRepository;
+    private final CategoryRepository categoryRepository;
+
+    @Autowired
+    public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository) {
+        this.productRepository = productRepository;
+        this.categoryRepository = categoryRepository;
+    }
 
     public ProductService(ProductRepository productRepository) {
-        this.productRepository = productRepository;
+        this(productRepository, null);
     }
 
     public Page<ProductResponse> searchProducts(
@@ -65,6 +78,72 @@ public class ProductService {
         return productRepository.findBySkuIgnoreCase(sku)
                 .map(ProductResponse::from)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
+    }
+
+    @Transactional
+    public ProductResponse createProduct(CreateProductRequest request) {
+        String trimmedSku = request.sku() != null ? request.sku().trim() : "";
+        if (productRepository.existsBySkuIgnoreCase(trimmedSku)) {
+            throw new DuplicateSkuException(trimmedSku);
+        }
+
+        Category categoryEntity = null;
+        if (request.categoryId() != null) {
+            if (categoryRepository == null) {
+                throw new IllegalStateException("CategoryRepository is required to associate categories.");
+            }
+            categoryEntity = categoryRepository.findById(request.categoryId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + request.categoryId()));
+        }
+
+        int stockQty = request.stockQuantity() != null ? request.stockQuantity() : 0;
+        if (stockQty < 0) {
+            throw new IllegalArgumentException("Stock quantity cannot be negative: " + stockQty);
+        }
+
+        Product product = new Product();
+        product.setSku(trimmedSku);
+        product.setName(request.name() != null ? request.name().trim() : null);
+        product.setDescription(request.description());
+        product.setPrice(request.price());
+        product.setStockQty(stockQty);
+        product.setIsActive(request.active() != null ? request.active() : true);
+        product.setCreatedAt(Instant.now());
+
+        if (categoryEntity != null) {
+            product.setCategoryEntity(categoryEntity);
+            product.setCategory(categoryEntity.getName());
+        } else if (request.category() != null) {
+            product.setCategory(request.category().trim());
+        }
+
+        Product saved = productRepository.save(product);
+        return ProductResponse.from(saved);
+    }
+
+    @Transactional
+    public Product updateInventoryById(Long id, int newQuantity) {
+        if (newQuantity < 0) {
+            throw new IllegalArgumentException("Inventory quantity cannot be negative: " + newQuantity);
+        }
+        //TODO: Consider using a database-level lock or optimistic locking to prevent race conditions in a concurrent environment
+        Product product = productRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
+        product.setStockQty(newQuantity);
+        return productRepository.save(product);
+    }
+
+    @Transactional
+    public Product adjustInventoryById(Long id, int delta) {
+        Product product = productRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
+        int current = product.getStockQty() != null ? product.getStockQty() : 0;
+        int target = current + delta;
+        if (target < 0) {
+            throw new IllegalArgumentException("Cannot adjust stock below 0. Current: " + current + ", delta: " + delta);
+        }
+        product.setStockQty(target);
+        return productRepository.save(product);
     }
 
     @Transactional

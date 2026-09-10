@@ -112,4 +112,31 @@ public class ProductRepositoryTest {
         assertThat(productOpt).isPresent();
         assertThat(productOpt.get().getName()).isEqualTo("Nova Smart Watch");
     }
+
+    @Test
+    void existsBySkuIgnoreCase_withExactAndCaseInsensitiveMatches() {
+        // Exact match
+        assertThat(productRepository.existsBySkuIgnoreCase("NG-EARBUD-01")).isTrue();
+
+        // Lowercase
+        assertThat(productRepository.existsBySkuIgnoreCase("ng-earbud-01")).isTrue();
+
+        // Mixed case
+        assertThat(productRepository.existsBySkuIgnoreCase("Ng-EaRbUd-01")).isTrue();
+
+        // Non-existent SKU
+        assertThat(productRepository.existsBySkuIgnoreCase("NON-EXISTENT-SKU")).isFalse();
+    }
+
+    @Test
+    void findByIdForUpdate_shouldReturnProductWhenFound() {
+        var existingProduct = productRepository.findBySku("NG-EARBUD-01").orElseThrow();
+        var productOpt = productRepository.findByIdForUpdate(existingProduct.getId());
+
+        assertThat(productOpt).isPresent();
+        assertThat(productOpt.get().getSku()).isEqualTo("NG-EARBUD-01");
+
+        var nonExistentOpt = productRepository.findByIdForUpdate(99999L);
+        assertThat(nonExistentOpt).isEmpty();
+    }
 }
