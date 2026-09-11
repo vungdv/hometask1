@@ -41,50 +41,32 @@ Polaris is organized around clear bounded contexts adhering to Domain-Driven Des
 
 ```mermaid
 flowchart TB
+
+    subgraph Observability["Observability"]
+        direction TB
+        Grafana["Grafana"]
+        Tempo["Tempo"]
+        Loki["Loki"]
+        Prometheus["Prometheus"]
+    end
+
     subgraph Clients["Clients & Presentation Tier"]
-        WebChat["Web Chat UI<br/>(/chat)"]
+        direction TB
+        k6["API Performance Tests"]
         SwaggerUI["Swagger UI / REST<br/>(/swagger-ui)"]
-        AIAssistant["AI Assistant / MCP Clients<br/>(Claude / Antigravity / Cursor)"]
     end
 
-    subgraph Gateway["Gateway & Identity Perimeter"]
-        Nginx["Nginx Reverse Proxy<br/>(polaris.local :443)"]
-        Keycloak["Keycloak IdP<br/>(id.polaris.local :443)"]
+    Nginx["Nginx Reverse Proxy<br/>(*.polaris.local :443)"]
+  
+    subgraph Apps["Clients & Presentation Tier"]
+        direction TB
+        Keycloak["Keycloak IdP<br/>(id.polaris.local)"]
+        Polaris-App["Order, Product Catalog<br/>(polaris.local)"]
+        Polaris-Assistant["AI Assistant<br/>(assistant.polaris.local)"]
     end
-
-    subgraph PolarisApp["Polaris Core Application (apps/polaris)"]
-        CatalogMod["catalog<br/>(/api/v1/products)"]
-        OrderMod["order<br/>(/api/v1/orders)"]
-        McpMod["mcp<br/>(/mcp/sse)"]
-    end
-
-    subgraph AssistantApp["Polaris Assistant Application (apps/polaris-assistant)"]
-        AssistantMod["assistant<br/>(/api/v1/assistant/**)"]
-    end
-
-    subgraph CommonLib["Shared Library (libs/polaris-common)"]
-        CommonMod["polaris-common<br/>(Kernel, RFC 7807, OTel, Migrations)"]
-    end
-
-    subgraph Storage["Persistence & Telemetry"]
-        PolarisDB[("Polaris DB<br/>(PostgreSQL 16)")]
-        KeycloakDB[("Keycloak DB<br/>(PostgreSQL 16)")]
-        OTel["OpenTelemetry & LGTM Stack<br/>(Traces, Metrics, Logs)"]
-    end
-
-    WebChat -->|HTTPS / PKCE| Nginx
-    SwaggerUI -->|HTTPS / REST| Nginx
-    AIAssistant -->|MCP / REST| Nginx
-    Nginx -->|Proxy :8080| PolarisApp
-    Nginx -->|Proxy :8081| AssistantApp
-    Nginx -->|Proxy :8080| Keycloak
-    PolarisApp -->|Validate Token| Keycloak
-    AssistantApp -->|Validate Token| Keycloak
-    PolarisApp --> PolarisDB
-    AssistantApp --> PolarisDB
-    Keycloak --> KeycloakDB
-    PolarisApp -.->|OTLP Telemetry| OTel
-    AssistantApp -.->|OTLP Telemetry| OTel
+    Clients -->|HTTPS / REST| Nginx
+    Nginx -->|Proxy :8080| Apps
+    Apps -.->|OTLP Telemetry| Observability
 ```
 
 ---
