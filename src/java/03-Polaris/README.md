@@ -37,7 +37,7 @@ Polaris is organized around clear bounded contexts adhering to Domain-Driven Des
 
 ---
 
-## Domain Architecture
+## Development Architecture
 
 ```mermaid
 flowchart TB
@@ -68,25 +68,6 @@ flowchart TB
     Nginx -->|Proxy :8080| Apps
     Apps -.->|OTLP Telemetry| Observability
 ```
-
----
-
-## Modular Monorepo Architecture
-
-Polaris is structured as a polyglot monorepo with a Maven multi-module reactor governing compile-time domain boundaries ([ADR-0005](docs/adr/0005-transition-to-polyglot-monorepo-architecture.md)):
-
-```text
-03-Polaris/
-├── apps/
-│   ├── polaris/            # Unified catalog + order + mcp-server Spring Boot application
-│   ├── polaris-assistant/  # AI agency orchestrator, session/draft persistence, and SSE streaming
-│   └── web-chat/           # Decoupled browser chat UI (OIDC PKCE, SSE streaming, interactive cards)
-├── libs/
-│   └── polaris-common/     # Shared kernel, RFC 7807 problem details, tracing filters, validation helpers, migrations
-├── infra/                  # Consolidated platform infrastructure (nginx, keycloak, telemetry)
-└── tests/                  # System verification suites (k6 performance, Playwright browser E2E)
-```
-
 ---
 
 ## Up the Stack in a Minute
@@ -114,7 +95,6 @@ make up
 
 | Portal | URL | Credentials / Action |
 |---|---|---|
-| **Polaris Web Chat UI** | [https://polaris.local/chat](https://polaris.local/chat) | Click **Login** &rarr; authenticate via Keycloak PKCE with `testuser` / `testpass` |
 | **Polaris Swagger UI** | [https://polaris.local/swagger-ui/index.html](https://polaris.local/swagger-ui/index.html) | Click **Authorize** &rarr; select `polaris-app` &rarr; log in with `testuser` / `testpass` |
 | **Polaris MCP Endpoint** | [https://polaris.local/mcp/sse](https://polaris.local/mcp/sse) | MCP JSON-RPC SSE endpoint (Requires OAuth2 Bearer token) |
 | **Keycloak Admin** | [https://id.polaris.local](https://id.polaris.local) | Username: `admin` \| Password: `admin` |
