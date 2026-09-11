@@ -5,17 +5,14 @@ WORKDIR /app
 
 # Copy parent and module POMs for layer caching
 COPY pom.xml .
-COPY modules/polaris-common/pom.xml modules/polaris-common/
-COPY modules/polaris-catalog/pom.xml modules/polaris-catalog/
-COPY modules/polaris-order/pom.xml modules/polaris-order/
-COPY modules/polaris-mcp/pom.xml modules/polaris-mcp/
-COPY apps/polaris-server/pom.xml apps/polaris-server/
+COPY libs/polaris-common/pom.xml libs/polaris-common/
+COPY apps/polaris/pom.xml apps/polaris/
 COPY apps/polaris-assistant/pom.xml apps/polaris-assistant/
 
 # Copy source trees
-COPY modules ./modules
+COPY libs ./libs
+COPY apps/polaris ./apps/polaris
 COPY apps/polaris-assistant ./apps/polaris-assistant
-COPY apps/polaris-server ./apps/polaris-server
 
 RUN mvn clean package -pl apps/polaris-assistant -am -DskipTests -B
 

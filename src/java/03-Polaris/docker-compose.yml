@@ -22,7 +22,7 @@ services:
   polaris:
     build:
       context: .
-      dockerfile: apps/polaris-server/Dockerfile
+      dockerfile: apps/polaris/Dockerfile
     container_name: polaris
     user: root
     # We don't need export port here

@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionTemplate;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -57,19 +59,29 @@ public class OrderConcurrencyTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private void cleanupSku(String sku) {
+        transactionTemplate.executeWithoutResult(status -> {
+            productRepository.findBySku(sku).ifPresent(p -> {
+                orderRepository.findAll().forEach(o -> {
+                    if (o.getItems().stream().anyMatch(i -> i.getProduct().getId().equals(p.getId()))) {
+                        orderRepository.delete(o);
+                    }
+                });
+                productRepository.delete(p);
+            });
+        });
+    }
+
+    @BeforeEach
     @AfterEach
-    void tearDown() {
+    void cleanup() {
         List.of("CONCUR-SKU-01", "CONCUR-MULTI-A", "CONCUR-MULTI-B", "CONCUR-HTTP-SKU", "CONCUR-MIXED-SKU", "CONCUR-MIXED-HTTP-SKU")
-                .forEach(sku -> productRepository.findBySku(sku).ifPresent(p -> {
-                    orderRepository.findAll().forEach(o -> {
-                        if (o.getItems().stream().anyMatch(i -> i.getProduct().getId().equals(p.getId()))) {
-                            orderRepository.delete(o);
-                        }
-                    });
-                    productRepository.delete(p);
-                }));
+                .forEach(this::cleanupSku);
     }
 
     @Test

@@ -1,7 +1,7 @@
 .PHONY: pull build up down validate-docs setup-hooks test status playwright-ui playwright-close run
 
 run:
-	mvn spring-boot:run -pl apps/polaris-server
+	mvn spring-boot:run -pl apps/polaris
 
 run-assistant:
 	mvn spring-boot:run -pl apps/polaris-assistant

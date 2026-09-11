@@ -52,12 +52,18 @@ flowchart TB
         Keycloak["Keycloak IdP<br/>(id.polaris.local :443)"]
     end
 
-    subgraph App["Polaris Runtime Application (apps/polaris-server)"]
-        CatalogMod["polaris-catalog<br/>(/api/v1/products)"]
-        OrderMod["polaris-order<br/>(/api/v1/orders)"]
-        AssistantMod["polaris-assistant<br/>(/api/v1/assistant/**)"]
-        McpMod["polaris-mcp<br/>(/mcp/sse)"]
-        CommonMod["polaris-common<br/>(Kernel, RFC 7807, OTel)"]
+    subgraph PolarisApp["Polaris Core Application (apps/polaris)"]
+        CatalogMod["catalog<br/>(/api/v1/products)"]
+        OrderMod["order<br/>(/api/v1/orders)"]
+        McpMod["mcp<br/>(/mcp/sse)"]
+    end
+
+    subgraph AssistantApp["Polaris Assistant Application (apps/polaris-assistant)"]
+        AssistantMod["assistant<br/>(/api/v1/assistant/**)"]
+    end
+
+    subgraph CommonLib["Shared Library (libs/polaris-common)"]
+        CommonMod["polaris-common<br/>(Kernel, RFC 7807, OTel, Migrations)"]
     end
 
     subgraph Storage["Persistence & Telemetry"]
@@ -69,12 +75,16 @@ flowchart TB
     WebChat -->|HTTPS / PKCE| Nginx
     SwaggerUI -->|HTTPS / REST| Nginx
     AIAssistant -->|MCP / REST| Nginx
-    Nginx -->|Proxy :8080| App
+    Nginx -->|Proxy :8080| PolarisApp
+    Nginx -->|Proxy :8081| AssistantApp
     Nginx -->|Proxy :8080| Keycloak
-    App -->|Validate Token| Keycloak
-    App --> PolarisDB
+    PolarisApp -->|Validate Token| Keycloak
+    AssistantApp -->|Validate Token| Keycloak
+    PolarisApp --> PolarisDB
+    AssistantApp --> PolarisDB
     Keycloak --> KeycloakDB
-    App -.->|OTLP Telemetry| OTel
+    PolarisApp -.->|OTLP Telemetry| OTel
+    AssistantApp -.->|OTLP Telemetry| OTel
 ```
 
 ---
@@ -86,14 +96,11 @@ Polaris is structured as a polyglot monorepo with a Maven multi-module reactor g
 ```text
 03-Polaris/
 ├── apps/
-│   ├── polaris-server/     # Executable Spring Boot runtime assembly, composite security, and Flyway migrations
+│   ├── polaris/            # Unified catalog + order + mcp-server Spring Boot application
+│   ├── polaris-assistant/  # AI agency orchestrator, session/draft persistence, and SSE streaming
 │   └── web-chat/           # Decoupled browser chat UI (OIDC PKCE, SSE streaming, interactive cards)
-├── modules/
-│   ├── polaris-common/     # Shared kernel, RFC 7807 problem details, tracing filters, validation helpers
-│   ├── polaris-catalog/    # Product catalog bounded context, specifications, and REST controllers
-│   ├── polaris-order/      # Order bounded context, state machine, and REST controllers
-│   ├── polaris-assistant/  # AI agency orchestrator, session/draft persistence, and SSE streaming controllers
-│   └── polaris-mcp/        # Native Spring Boot MCP Server (JSON-RPC tools over SSE)
+├── libs/
+│   └── polaris-common/     # Shared kernel, RFC 7807 problem details, tracing filters, validation helpers, migrations
 ├── infra/                  # Consolidated platform infrastructure (nginx, keycloak, telemetry)
 └── tests/                  # System verification suites (k6 performance, Playwright browser E2E)
 ```
@@ -144,7 +151,7 @@ make up
 | **Rebuild Images** | `make build` | Rebuilds the multi-module Polaris Spring Boot application image |
 | **Restart Service** | `make restart-<service>` | Restarts a single container (e.g. `make restart-polaris`) |
 | **Run All Tests** | `make test` / `mvn clean test` | Executes local Java unit & domain integration tests across all modules |
-| **Test Single Module** | `mvn test -pl modules/<module>` | Executes tests for a single module (e.g. `modules/polaris-catalog`) |
+| **Test Single Module** | `mvn test -pl apps/polaris` | Executes tests for a single module (e.g. `apps/polaris`) |
 | **Playwright UI Testing** | `make playwright-ui` | Opens Swagger UI in Playwright for browser automation |
 | **Close Playwright** | `make playwright-close` | Closes all open Playwright browser sessions |
 | **Access Polaris DB** | `make polaris-sql` | Opens psql shell into the containerized PostgreSQL DB |
