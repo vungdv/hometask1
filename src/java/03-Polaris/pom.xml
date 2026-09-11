@@ -20,9 +20,9 @@
 		<module>modules/polaris-common</module>
 		<module>modules/polaris-catalog</module>
 		<module>modules/polaris-order</module>
-		<module>modules/polaris-assistant</module>
 		<module>modules/polaris-mcp</module>
 		<module>apps/polaris-server</module>
+		<module>apps/polaris-assistant</module>
 	</modules>
 
 	<properties>

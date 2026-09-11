@@ -3,6 +3,9 @@
 run:
 	mvn spring-boot:run -pl apps/polaris-server
 
+run-assistant:
+	mvn spring-boot:run -pl apps/polaris-assistant
+
 pull: 
 	docker compose pull
 build:

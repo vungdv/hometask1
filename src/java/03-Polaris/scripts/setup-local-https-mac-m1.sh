@@ -14,7 +14,7 @@
 set -euo pipefail
 
 # ---- Config ------------------------------------------------------------
-DOMAINS=("polaris.local" "id.polaris.local" "grafana.polaris.local")
+DOMAINS=("polaris.local" "assistant.polaris.local" "id.polaris.local" "grafana.polaris.local")
 HOSTS_FILE="/etc/hosts"
 CERT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/infra/nginx/certs"
 CERT_BASENAME="polaris.local"   # mkcert names output after the first domain

@@ -1,0 +1,67 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: Polaris-Assistant
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:h2:file:./data/polaris_assistant;AUTO_SERVER=TRUE}
+    driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:org.h2.Driver}
+    username: ${SPRING_DATASOURCE_USERNAME:sa}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: true
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI:https://id.polaris.local/realms/polaris}
+
+polaris:
+  ai:
+    provider: gemini
+    api-key: ${GEMINI_API_KEY:${POLARIS_AI_API_KEY:}}
+    model: ${POLARIS_AI_MODEL:gemini-2.5-flash}
+    base-url: ${POLARIS_AI_BASE_URL:https://generativelanguage.googleapis.com}
+    timeout-seconds: ${POLARIS_AI_TIMEOUT_SECONDS:30}
+  mcp:
+    core:
+      url: ${POLARIS_CORE_MCP_URL:http://localhost:8080/mcp/sse}
+      message-endpoint: ${POLARIS_CORE_MCP_MESSAGE_ENDPOINT:http://localhost:8080/mcp/message}
+
+springdoc:
+  swagger-ui:
+    oauth:
+      client-id: polaris-local
+      use-pkce-with-authorization-code-grant: true
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    metrics:
+      export:
+        url: ${MANAGEMENT_OTLP_METRICS_EXPORT_URL:http://localhost:4318/v1/metrics}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+    logging:
+      export:
+        otlp:
+          endpoint: ${MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT:http://localhost:4318/v1/logs}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus

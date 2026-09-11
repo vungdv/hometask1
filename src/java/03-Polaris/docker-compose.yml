@@ -11,14 +11,18 @@ services:
     depends_on:
       - keycloak
       - polaris
+      - polaris-assistant
     networks:
       polaris-net:
         aliases:
           - id.polaris.local
           - polaris.local
+          - assistant.polaris.local
           - grafana.polaris.local
   polaris:
-    build: .
+    build:
+      context: .
+      dockerfile: apps/polaris-server/Dockerfile
     container_name: polaris
     user: root
     # We don't need export port here
@@ -55,6 +59,43 @@ services:
         condition: service_started
       polaris-db:
         condition: service_healthy
+    networks:
+      - polaris-net
+  polaris-assistant:
+    build:
+      context: .
+      dockerfile: apps/polaris-assistant/Dockerfile
+    container_name: polaris-assistant
+    user: root
+    environment:
+      SERVER_PORT: "8081"
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://id.${POLARIS_DOMAIN}/realms/polaris
+      SPRING_DATASOURCE_URL: jdbc:postgresql://polaris-db:5432/polaris
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_USERNAME: polaris
+      SPRING_DATASOURCE_PASSWORD: polaris
+      POLARIS_MCP_CORE_URL: http://polaris:8080/mcp/sse
+      POLARIS_MCP_CORE_MESSAGE_ENDPOINT: http://polaris:8080/mcp/message
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      SPRINGDOC_SWAGGER-UI_OAUTH_CLIENT-ID: "polaris-app"
+      SPRINGDOC_SWAGGER-UI_OAUTH_USE-PKCE-WITH-AUTHORIZATION-CODE-GRANT: "true"
+      JAVA_TOOL_OPTIONS: "-Djavax.net.ssl.trustStore=/certs/truststore.jks"
+      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/logs
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+    volumes:
+      - ./infra/nginx/truststore.jks:/certs/truststore.jks:ro
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      polaris:
+        condition: service_started
+      polaris-db:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
     networks:
       - polaris-net
   polaris-db:
