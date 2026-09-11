@@ -17,11 +17,8 @@
 	<description>Polaris Enterprise Assistant Backend Monorepo</description>
 
 	<modules>
-		<module>modules/polaris-common</module>
-		<module>modules/polaris-catalog</module>
-		<module>modules/polaris-order</module>
-		<module>modules/polaris-mcp</module>
-		<module>apps/polaris-server</module>
+		<module>libs/polaris-common</module>
+		<module>apps/polaris</module>
 		<module>apps/polaris-assistant</module>
 	</modules>
 
@@ -43,22 +40,12 @@
 			</dependency>
 			<dependency>
 				<groupId>vn.danang</groupId>
-				<artifactId>polaris-catalog</artifactId>
-				<version>${polaris.version}</version>
-			</dependency>
-			<dependency>
-				<groupId>vn.danang</groupId>
-				<artifactId>polaris-order</artifactId>
+				<artifactId>polaris</artifactId>
 				<version>${polaris.version}</version>
 			</dependency>
 			<dependency>
 				<groupId>vn.danang</groupId>
 				<artifactId>polaris-assistant</artifactId>
-				<version>${polaris.version}</version>
-			</dependency>
-			<dependency>
-				<groupId>vn.danang</groupId>
-				<artifactId>polaris-mcp</artifactId>
 				<version>${polaris.version}</version>
 			</dependency>
 
