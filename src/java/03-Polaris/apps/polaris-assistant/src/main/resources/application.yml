@@ -30,7 +30,7 @@ polaris:
   ai:
     provider: gemini
     api-key: ${GEMINI_API_KEY:${POLARIS_AI_API_KEY:}}
-    model: ${POLARIS_AI_MODEL:gemini-2.5-flash}
+    model: ${POLARIS_AI_MODEL:gemini-3.6-flash}
     base-url: ${POLARIS_AI_BASE_URL:https://generativelanguage.googleapis.com}
     timeout-seconds: ${POLARIS_AI_TIMEOUT_SECONDS:30}
   mcp:
