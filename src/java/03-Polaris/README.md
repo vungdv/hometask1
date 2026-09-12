@@ -20,15 +20,14 @@ Polaris is organized around clear bounded contexts adhering to Domain-Driven Des
   $$\text{CREATED / PROCESSING} \longrightarrow \text{CANCELLED}$$
 * **Domain Invariants & Rules**: Enforces business constraints (e.g. orders in `SHIPPED` state cannot be cancelled; invalid cancellations return standardized RFC 7807 Problem Details).
 
-### 3. AI Assistant & Conversational Commerce Context (`/api/v1/assistant/**`, `/chat`)
-* **Perception & Dual-Transport Streaming**: Full-duplex Server-Sent Events (SSE) streaming (`thought`, `token`, `widget`, `draft`, `done`) alongside transactional REST endpoints.
-* **Cognitive Agency Orchestrator**: Pluggable AI engine supporting both zero-config deterministic local rules and external cloud foundation model providers.
-* **Durable Sessions & Cart Staging**: Server-side session history and staged order drafts persisted with a 15-minute Time-To-Live (TTL).
-* **Mandatory Human-in-the-Loop (HITL) Safety Gate**: Strict pre-commit verification and user confirmation (`POST .../drafts/{draftId}/confirm` with `Idempotency-Key`) before order creation; zero autonomous state mutations.
-* **Anti-IDOR Security & Self-Healing Diagnostics**: Role-scoped access control (`ROLE_USER` retail shoppers bounded strictly to caller ID; `ROLE_STAFF`/`ROLE_ADMIN` assisted sales) and self-healing RFC 7807 Problem Cards with actionable remedy buttons.
+### 3. AI Assistant Context (`assistant.polaris.local`, `/api/v1/assistant/chat`)
+* **Autonomous Microservice**: Standalone service (`apps/polaris-assistant`) decoupled from core commerce databases, accessible via `assistant.polaris.local`.
+* **MCP Integration**: Consumes product catalog and order operations from Polaris Core exclusively via Model Context Protocol (`/mcp/sse`).
+* **Multi-Tool Hub**: Aggregates tools across Polaris Core and external MCP servers via `ExternalMcpHub`.
+* **Conversational Commerce**: AI chat endpoint (`POST /api/v1/assistant/chat`) powered by foundation model integration (Google Gemini).
 
 ### 4. Model Context Protocol (MCP) Gateway Context (`/mcp/sse`, `/mcp/message`)
-* **In-Process MCP Server**: Native Spring Boot MCP SDK integration exposing standard JSON-RPC tools (`search_available_products`, `get_product_by_sku`, order query tools) for AI assistants.
+* **In-Process MCP Server**: Native Spring Boot MCP SDK integration in `apps/polaris` exposing standard JSON-RPC tools (`search_available_products`, `get_product_by_sku`, order query tools) for AI assistants.
 * **Enterprise Security**: OAuth2/OIDC Bearer token authentication strictly enforced across all MCP endpoints (zero security bypass).
 
 ### 5. Identity & Access Context (`https://id.polaris.local`)
@@ -40,34 +39,37 @@ Polaris is organized around clear bounded contexts adhering to Domain-Driven Des
 ## Development Architecture
 
 ```mermaid
-flowchart TB
-
-    subgraph Observability["Observability"]
-        direction TB
+flowchart LR
+    subgraph Observability["Observability/Grafana-Stack"]
+        direction LR
         Grafana["Grafana"]
         Tempo["Tempo"]
         Loki["Loki"]
         Prometheus["Prometheus"]
     end
-
-    subgraph Clients["Clients & Presentation Tier"]
+    subgraph Main[" "]
         direction TB
-        k6["API Performance Tests"]
-        SwaggerUI["Swagger UI / REST<br/>(/swagger-ui)"]
+        subgraph L1["Clients"]
+            direction TB
+            k6["API Performance Tests"]
+            SwaggerUI["Swagger UI / REST<br/>(/swagger-ui)"]
+        end
+        subgraph L2["Gateway"]
+            Nginx["Nginx/Gateway<br/>(*.polaris.local :443)"]
+        end
+        subgraph L3["Apps"]
+            direction TB
+            Keycloak["Keycloak IdP<br/>(id.polaris.local)"]
+            Polaris-App["Order, Product Catalog<br/>(polaris.local)"]
+            Polaris-Assistant["AI Assistant<br/>(assistant.polaris.local)"]
+        end
     end
-
-    Nginx["Nginx Reverse Proxy<br/>(*.polaris.local :443)"]
-  
-    subgraph Apps["Clients & Presentation Tier"]
-        direction TB
-        Keycloak["Keycloak IdP<br/>(id.polaris.local)"]
-        Polaris-App["Order, Product Catalog<br/>(polaris.local)"]
-        Polaris-Assistant["AI Assistant<br/>(assistant.polaris.local)"]
-    end
-    Clients -->|HTTPS / REST| Nginx
-    Nginx -->|Proxy :8080| Apps
-    Apps -.->|OTLP Telemetry| Observability
+    L1 -->|HTTPS / REST| L2
+    L2 -->|Proxy| L3
+    Polaris-Assistant -->|MCP /sse| Polaris-App
+    Main -.->|OTLP Telemetry| Observability
 ```
+
 ---
 
 ## Up the Stack in a Minute
@@ -96,6 +98,7 @@ make up
 | Portal | URL | Credentials / Action |
 |---|---|---|
 | **Polaris Swagger UI** | [https://polaris.local/swagger-ui/index.html](https://polaris.local/swagger-ui/index.html) | Click **Authorize** &rarr; select `polaris-app` &rarr; log in with `testuser` / `testpass` |
+| **Assistant Swagger UI** | [https://assistant.polaris.local/swagger-ui/index.html](https://assistant.polaris.local/swagger-ui/index.html) | Click **Authorize** &rarr; select `polaris-app` &rarr; log in with `testuser` / `testpass` |
 | **Polaris MCP Endpoint** | [https://polaris.local/mcp/sse](https://polaris.local/mcp/sse) | MCP JSON-RPC SSE endpoint (Requires OAuth2 Bearer token) |
 | **Keycloak Admin** | [https://id.polaris.local](https://id.polaris.local) | Username: `admin` \| Password: `admin` |
 | **Grafana Telemetry** | [https://grafana.polaris.local](https://grafana.polaris.local) | Username: `admin` \| Password: `admin` (or Keycloak SSO) |
@@ -110,6 +113,7 @@ make up
 | **Start Stack** | `make up` | Starts all services in the background (Apps + DBs + LGTM stack) |
 | **Check Stack Status**| `make status` | Inspects container health, ports, and lifecycle states |
 | **Stop Stack** | `make down` | Stops containers, networks, and persistent dev volumes |
+| **Clean Stack** | `make clean` | Stops containers, removes orphan containers and volumes |
 | **Rebuild Images** | `make build` | Rebuilds the multi-module Polaris Spring Boot application image |
 | **Restart Service** | `make restart-<service>` | Restarts a single container (e.g. `make restart-polaris`) |
 | **Run All Tests** | `make test` / `mvn clean test` | Executes local Java unit & domain integration tests across all modules |
@@ -124,4 +128,7 @@ make up
 
 To keep daily development focused, detailed guides for specialized areas are maintained separately:
 
-- 🔐 [**Local HTTPS & Truststore Architecture**](scripts/setup-local.md): In-depth manual instructions for `mkcert`, Java truststore creation, and TLS troubleshooting.
+- 🔐 [**Local HTTPS Setup**](scripts/setup-local-https-mac-m1.sh): Manual setup script for `mkcert` and Java truststore.
+- 📐 [**Architecture Decision Records (ADRs)**](docs/adr/): Formal architecture records (e.g., [ADR-0008: Polaris Assistant Isolation](docs/adr/0008-polaris-assistant-independent-application-mcp-architecture.md)).
+- 📋 [**Product Requirements (PRDs)**](docs/prds/): Product requirement documents for catalog, orders, and AI assistant.
+- 🏛️ [**Architecture, Design & Code Principles**](AGENTS.md): Foundational requirements for lower-layer protocol alignment, bounded context containment, and cross-cutting observability.
