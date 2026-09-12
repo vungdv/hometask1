@@ -34,8 +34,13 @@ polaris:
 springdoc:
   swagger-ui:
     oauth:
-      client-id: polaris-local
+      client-id: ${SPRINGDOC_SWAGGER_UI_OAUTH_CLIENT_ID:polaris-local}
       use-pkce-with-authorization-code-grant: true
+    urls:
+      - name: Product Catalog API
+        url: /v3/api-docs
+      - name: Assistant API
+        url: /v3/api-docs/assistant
 
 management:
   tracing:

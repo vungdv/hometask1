@@ -41,7 +41,7 @@ polaris:
 springdoc:
   swagger-ui:
     oauth:
-      client-id: polaris-local
+      client-id: polaris-app
       use-pkce-with-authorization-code-grant: true
 
 management:

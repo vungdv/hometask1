@@ -24,6 +24,7 @@ public class SecurityConfig {
                     "/h2-console/**",
                     "/swagger-ui/**",
                     "/swagger-ui.html",
+                    "/v3/api-docs",
                     "/v3/api-docs/**",
                     "/chat",
                     "/chat/**",

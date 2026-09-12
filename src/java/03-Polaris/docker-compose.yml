@@ -12,13 +12,31 @@ services:
       - keycloak
       - polaris
       - polaris-assistant
+      - swagger-ui
     networks:
       polaris-net:
         aliases:
           - id.polaris.local
           - polaris.local
-          - assistant.polaris.local
           - grafana.polaris.local
+  swagger-ui:
+    image: swaggerapi/swagger-ui:v5.17.14
+    container_name: swagger-ui
+    environment:
+      # Multiple specs -> renders a dropdown selector in the Swagger UI top bar
+      URLS: >
+        [
+          {url: "/v3/api-docs", name: "Product Catalog API"},
+          {url: "/v3/api-docs/assistant", name: "Assistant API"}
+        ]
+      # optional: avoids CORS issues since nginx proxies same-origin
+      BASE_URL: /swagger-ui
+      OAUTH_CLIENT_ID: polaris-app
+      OAUTH_USE_PKCE: "true"
+    expose:
+      - "8080"
+    networks:
+      - polaris-net
   polaris:
     build:
       context: .

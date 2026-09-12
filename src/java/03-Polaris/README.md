@@ -8,29 +8,22 @@ Polaris is an enterprise backend service powering intelligent e-commerce operati
 
 Polaris is organized around clear bounded contexts adhering to Domain-Driven Design (DDD) principles:
 
-### 1. Product Catalog Context (`/api/v1/products`)
-* **Dynamic Exploration**: Multi-criteria search supporting keyword matching, category filtering (`Audio`, `Wearables`, `Accessories`), and price boundaries.
-* **Live Inventory Awareness**: Real-time availability filtering (`available_only=true`) ensuring clients and AI assistants only surface purchasable, active inventory.
-* **Product Specifications**: Live SKU-level lookup with inventory status and pricing guarantees.
+### 1. Product Catalog and Order management 
+- (`/api/v1/products`): manage product & inventory
+- (`/api/v1/categories`): manage product category
+- (`/api/v1/order`): manage orders
 
-### 2. Order Management Context (`/api/v1/orders`)
-* **Order Placement**: Transactional checkout capturing customer identity, line items, and pricing snapshots.
-* **Lifecycle State Machine**: Governs order transitions across defined states:
-  $$\text{CREATED} \longrightarrow \text{PROCESSING} \longrightarrow \text{SHIPPED}$$
-  $$\text{CREATED / PROCESSING} \longrightarrow \text{CANCELLED}$$
-* **Domain Invariants & Rules**: Enforces business constraints (e.g. orders in `SHIPPED` state cannot be cancelled; invalid cancellations return standardized RFC 7807 Problem Details).
-
-### 3. AI Assistant Context (`assistant.polaris.local`, `/api/v1/assistant/chat`)
-* **Autonomous Microservice**: Standalone service (`apps/polaris-assistant`) decoupled from core commerce databases, accessible via `assistant.polaris.local`.
+### 2. AI Assistant Context (`/api/v1/assistant/chat`)
+* **Autonomous Microservice**: Standalone service (`apps/polaris-assistant`) decoupled from core commerce databases, routed via gateway sub-path `/api/v1/assistant/*` under `https://polaris.local`.
 * **MCP Integration**: Consumes product catalog and order operations from Polaris Core exclusively via Model Context Protocol (`/mcp/sse`).
 * **Multi-Tool Hub**: Aggregates tools across Polaris Core and external MCP servers via `ExternalMcpHub`.
 * **Conversational Commerce**: AI chat endpoint (`POST /api/v1/assistant/chat`) powered by foundation model integration (Google Gemini).
 
-### 4. Model Context Protocol (MCP) Gateway Context (`/mcp/sse`, `/mcp/message`)
+### 3. Model Context Protocol (MCP) Gateway Context (`/mcp/sse`, `/mcp/message`)
 * **In-Process MCP Server**: Native Spring Boot MCP SDK integration in `apps/polaris` exposing standard JSON-RPC tools (`search_available_products`, `get_product_by_sku`, order query tools) for AI assistants.
 * **Enterprise Security**: OAuth2/OIDC Bearer token authentication strictly enforced across all MCP endpoints (zero security bypass).
 
-### 5. Identity & Access Context (`https://id.polaris.local`)
+### 4. Identity & Access Context (`https://id.polaris.local`)
 * **Standards-Based Authentication**: OAuth 2.0 and OpenID Connect (OIDC) via Keycloak (`polaris` realm).
 * **Cryptographic Token Verification**: Stateless JWT validation with PKCE support for client browsers, Swagger UI, and autonomous assistants.
 
@@ -55,13 +48,13 @@ flowchart LR
             SwaggerUI["Swagger UI / REST<br/>(/swagger-ui)"]
         end
         subgraph L2["Gateway"]
-            Nginx["Nginx/Gateway<br/>(*.polaris.local :443)"]
+            Nginx["Nginx/Gateway<br/>(polaris.local :443)"]
         end
         subgraph L3["Apps"]
             direction TB
             Keycloak["Keycloak IdP<br/>(id.polaris.local)"]
-            Polaris-App["Order, Product Catalog<br/>(polaris.local)"]
-            Polaris-Assistant["AI Assistant<br/>(assistant.polaris.local)"]
+            Polaris-App["Order, Product Catalog<br/>(polaris.local/*)"]
+            Polaris-Assistant["AI Assistant<br/>(polaris.local/api/v1/assistant/*)"]
         end
     end
     L1 -->|HTTPS / REST| L2
@@ -97,8 +90,8 @@ make up
 
 | Portal | URL | Credentials / Action |
 |---|---|---|
-| **Polaris Swagger UI** | [https://polaris.local/swagger-ui/index.html](https://polaris.local/swagger-ui/index.html) | Click **Authorize** &rarr; select `polaris-app` &rarr; log in with `testuser` / `testpass` |
-| **Assistant Swagger UI** | [https://assistant.polaris.local/swagger-ui/index.html](https://assistant.polaris.local/swagger-ui/index.html) | Click **Authorize** &rarr; select `polaris-app` &rarr; log in with `testuser` / `testpass` |
+| **Polaris Swagger UI** | [https://polaris.local/swagger-ui/index.html](https://polaris.local/swagger-ui/index.html) | Unified Swagger UI for Core & Assistant (select definition in top dropdown) &rarr; Authorize with `testuser` / `testpass` |
+| **Assistant Chat API** | `POST https://polaris.local/api/v1/assistant/chat` | AI Assistant chat conversation endpoint (Requires OAuth2 Bearer token) |
 | **Polaris MCP Endpoint** | [https://polaris.local/mcp/sse](https://polaris.local/mcp/sse) | MCP JSON-RPC SSE endpoint (Requires OAuth2 Bearer token) |
 | **Keycloak Admin** | [https://id.polaris.local](https://id.polaris.local) | Username: `admin` \| Password: `admin` |
 | **Grafana Telemetry** | [https://grafana.polaris.local](https://grafana.polaris.local) | Username: `admin` \| Password: `admin` (or Keycloak SSO) |
@@ -132,3 +125,4 @@ To keep daily development focused, detailed guides for specialized areas are mai
 - 📐 [**Architecture Decision Records (ADRs)**](docs/adr/): Formal architecture records (e.g., [ADR-0008: Polaris Assistant Isolation](docs/adr/0008-polaris-assistant-independent-application-mcp-architecture.md)).
 - 📋 [**Product Requirements (PRDs)**](docs/prds/): Product requirement documents for catalog, orders, and AI assistant.
 - 🏛️ [**Architecture, Design & Code Principles**](AGENTS.md): Foundational requirements for lower-layer protocol alignment, bounded context containment, and cross-cutting observability.
+- [**Engineer-Guidelines**](Engineer-Guidelines.md)
