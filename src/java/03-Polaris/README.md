@@ -124,9 +124,4 @@ make up
 
 To keep daily development focused, detailed guides for specialized areas are maintained separately:
 
-- 🛠️ [**Technical & Implementation Guidelines**](docs/fleet/technical-guidelines.md): Code conventions, RFC 7807 Problem Details, SSE Virtual Threads, **Comprehensive Local Stack Architecture**, **4-Step Slice Lifecycle**, and **Playwright CLI Verification Recipes**.
-- 🤖 [**AI Assistant & Development Guide**](docs/ai-development.md): Integration guide for **Claude Code**, **Antigravity**, **Cursor**, MCP server setup, and diagram validation guards.
-- 🔍 [**AI Product Search Agent Specification**](docs/ai-product-search-agent.md): Tool definitions, schemas, and system prompt engineering for product search assistants.
-- 📊 [**Observability & Telemetry (LGTM Stack)**](docs/observability.md): Distributed tracing (Tempo), metrics collection (Prometheus), structured logging (Loki), and GCX CLI automation.
-- 📐 [**Architecture Decision Records (ADRs)**](docs/adr/): Formal architecture records (e.g., [ADR 0005: Polyglot Monorepo](docs/adr/0005-transition-to-polyglot-monorepo-architecture.md), [ADR 0004: AI Assistant Architecture](docs/adr/0004-web-chat-ai-assistant-architecture.md), [ADR 0003: PostgreSQL Persistence](docs/adr/0003-postgresql-container-persistence.md)).
 - 🔐 [**Local HTTPS & Truststore Architecture**](scripts/setup-local.md): In-depth manual instructions for `mkcert`, Java truststore creation, and TLS troubleshooting.

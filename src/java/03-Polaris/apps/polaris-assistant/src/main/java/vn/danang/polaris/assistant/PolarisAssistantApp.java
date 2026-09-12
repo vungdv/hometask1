@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
         "vn.danang.polaris.config",
         "vn.danang.polaris.web.exception"
 })
-@ConfigurationPropertiesScan(basePackages = "vn.danang.polaris.assistant.config")
+@ConfigurationPropertiesScan(basePackages = "vn.danang.polaris.assistant")
 public class PolarisAssistantApp {
 
     public static void main(String[] args) {
