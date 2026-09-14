@@ -110,8 +110,7 @@ Verification follows a strict multi-tier hierarchy:
 
 ## 6. Fleet Roles & Operating Cadence
 
-When collaborating as a human engineer or autonomous AI agent fleet, maintain clear boundaries:
-- **`coordinator-agent`**: Mediates delivery and keeps agents air-gapped without cross-context prompt bleed.
-- **`product-manager`**: Defines business value, acceptance criteria, and PRDs (`docs/prds/`).
-- **`arch-agent`**: Formulates ADRs (`docs/adr/`), interface contracts, and Slice Work Orders (`WO-xxx`). Conducts dual-tier verification audits.
-- **`domain-dev-agent`**: Implements vertically complete slices within a single bounded context according to the work order.
+When collaborating as a human engineer or autonomous AI agent fleet, maintain clear boundaries and active feedback loops:
+- **`coordinator-agent`**: Mediates delivery, preserves role focus, and facilitates bidirectional feedback between `arch-agent` and `domain-dev-agent` without prompt bleed.
+- **`arch-agent`**: Owns the high-level big picture: defines business value, acceptance criteria, PRDs (`docs/prds/`), ADRs (`docs/adr/`), interface contracts, and Slice Work Orders (`WO-xxx`). Conducts dual-tier verification audits and business sign-off.
+- **`domain-dev-agent`**: Focuses on tightly scoped, bite-sized vertical slices within a single bounded context according to the work order. Provides bottom-up feedback on task sizing, missing infrastructure, or contract friction.
