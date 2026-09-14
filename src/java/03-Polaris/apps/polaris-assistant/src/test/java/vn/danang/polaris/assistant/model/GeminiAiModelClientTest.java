@@ -45,7 +45,7 @@ class GeminiAiModelClientTest {
         properties.setApiKey(null);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-          () -> client.chat(List.of(), "Hello Polaris!"));
+          () -> client.chat(List.of(createUserMessage("Hello Polaris!"))));
 
         assertThat(exception).hasMessage("Live AI Model key is not configured. Set GEMINI_API_KEY or polaris.ai.api-key to connect to live Gemini.");
         verify(httpClient, never()).send(any(), any());
@@ -56,7 +56,7 @@ class GeminiAiModelClientTest {
     void chat_whenApiKeyIsBlank_returnsFallback() throws Exception {
         properties.setApiKey("   ");
 
-        String reply = client.chat(List.of(), "Hello Polaris!");
+        String reply = client.chat(List.of(createUserMessage("Hello Polaris!")));
 
         assertThat(reply).contains("Live AI Model key is not configured");
         verify(httpClient, never()).send(any(), any());
@@ -67,10 +67,22 @@ class GeminiAiModelClientTest {
     void chat_whenApiKeyIsUnresolvedPlaceholder_returnsFallbackWithoutUriSyntaxError() throws Exception {
         properties.setApiKey("${GEMINI_API_KEY}");
 
-        String reply = client.chat(List.of(), "Hello Polaris!");
+        String reply = client.chat(List.of(createUserMessage("Hello Polaris!")));
 
         assertThat(reply).contains("Live AI Model key is not configured");
         assertThat(reply).contains("Echo: \"Hello Polaris!\"");
+        verify(httpClient, never()).send(any(), any());
+    }
+
+    @Test
+    @DisplayName("Should return local assistant fallback when apiKey is unresolved placeholder and message list is empty")
+    void chat_whenApiKeyIsUnresolvedPlaceholderAndEmptyMessages_returnsFallbackWithEmptyEcho() throws Exception {
+        properties.setApiKey("${GEMINI_API_KEY}");
+
+        String reply = client.chat(List.of());
+
+        assertThat(reply).contains("Live AI Model key is not configured");
+        assertThat(reply).contains("Echo: \"\"");
         verify(httpClient, never()).send(any(), any());
     }
 
@@ -105,12 +117,10 @@ class GeminiAiModelClientTest {
         when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                 .thenReturn(mockResponse);
 
-        AssistantMessage userMessage = new AssistantMessage();
-        userMessage.setRole(MessageRole.USER);
-        userMessage.setContent("Hello Polaris!");
+        AssistantMessage userMessage = createUserMessage("Hello Polaris!");
 
         //Act
-        String reply = client.chat(List.of(userMessage), "Hello Polaris!");
+        String reply = client.chat(List.of(userMessage));
 
         //Assert
         assertThat(reply).isEqualTo("Hello! How can I help you today?");
@@ -151,7 +161,7 @@ class GeminiAiModelClientTest {
         when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                 .thenReturn(mockResponse);
 
-        String reply = client.chat(List.of(), "Test");
+        String reply = client.chat(List.of(createUserMessage("Test")));
 
         assertThat(reply).contains("Unable to get response from AI Model (API key not valid. Please pass a valid API key.).");
     }
@@ -164,8 +174,15 @@ class GeminiAiModelClientTest {
         when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                 .thenThrow(new IOException("Connection refused"));
 
-        String reply = client.chat(List.of(), "Test");
+        String reply = client.chat(List.of(createUserMessage("Test")));
 
         assertThat(reply).contains("Failed to communicate with AI Model: Connection refused");
+    }
+
+    private AssistantMessage createUserMessage(String content) {
+        AssistantMessage msg = new AssistantMessage();
+        msg.setRole(MessageRole.USER);
+        msg.setContent(content);
+        return msg;
     }
 }

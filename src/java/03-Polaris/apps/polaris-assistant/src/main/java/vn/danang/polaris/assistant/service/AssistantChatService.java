@@ -40,7 +40,7 @@ public class AssistantChatService {
 
         // 4. Forward message to AI Model
         log.info("Forwarding chat message to AI Model for userId: {}, message: {}", userId, messageText);
-        String reply = modelClient.chat(List.of(userMsg), messageText);
+        String reply = modelClient.chat(List.of(userMsg));
 
         // 5. Save assistant reply to database
         AssistantMessage assistantMsg = new AssistantMessage();

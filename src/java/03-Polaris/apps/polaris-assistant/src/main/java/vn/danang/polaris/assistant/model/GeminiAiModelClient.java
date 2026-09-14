@@ -11,11 +11,14 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -28,36 +31,36 @@ public class GeminiAiModelClient implements AssistantModelClient {
 
     private static final Logger log = LoggerFactory.getLogger(GeminiAiModelClient.class);
 
-    private final AssistantAiProperties properties;
+    private final AssistantAiProperties aiModelConfig;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public GeminiAiModelClient(AssistantAiProperties properties) {
-        this(properties, HttpClient.newBuilder()
+    public GeminiAiModelClient(AssistantAiProperties aiModelConfig) {
+        this(aiModelConfig, HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build(), new ObjectMapper().findAndRegisterModules());
     }
 
-    public GeminiAiModelClient(AssistantAiProperties properties, HttpClient httpClient, ObjectMapper objectMapper) {
-        this.properties = properties;
+    public GeminiAiModelClient(AssistantAiProperties aiModelConfig, HttpClient httpClient, ObjectMapper objectMapper) {
+        this.aiModelConfig = aiModelConfig;
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
     }
 
     @Override
-    public String chat(List<AssistantMessage> conversationHistory, String latestMessage) {
-        String apiKey = properties.getApiKey();
+    public String chat(List<AssistantMessage> messages) {
+        String apiKey = aiModelConfig.getApiKey();
         if (apiKey == null) {
             throw new IllegalArgumentException("Live AI Model key is not configured. Set GEMINI_API_KEY or polaris.ai.api-key to connect to live Gemini.");
         }
         if (apiKey.isBlank() || (apiKey.startsWith("${") && apiKey.endsWith("}"))) {
             log.info("No AI API key configured; returning local assistant fallback.");
-            return "I am Polaris Assistant! (Live AI Model key is not configured. Set GEMINI_API_KEY or polaris.ai.api-key to connect to live Gemini. Echo: \"" + latestMessage + "\")";
+            return "I am Polaris Assistant! (Live AI Model key is not configured. Set GEMINI_API_KEY or polaris.ai.api-key to connect to live Gemini.)";
         }
 
         try {
-            HttpRequest request = buildRequest(apiKey, conversationHistory, latestMessage);
+            HttpRequest request = buildRequest(messages);
             HttpResponse<String> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             return getMessage(response);
@@ -77,40 +80,58 @@ public class GeminiAiModelClient implements AssistantModelClient {
         }
     }
 
-    private HttpRequest buildRequest(String apiKey, List<AssistantMessage> history, String latestMessage)
-            throws IOException {
-        if (properties.getBaseUrl() == null || properties.getBaseUrl().isBlank()
-                || properties.getModel() == null || properties.getModel().isBlank()) {
+    private HttpRequest buildRequest(List<AssistantMessage> messages) throws IllegalArgumentException {
+        String apiKey = aiModelConfig.getApiKey();
+        if (aiModelConfig.getBaseUrl() == null || aiModelConfig.getBaseUrl().isBlank()
+                || aiModelConfig.getModel() == null || aiModelConfig.getModel().isBlank()) {
             throw new IllegalArgumentException("AI model URL or model is not configured");
         }
+        String message = getGeminiRequestMessage(messages);
 
-        List<Map<String, Object>> contents = new ArrayList<>();
-        if (history != null) {
-            for (AssistantMessage message : history) {
-                if (message.getContent() != null && !message.getContent().isBlank()) {
-                    contents.add(Map.of("role", message.getRole() == MessageRole.USER ? "user" : "model",
-                            "parts", List.of(Map.of("text", message.getContent()))));
-                }
-            }
-        }
-        if (latestMessage != null && !latestMessage.isBlank()
-                && (history == null || history.isEmpty()
-                || history.get(history.size() - 1).getRole() != MessageRole.USER
-                || !latestMessage.equals(history.get(history.size() - 1).getContent()))) {
-            contents.add(Map.of("role", "user", "parts", List.of(Map.of("text", latestMessage))));
-        }
-        Map<String, Object> body = new HashMap<>();
-        if (properties.getSystemPrompt() != null && !properties.getSystemPrompt().isBlank()) {
-            body.put("system_instruction", Map.of("parts", List.of(Map.of("text", properties.getSystemPrompt()))));
-        }
-        body.put("contents", contents);
-        String url = properties.getBaseUrl().replaceAll("/+$", "")
-                + "/v1beta/models/" + properties.getModel() + ":generateContent";
-        log.info("Sending request to Gemini model {} ({} message turns)", properties.getModel(), contents.size());
+        String url = aiModelConfig.getBaseUrl().replaceAll("/+$", "")
+                + "/v1beta/models/" + aiModelConfig.getModel() + ":generateContent";
+        
+        log.info("Sending request to Gemini model {}", aiModelConfig.getModel());
         return HttpRequest.newBuilder().uri(URI.create(url)).header("Content-Type", "application/json")
-                .header("x-goog-api-key", apiKey).timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
+                .header("x-goog-api-key", apiKey).timeout(Duration.ofSeconds(aiModelConfig.getTimeoutSeconds()))
+                .POST(HttpRequest.BodyPublishers.ofString(message, StandardCharsets.UTF_8))
                 .build();
+    }
+
+    private String getGeminiRequestMessage(List<AssistantMessage> messages) {
+        // Map the conversation history to the format expected by Gemini API
+        List<Map<String, Object>> contents = 
+            Optional.ofNullable(messages)
+                .map(h -> 
+                    h.stream()
+                    .filter(msg -> msg.getContent() != null && !msg.getContent().isBlank())
+                    .map(msg -> {
+                        Map<String, Object> message = new HashMap<>();
+                        // Gemini API expects "user" for user messages and "model" for assistant messages
+                        // It doesn't use "assistant", "system", ... like other providers.
+                        message.put("role", (msg.getRole() == null || msg.getRole() == MessageRole.USER) ? "user" : "model");
+                        message.put("parts", List.of(Map.of("text", msg.getContent())));
+                        return message;
+                    })
+                    .collect(Collectors.toList()))
+                .orElse(new ArrayList<>());
+        
+        // What are the reason that we need provide system prompt per AI models over just one for all AI providers?
+        // - System-message semantics differ between providers
+        // - Models interpret instructions differently
+        Map<String, Object> body = new HashMap<>();
+        if (aiModelConfig.getSystemPrompt() != null && !aiModelConfig.getSystemPrompt().isBlank()) {
+            body.put("system_instruction", Map.of("parts", List.of(Map.of("text", aiModelConfig.getSystemPrompt()))));
+        }
+
+        body.put("contents", contents);
+
+        try {
+            return objectMapper.writeValueAsString(body);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize Gemini request body", e);
+            throw new RuntimeException("Failed to serialize request body for Gemini API", e);
+        }
     }
 
     private String getMessage(HttpResponse<String> response) throws IOException {
