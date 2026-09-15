@@ -2,6 +2,7 @@ package vn.danang.polaris.assistant.model;
 
 import java.util.List;
 
+import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 
 /**
@@ -10,11 +11,26 @@ import vn.danang.polaris.assistant.entity.AssistantMessage;
 public interface AssistantModelClient {
 
     /**
-     * Send conversation messages to the AI Model and receive its response.
+     * Send conversation messages to the AI Model and receive its text response.
      *
      * @param messages conversation messages in this session including the latest user prompt
      * @return AI model text response
      */
-    String chat(List<AssistantMessage> messages);
+    default String chat(List<AssistantMessage> messages) {
+        return generateResponse(messages, List.of()).text();
+    }
+
+    /**
+     * Send conversation messages and available MCP tools to the AI Model.
+     * The model may return a text response or propose tool call(s).
+     *
+     * @param messages conversation messages in this session
+     * @param tools available tools discovered via MCP
+     * @return ModelResponse containing either text or tool calls
+     */
+    default ModelResponse generateResponse(List<AssistantMessage> messages, List<Tool> tools) {
+        String text = chat(messages);
+        return new ModelResponse(text, List.of());
+    }
 }
 

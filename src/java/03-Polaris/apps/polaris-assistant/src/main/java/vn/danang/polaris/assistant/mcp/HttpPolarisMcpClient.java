@@ -1,10 +1,17 @@
 package vn.danang.polaris.assistant.mcp;
 
+import java.io.IOException;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,16 +19,24 @@ import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.modelcontextprotocol.client.McpClient;
-import io.modelcontextprotocol.client.McpSyncClient;
-import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema;
-import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.modelcontextprotocol.spec.McpSchema.JSONRPCMessage;
+import io.modelcontextprotocol.spec.McpSchema.JSONRPCResponse;
+import io.modelcontextprotocol.spec.McpSchema.ListToolsResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import vn.danang.polaris.assistant.security.UserContext;
 
+/**
+ * High-performance, stateless HTTP client for invoking Model Context Protocol (MCP) tools
+ * on the Polaris Core backend via standard java.net.http.HttpClient.
+ *
+ * Authentication and Bearer token resolution is decoupled into {@link UserContext}.
+ * Direct synchronous HTTP request/response execution completes in milliseconds without
+ * long-lived SSE connections or reactive streaming overhead.
+ */
 @Component
 public class HttpPolarisMcpClient implements PolarisMcpClient {
 
@@ -29,56 +44,116 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
 
     private final PolarisMcpProperties properties;
     private final ObjectMapper objectMapper;
-    private McpSyncClient mcpSyncClient;
+    private final JacksonMcpJsonMapper jsonMapper;
+    private final UserContext userContext;
+    private final HttpClient httpClient;
 
-    public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper) {
-        this.properties = properties;
-        this.objectMapper = objectMapper;
+    public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, UserContext userContext) {
+        this(properties, objectMapper, userContext, HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(properties.getCore().getTimeoutSeconds()))
+                .build());
     }
 
-    public synchronized McpSyncClient getOrInitClient() {
-        if (mcpSyncClient != null && mcpSyncClient.isInitialized()) {
-            return mcpSyncClient;
+    public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, UserContext userContext, HttpClient httpClient) {
+        this.properties = properties;
+        this.objectMapper = objectMapper;
+        this.jsonMapper = new JacksonMcpJsonMapper(objectMapper);
+        this.userContext = userContext;
+        this.httpClient = httpClient;
+    }
+
+    public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, HttpClient httpClient) {
+        this(properties, objectMapper, new UserContext(properties), httpClient);
+    }
+
+    public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper) {
+        this(properties, objectMapper, new UserContext(properties));
+    }
+
+    /**
+     * Resolves the Bearer token for authenticating MCP requests by delegating to {@link UserContext}.
+     */
+    public String resolveBearerToken() {
+        return userContext != null ? userContext.resolveBearerToken() : null;
+    }
+
+    /**
+     * Resolves the target HTTP endpoint for MCP calls.
+     * Converts legacy SSE endpoint paths (e.g. /mcp/sse) to direct stateless HTTP endpoints (/mcp).
+     */
+    String resolveEndpoint() {
+        String url = properties.getCore().getUrl();
+        if (url == null || url.isBlank()) {
+            return "http://localhost:8080/mcp";
+        }
+        url = url.trim();
+        if (url.endsWith("/mcp/sse")) {
+            return url.substring(0, url.length() - 4);
+        }
+        return url;
+    }
+
+    /**
+     * Compatibility reset hook (stateless HTTP client does not hold long-lived sessions).
+     */
+    public void resetClient() {
+        // No persistent connection state to reset for standard HTTP client
+    }
+
+    private HttpRequest buildJsonRpcRequest(String jsonBody) {
+        String endpoint = resolveEndpoint();
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(endpoint))
+                .timeout(Duration.ofSeconds(properties.getCore().getTimeoutSeconds()))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8));
+
+        String token = resolveBearerToken();
+        if (token != null && !token.isBlank()) {
+            builder.header("Authorization", "Bearer " + token);
         }
 
-        String fullUrl = properties.getCore().getUrl();
-        try {
-            URI uri = URI.create(fullUrl);
-            String baseUri = uri.getScheme() + "://" + uri.getAuthority();
-            String ssePath = uri.getPath() != null && !uri.getPath().isBlank() ? uri.getPath() : "/mcp/sse";
-
-            JacksonMcpJsonMapper jsonMapper = new JacksonMcpJsonMapper(objectMapper);
-            HttpClientSseClientTransport transport = HttpClientSseClientTransport.builder(baseUri)
-                    .sseEndpoint(ssePath)
-                    .jsonMapper(jsonMapper)
-                    .connectTimeout(Duration.ofSeconds(properties.getCore().getTimeoutSeconds()))
-                    .build();
-
-            McpSyncClient client = McpClient.sync(transport)
-                    .clientInfo(new McpSchema.Implementation("polaris-assistant", "1.0.0"))
-                    .capabilities(McpSchema.ClientCapabilities.builder().build())
-                    .requestTimeout(Duration.ofSeconds(properties.getCore().getTimeoutSeconds()))
-                    .build();
-
-            client.initialize();
-            this.mcpSyncClient = client;
-            log.info("Successfully initialized MCP Client connected to Polaris Core at {}", fullUrl);
-            return this.mcpSyncClient;
-        } catch (Exception e) {
-            log.warn("Unable to connect to Polaris Core MCP server at {}: {}", fullUrl, e.getMessage());
-            return null;
-        }
+        return builder.build();
     }
 
     @Override
     public List<Tool> listAvailableTools() {
-        McpSyncClient client = getOrInitClient();
-        if (client == null) {
-            log.warn("Polaris Core MCP client is not connected. Returning empty tools list.");
-            return Collections.emptyList();
-        }
         try {
-            return client.listTools().tools();
+            Map<String, Object> rpcRequest = Map.of(
+                    "jsonrpc", "2.0",
+                    "id", "1",
+                    "method", "tools/list",
+                    "params", Map.of()
+            );
+            String jsonBody = objectMapper.writeValueAsString(rpcRequest);
+            HttpRequest request = buildJsonRpcRequest(jsonBody);
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() != 200) {
+                log.warn("Failed to list tools from Polaris Core MCP server. HTTP Status: {}, Body: {}",
+                        response.statusCode(), response.body());
+                return Collections.emptyList();
+            }
+
+            JSONRPCMessage message = McpSchema.deserializeJsonRpcMessage(jsonMapper, response.body());
+            if (message instanceof JSONRPCResponse rpcResponse) {
+                if (rpcResponse.error() != null) {
+                    log.error("MCP server returned error for tools/list: code={}, message={}",
+                            rpcResponse.error().code(), rpcResponse.error().message());
+                    return Collections.emptyList();
+                }
+                if (rpcResponse.result() != null) {
+                    ListToolsResult listResult = jsonMapper.convertValue(rpcResponse.result(), ListToolsResult.class);
+                    return listResult != null && listResult.tools() != null ? listResult.tools() : Collections.emptyList();
+                }
+            }
+            log.warn("Unexpected JSON-RPC response format for tools/list: {}", response.body());
+            return Collections.emptyList();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Interrupted while listing tools from Polaris Core MCP server: {}", e.getMessage());
+            return Collections.emptyList();
         } catch (Exception e) {
             log.error("Failed to list tools from Polaris Core MCP server: {}", e.getMessage());
             return Collections.emptyList();
@@ -87,19 +162,64 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
 
     @Override
     public CallToolResult callTool(String toolName, Map<String, Object> arguments) {
-        McpSyncClient client = getOrInitClient();
-        if (client == null) {
-            log.warn("Polaris Core MCP client is not connected. Cannot call tool: {}", toolName);
+        try {
+            Map<String, Object> params = new HashMap<>();
+            params.put("name", toolName);
+            params.put("arguments", arguments != null ? arguments : Map.of());
+
+            Map<String, Object> rpcRequest = Map.of(
+                    "jsonrpc", "2.0",
+                    "id", UUID.randomUUID().toString(),
+                    "method", "tools/call",
+                    "params", params
+            );
+            String jsonBody = objectMapper.writeValueAsString(rpcRequest);
+            HttpRequest request = buildJsonRpcRequest(jsonBody);
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() != 200) {
+                log.error("Error executing MCP tool '{}'. HTTP Status: {}, Body: {}",
+                        toolName, response.statusCode(), response.body());
+                return new CallToolResult(
+                        List.of(new TextContent("Error executing tool " + toolName + ": HTTP " + response.statusCode())),
+                        true,
+                        null,
+                        Map.of()
+                );
+            }
+
+            JSONRPCMessage message = McpSchema.deserializeJsonRpcMessage(jsonMapper, response.body());
+            if (message instanceof JSONRPCResponse rpcResponse) {
+                if (rpcResponse.error() != null) {
+                    String errorMsg = rpcResponse.error().message() != null ? rpcResponse.error().message() : "Unknown MCP error";
+                    log.error("MCP server returned error executing tool '{}': code={}, message={}",
+                            toolName, rpcResponse.error().code(), errorMsg);
+                    return new CallToolResult(
+                            List.of(new TextContent("Error executing tool " + toolName + ": " + errorMsg)),
+                            true,
+                            null,
+                            Map.of()
+                    );
+                }
+                if (rpcResponse.result() != null) {
+                    return jsonMapper.convertValue(rpcResponse.result(), CallToolResult.class);
+                }
+            }
             return new CallToolResult(
-                    List.of(new TextContent("Error: Polaris Core MCP server is currently unreachable.")),
+                    List.of(new TextContent("Error executing tool " + toolName + ": Invalid JSON-RPC response")),
                     true,
                     null,
                     Map.of()
             );
-        }
-        try {
-            CallToolRequest request = new CallToolRequest(toolName, arguments != null ? arguments : Map.of());
-            return client.callTool(request);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Interrupted while executing MCP tool '{}': {}", toolName, e.getMessage());
+            return new CallToolResult(
+                    List.of(new TextContent("Execution of tool " + toolName + " was interrupted")),
+                    true,
+                    null,
+                    Map.of()
+            );
         } catch (Exception e) {
             log.error("Error executing MCP tool '{}': {}", toolName, e.getMessage());
             return new CallToolResult(

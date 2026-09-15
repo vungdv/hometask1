@@ -14,9 +14,10 @@ public class PolarisMcpProperties {
     @Getter
     @Setter
     public static class CoreMcp {
-        private String url = "http://localhost:8080/mcp/sse";
-        private String messageEndpoint = "http://localhost:8080/mcp/message";
+        private String url = "http://localhost:8080/mcp";
+        private String messageEndpoint = "http://localhost:8080/mcp";
         private boolean enabled = true;
         private int timeoutSeconds = 10;
+        private String authToken;
     }
 }

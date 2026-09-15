@@ -35,8 +35,8 @@ polaris:
     timeout-seconds: ${POLARIS_AI_TIMEOUT_SECONDS:30}
   mcp:
     core:
-      url: ${POLARIS_CORE_MCP_URL:http://localhost:8080/mcp/sse}
-      message-endpoint: ${POLARIS_CORE_MCP_MESSAGE_ENDPOINT:http://localhost:8080/mcp/message}
+      url: ${POLARIS_CORE_MCP_URL:http://localhost:8080/mcp}
+      message-endpoint: ${POLARIS_CORE_MCP_MESSAGE_ENDPOINT:http://localhost:8080/mcp}
 
 springdoc:
   swagger-ui:

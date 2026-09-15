@@ -5,8 +5,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import io.modelcontextprotocol.spec.McpSchema.Tool;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -177,6 +179,107 @@ class GeminiAiModelClientTest {
         String reply = client.chat(List.of(createUserMessage("Test")));
 
         assertThat(reply).contains("Failed to communicate with AI Model: Connection refused");
+    }
+
+    @Test
+    @DisplayName("Should serialize tools as functionDeclarations in request body")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withTools_serializesFunctionDeclarationsInPayload() throws Exception {
+        properties.setApiKey("test-api-key");
+        properties.setModel("gemini-3.6-flash");
+
+        Tool tool = Tool.builder("search_available_products")
+                .description("Search catalog products")
+                .inputSchema(Map.of(
+                        "type", "object",
+                        "properties", Map.of("query", Map.of("type", "string")),
+                        "required", List.of("query")
+                ))
+                .build();
+
+        String mockResponseBody = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "functionCall": {
+                              "name": "search_available_products",
+                              "args": {
+                                "query": "charger"
+                              }
+                            }
+                          }
+                        ],
+                        "role": "model"
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn(mockResponseBody);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        ModelResponse response = client.generateResponse(List.of(createUserMessage("Find chargers")), List.of(tool));
+
+        assertThat(response.hasToolCalls()).isTrue();
+        assertThat(response.toolCalls()).hasSize(1);
+        ToolCall call = response.toolCalls().get(0);
+        assertThat(call.name()).isEqualTo("search_available_products");
+        assertThat(call.arguments()).containsEntry("query", "charger");
+    }
+
+    @Test
+    @DisplayName("Should serialize TOOL message as functionResponse in request body")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withToolMessageInHistory_serializesFunctionResponse() throws Exception {
+        properties.setApiKey("test-api-key");
+        properties.setModel("gemini-3.6-flash");
+
+        AssistantMessage userMsg = createUserMessage("Find chargers");
+
+        AssistantMessage modelMsg = new AssistantMessage();
+        modelMsg.setRole(MessageRole.ASSISTANT);
+        modelMsg.setToolCallId("search_available_products");
+        modelMsg.setWidgetPayload("{\"query\":\"charger\"}");
+
+        AssistantMessage toolMsg = new AssistantMessage();
+        toolMsg.setRole(MessageRole.TOOL);
+        toolMsg.setToolCallId("search_available_products");
+        toolMsg.setContent("Found 2 items");
+
+        String mockResponseBody = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "text": "Found 2 chargers in stock."
+                          }
+                        ],
+                        "role": "model"
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn(mockResponseBody);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        ModelResponse response = client.generateResponse(List.of(userMsg, modelMsg, toolMsg), List.of());
+
+        assertThat(response.hasToolCalls()).isFalse();
+        assertThat(response.text()).isEqualTo("Found 2 chargers in stock.");
     }
 
     private AssistantMessage createUserMessage(String content) {

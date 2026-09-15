@@ -1,26 +1,25 @@
 package vn.danang.polaris.assistant.mcp;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import io.modelcontextprotocol.client.McpSyncClient;
-import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import jakarta.annotation.Nullable;
 
 /**
- * Hub and dynamic tool registry for aggregating multiple Model Context Protocol (MCP) clients.
- * Allows the Polaris Assistant application to consume:
- * 1. Polaris Product Catalog & Order operations via PolarisMcpClient
- * 2. External third-party tools & MCP servers (e.g. Search, Weather, Logistics, Knowledge Base)
+ * Hub and tool registry for Polaris Assistant.
+ * Dispatches tool execution calls directly to Polaris Core via {@link PolarisMcpClient}
+ * with distributed tracing.
  */
 @Component
 public class ExternalMcpHub {
@@ -28,90 +27,62 @@ public class ExternalMcpHub {
     private static final Logger log = LoggerFactory.getLogger(ExternalMcpHub.class);
 
     private final PolarisMcpClient polarisMcpClient;
-    private final Map<String, McpSyncClient> externalClients = new ConcurrentHashMap<>();
+    @Nullable
+    private final Tracer tracer;
+
+    @Autowired
+    public ExternalMcpHub(PolarisMcpClient polarisMcpClient, ObjectProvider<Tracer> tracerProvider) {
+        this.polarisMcpClient = polarisMcpClient;
+        this.tracer = tracerProvider != null ? tracerProvider.getIfAvailable() : null;
+    }
 
     public ExternalMcpHub(PolarisMcpClient polarisMcpClient) {
+        this(polarisMcpClient, (Tracer) null);
+    }
+
+    public ExternalMcpHub(PolarisMcpClient polarisMcpClient, @Nullable Tracer tracer) {
         this.polarisMcpClient = polarisMcpClient;
+        this.tracer = tracer;
     }
 
     /**
-     * Registers an external MCP client connection under a unique provider name.
-     */
-    public void registerExternalClient(String providerName, McpSyncClient client) {
-        log.info("Registering external MCP client provider: {}", providerName);
-        externalClients.put(providerName, client);
-    }
-
-    /**
-     * Removes an external MCP client connection.
-     */
-    public void unregisterExternalClient(String providerName) {
-        externalClients.remove(providerName);
-    }
-
-    /**
-     * Discovers and aggregates all tools across Polaris Core and all external MCP providers.
+     * Discovers all tools available from Polaris Core.
      */
     public List<Tool> discoverAllTools() {
-        List<Tool> allTools = new ArrayList<>();
-
-        // 1. Discover tools from Polaris Core
-        try {
-            allTools.addAll(polarisMcpClient.listAvailableTools());
-        } catch (Exception e) {
-            log.error("Failed to load tools from Polaris Core: {}", e.getMessage());
-        }
-
-        // 2. Discover tools from registered external MCP providers
-        for (Map.Entry<String, McpSyncClient> entry : externalClients.entrySet()) {
-            try {
-                if (entry.getValue() != null && entry.getValue().isInitialized()) {
-                    allTools.addAll(entry.getValue().listTools().tools());
-                }
-            } catch (Exception e) {
-                log.error("Failed to load tools from external MCP provider '{}': {}", entry.getKey(), e.getMessage());
-            }
-        }
-
-        return Collections.unmodifiableList(allTools);
+        return polarisMcpClient.listAvailableTools();
     }
 
     /**
-     * Dispatches a tool invocation to the appropriate MCP provider.
+     * Dispatches a tool invocation to Polaris Core.
+     * Records a child distributed trace span ('mcp.tool_call <tool_name>') with provider, tool, and status tags.
      */
     public CallToolResult executeTool(String toolName, Map<String, Object> arguments) {
         log.info("Dispatching execution for tool: {}", toolName);
 
-        // Check if Polaris Core handles this tool
-        List<Tool> polarisTools = polarisMcpClient.listAvailableTools();
-        boolean isPolarisTool = polarisTools.stream().anyMatch(t -> t.name().equals(toolName));
-
-        if (isPolarisTool) {
+        if (this.tracer == null) {
             return polarisMcpClient.callTool(toolName, arguments);
         }
-
-        // Search across external providers
-        for (Map.Entry<String, McpSyncClient> entry : externalClients.entrySet()) {
-            try {
-                McpSyncClient client = entry.getValue();
-                if (client != null && client.isInitialized()) {
-                    boolean toolFound = client.listTools().tools().stream().anyMatch(t -> t.name().equals(toolName));
-                    if (toolFound) {
-                        return client.callTool(new CallToolRequest(toolName, arguments != null ? arguments : Map.of()));
-                    }
-                }
-            } catch (Exception e) {
-                log.error("External provider '{}' failed executing tool '{}': {}", entry.getKey(), toolName, e.getMessage());
-            }
+        
+        String spanName = "mcp.tool_call %s".formatted(Optional.ofNullable(toolName).orElse("unknown"));
+        Span span = this.tracer.nextSpan().name(spanName);
+        if (toolName != null) {
+            span.tag("mcp.tool.name", toolName);
         }
+        span.tag("mcp.provider", "polaris-core");
+        span.start();
 
-        // Fallback: tool unknown
-        log.warn("Tool '{}' not recognized by any registered MCP provider", toolName);
-        return new CallToolResult(
-                List.of(new TextContent("Error: Tool '" + toolName + "' is not supported by any registered MCP server.")),
-                true,
-                null,
-                Map.of()
-        );
+        try (Tracer.SpanInScope ws = this.tracer.withSpan(span)) {
+            CallToolResult result = polarisMcpClient.callTool(toolName, arguments);
+            if (result != null && Boolean.TRUE.equals(result.isError())) {
+                span.tag("error", "true");
+            }
+            return result;
+        } catch (Exception ex) {
+            span.error(ex);
+            span.tag("error", "true");
+            throw ex;
+        } finally {
+            span.end();
+        }
     }
 }

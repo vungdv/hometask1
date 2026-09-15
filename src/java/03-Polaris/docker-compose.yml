@@ -68,6 +68,8 @@ services:
       # LOGGING_LEVEL_IO_OPENTELEMETRY: DEBUG
       # LOGGING_LEVEL_IO_OPENTELEMETRY_EXPORTER_OTLP: DEBUG
       LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND: DEBUG
+    ports:
+      - "8080:8080"
     volumes:
       - ./docker/nginx/truststore.jks:/certs/truststore.jks:ro
     depends_on:
@@ -93,8 +95,8 @@ services:
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
       SPRING_DATASOURCE_USERNAME: polaris
       SPRING_DATASOURCE_PASSWORD: polaris
-      POLARIS_MCP_CORE_URL: http://polaris:8080/mcp/sse
-      POLARIS_MCP_CORE_MESSAGE_ENDPOINT: http://polaris:8080/mcp/message
+      POLARIS_MCP_CORE_URL: http://polaris:8080/mcp
+      POLARIS_MCP_CORE_MESSAGE_ENDPOINT: http://polaris:8080/mcp
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       SPRINGDOC_SWAGGER-UI_OAUTH_CLIENT-ID: "polaris-app"
       SPRINGDOC_SWAGGER-UI_OAUTH_USE-PKCE-WITH-AUTHORIZATION-CODE-GRANT: "true"

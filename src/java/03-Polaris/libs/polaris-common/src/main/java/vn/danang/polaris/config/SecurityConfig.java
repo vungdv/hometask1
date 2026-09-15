@@ -18,7 +18,7 @@ public class SecurityConfig {
         http
             // disable csrf for api as it uses jwt, not the cookies.
             // it would better to move these to configuration.
-            .csrf(csrf -> csrf.ignoringRequestMatchers("/h2-console/**", "/api/**", "/mcp/**", "/chat/**"))
+            .csrf(csrf -> csrf.ignoringRequestMatchers("/h2-console/**", "/api/**", "/mcp", "/mcp/**", "/chat/**"))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(
                     "/h2-console/**",
