@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
@@ -14,6 +15,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
@@ -126,68 +128,99 @@ public class ProductMcpTools {
         return getProductBySkuTool(new JacksonMcpJsonMapper(new ObjectMapper()));
     }
 
-    public McpSchema.CallToolResult searchAvailableProducts(Map<String, Object> arguments) {
-        try {
-            String query = getString(arguments, "query");
-            String category = getString(arguments, "category");
-            BigDecimal minPrice = getBigDecimal(arguments, "min_price", "minPrice");
-            BigDecimal maxPrice = getBigDecimal(arguments, "max_price", "maxPrice");
-            Boolean availableOnly = getBoolean(arguments, "available_only", "availableOnly", "available");
-            if (availableOnly == null) {
-                availableOnly = Boolean.TRUE;
-            }
-
-            Integer page = getInteger(arguments, "page");
-            Integer size = getInteger(arguments, "size");
-            String sort = getString(arguments, "sort");
-
-            int pageNum = page != null ? page : PageableValidator.DEFAULT_PAGE;
-            int pageSize = size != null ? size : PageableValidator.DEFAULT_SIZE;
-            Sort sortObj = parseSort(sort != null && !sort.isBlank() ? sort : "id,asc");
-
-            Pageable pageable = PageableValidator.validateAndSanitize(PageRequest.of(pageNum, pageSize, sortObj));
-            Page<ProductResponse> result = productService.searchProducts(
-                    query, category, minPrice, maxPrice, availableOnly, pageable
-            );
-
-            String formatted = formatSearchResults(result);
-            return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
-        } catch (Exception ex) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Error searching products: " + ex.getMessage())
-                    .isError(true)
-                    .build();
+    private McpSchema.CallToolResult executeWithSpan(String toolName, Supplier<McpSchema.CallToolResult> execution) {
+        if (this.tracer == null) {
+            return execution.get();
         }
+
+        String spanName = "mcp.server.tool_call %s".formatted(toolName);
+        Span span = this.tracer.nextSpan().name(spanName);
+        span.tag("mcp.tool.name", toolName);
+        span.tag("mcp.server", "polaris-mcp");
+        span.tag("mcp.category", "catalog");
+        span.start();
+
+        try (Tracer.SpanInScope ws = this.tracer.withSpan(span)) {
+            McpSchema.CallToolResult result = execution.get();
+            if (result != null && Boolean.TRUE.equals(result.isError())) {
+                span.tag("error", "true");
+            }
+            return result;
+        } catch (Exception ex) {
+            span.error(ex);
+            span.tag("error", "true");
+            throw ex;
+        } finally {
+            span.end();
+        }
+    }
+
+    public McpSchema.CallToolResult searchAvailableProducts(Map<String, Object> arguments) {
+        return executeWithSpan(TOOL_SEARCH_AVAILABLE_PRODUCTS, () -> {
+            try {
+                String query = getString(arguments, "query");
+                String category = getString(arguments, "category");
+                BigDecimal minPrice = getBigDecimal(arguments, "min_price", "minPrice");
+                BigDecimal maxPrice = getBigDecimal(arguments, "max_price", "maxPrice");
+                Boolean availableOnly = getBoolean(arguments, "available_only", "availableOnly", "available");
+                if (availableOnly == null) {
+                    availableOnly = Boolean.TRUE;
+                }
+
+                Integer page = getInteger(arguments, "page");
+                Integer size = getInteger(arguments, "size");
+                String sort = getString(arguments, "sort");
+
+                int pageNum = page != null ? page : PageableValidator.DEFAULT_PAGE;
+                int pageSize = size != null ? size : PageableValidator.DEFAULT_SIZE;
+                Sort sortObj = parseSort(sort != null && !sort.isBlank() ? sort : "id,asc");
+
+                Pageable pageable = PageableValidator.validateAndSanitize(PageRequest.of(pageNum, pageSize, sortObj));
+                Page<ProductResponse> result = productService.searchProducts(
+                        query, category, minPrice, maxPrice, availableOnly, pageable
+                );
+
+                String formatted = formatSearchResults(result);
+                return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
+            } catch (Exception ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Error searching products: " + ex.getMessage())
+                        .isError(true)
+                        .build();
+            }
+        });
     }
 
     public McpSchema.CallToolResult getProductBySku(Map<String, Object> arguments) {
         String sku = getString(arguments, "sku");
-        if (sku == null || sku.isBlank()) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Parameter 'sku' is required.")
-                    .isError(true)
-                    .build();
-        }
-
         return getProductBySku(sku);
     }
 
     public McpSchema.CallToolResult getProductBySku(String sku) {
-        try {
-            ProductResponse product = productService.getProductBySku(sku.trim());
-            String formatted = formatProductDetails(product);
-            return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
-        } catch (ResourceNotFoundException ex) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Product not found with SKU: " + sku.trim())
-                    .isError(true)
-                    .build();
-        } catch (Exception ex) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Error retrieving product '" + sku + "': " + ex.getMessage())
-                    .isError(true)
-                    .build();
-        }
+        return executeWithSpan(TOOL_GET_PRODUCT_BY_SKU, () -> {
+            if (sku == null || sku.isBlank()) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Parameter 'sku' is required.")
+                        .isError(true)
+                        .build();
+            }
+
+            try {
+                ProductResponse product = productService.getProductBySku(sku.trim());
+                String formatted = formatProductDetails(product);
+                return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
+            } catch (ResourceNotFoundException ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Product not found with SKU: " + sku.trim())
+                        .isError(true)
+                        .build();
+            } catch (Exception ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Error retrieving product '" + sku + "': " + ex.getMessage())
+                        .isError(true)
+                        .build();
+            }
+        });
     }
 
     private String formatSearchResults(Page<ProductResponse> result) {

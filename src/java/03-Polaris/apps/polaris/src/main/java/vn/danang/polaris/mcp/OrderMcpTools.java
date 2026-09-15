@@ -3,6 +3,7 @@ package vn.danang.polaris.mcp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +13,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
@@ -214,201 +216,259 @@ public class OrderMcpTools {
         return getCancelOrderTool(new JacksonMcpJsonMapper(new ObjectMapper()));
     }
 
+    private McpSchema.CallToolResult executeWithSpan(String toolName, Supplier<McpSchema.CallToolResult> execution) {
+        if (this.tracer == null) {
+            return execution.get();
+        }
+
+        String spanName = "mcp.server.tool_call %s".formatted(toolName);
+        Span span = this.tracer.nextSpan().name(spanName);
+        span.tag("mcp.tool.name", toolName);
+        span.tag("mcp.server", "polaris-mcp");
+        span.tag("mcp.category", "order");
+        span.start();
+
+        try (Tracer.SpanInScope ws = this.tracer.withSpan(span)) {
+            McpSchema.CallToolResult result = execution.get();
+            if (result != null && Boolean.TRUE.equals(result.isError())) {
+                span.tag("error", "true");
+            }
+            return result;
+        } catch (Exception ex) {
+            span.error(ex);
+            span.tag("error", "true");
+            throw ex;
+        } finally {
+            span.end();
+        }
+    }
+
     public McpSchema.CallToolResult getOrderStatus(Map<String, Object> arguments) {
         String orderNumber = getOrderNumber(arguments);
-        if (orderNumber == null || orderNumber.isBlank()) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Parameter 'order_number' is required.")
-                    .isError(true)
-                    .build();
-        }
         return getOrderStatus(orderNumber);
     }
 
     @Transactional(readOnly = true)
     public McpSchema.CallToolResult getOrderStatus(String orderNumber) {
-        try {
-            Order order = orderService.getOrderStatus(orderNumber.trim());
-            String formatted = formatOrderStatus(order);
-            return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
-        } catch (ResourceNotFoundException ex) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Order not found with order number: " + orderNumber.trim())
-                    .isError(true)
-                    .build();
-        } catch (Exception ex) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Error retrieving order '" + orderNumber + "': " + ex.getMessage())
-                    .isError(true)
-                    .build();
-        }
+        return executeWithSpan(TOOL_GET_ORDER_STATUS, () -> {
+            if (orderNumber == null || orderNumber.isBlank()) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Parameter 'order_number' is required.")
+                        .isError(true)
+                        .build();
+            }
+            try {
+                Order order = orderService.getOrderStatus(orderNumber.trim());
+                String formatted = formatOrderStatus(order);
+                return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
+            } catch (ResourceNotFoundException ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Order not found with order number: " + orderNumber.trim())
+                        .isError(true)
+                        .build();
+            } catch (Exception ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Error retrieving order '" + orderNumber + "': " + ex.getMessage())
+                        .isError(true)
+                        .build();
+            }
+        });
     }
 
     public McpSchema.CallToolResult getOrderDetails(Map<String, Object> arguments) {
-        return getOrderStatus(arguments);
+        return executeWithSpan(TOOL_GET_ORDER_DETAILS, () -> {
+            String orderNumber = getOrderNumber(arguments);
+            if (orderNumber == null || orderNumber.isBlank()) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Parameter 'order_number' is required.")
+                        .isError(true)
+                        .build();
+            }
+            try {
+                Order order = orderService.getOrderStatus(orderNumber.trim());
+                String formatted = formatOrderStatus(order);
+                return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
+            } catch (ResourceNotFoundException ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Order not found with order number: " + orderNumber.trim())
+                        .isError(true)
+                        .build();
+            } catch (Exception ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Error retrieving order '" + orderNumber + "': " + ex.getMessage())
+                        .isError(true)
+                        .build();
+            }
+        });
     }
 
     public McpSchema.CallToolResult placeOrder(Map<String, Object> arguments) {
-        if (arguments == null) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Arguments are required.")
-                    .isError(true)
-                    .build();
-        }
-
-        Long customerId = parseLong(arguments.get("customer_id") != null ? arguments.get("customer_id") : arguments.get("customerId"));
-        if (customerId == null) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Parameter 'customer_id' is required.")
-                    .isError(true)
-                    .build();
-        }
-
-        Object rawItems = arguments.get("items");
-        if (!(rawItems instanceof List<?> itemsList) || itemsList.isEmpty()) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Parameter 'items' is required and must not be empty.")
-                    .isError(true)
-                    .build();
-        }
-
-        List<OrderItemRequest> reqItems = new ArrayList<>();
-        for (Object itemObj : itemsList) {
-            if (!(itemObj instanceof Map<?, ?> itemMap)) {
+        return executeWithSpan(TOOL_PLACE_ORDER, () -> {
+            if (arguments == null) {
                 return McpSchema.CallToolResult.builder()
-                        .addTextContent("Each item must be an object with 'sku' and 'quantity'.")
+                        .addTextContent("Arguments are required.")
                         .isError(true)
                         .build();
             }
 
-            Object rawSku = itemMap.get("sku");
-            if (rawSku == null || rawSku.toString().isBlank()) {
+            Long customerId = parseLong(arguments.get("customer_id") != null ? arguments.get("customer_id") : arguments.get("customerId"));
+            if (customerId == null) {
                 return McpSchema.CallToolResult.builder()
-                        .addTextContent("Item 'sku' is required.")
-                        .isError(true)
-                        .build();
-            }
-            String sku = rawSku.toString().trim();
-
-            Object rawQty = itemMap.get("quantity");
-            Integer qty = parseInteger(rawQty);
-            if (qty == null || qty < 1) {
-                return McpSchema.CallToolResult.builder()
-                        .addTextContent("Item 'quantity' must be at least 1 for SKU '" + sku + "'.")
+                        .addTextContent("Parameter 'customer_id' is required.")
                         .isError(true)
                         .build();
             }
 
-            reqItems.add(new OrderItemRequest(sku, qty));
-        }
+            Object rawItems = arguments.get("items");
+            if (!(rawItems instanceof List<?> itemsList) || itemsList.isEmpty()) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Parameter 'items' is required and must not be empty.")
+                        .isError(true)
+                        .build();
+            }
 
-        Object rawKey = arguments.get("idempotency_key") != null ? arguments.get("idempotency_key") : arguments.get("idempotencyKey");
-        String idempotencyKey = rawKey != null ? rawKey.toString().trim() : null;
+            List<OrderItemRequest> reqItems = new ArrayList<>();
+            for (Object itemObj : itemsList) {
+                if (!(itemObj instanceof Map<?, ?> itemMap)) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("Each item must be an object with 'sku' and 'quantity'.")
+                            .isError(true)
+                            .build();
+                }
 
-        try {
-            Order order = orderService.placeOrder(customerId, reqItems, idempotencyKey);
-            String confirmation = formatOrderPlaced(order);
-            return McpSchema.CallToolResult.builder().addTextContent(confirmation).isError(false).build();
-        } catch (InsufficientStockException ex) {
-            String errorMsg = String.format(
-                    "Insufficient stock for product '%s'. Requested: %d, available: %d. Remedy: Reduce order quantity for '%s' to %d or fewer units.",
-                    ex.getSku(), ex.getRequestedQuantity(), ex.getAvailableQuantity(),
-                    ex.getSku(), ex.getAvailableQuantity()
-            );
-            return McpSchema.CallToolResult.builder().addTextContent(errorMsg).isError(true).build();
-        } catch (ResourceNotFoundException ex) {
-            return McpSchema.CallToolResult.builder().addTextContent(ex.getMessage()).isError(true).build();
-        } catch (Exception ex) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Error placing order: " + ex.getMessage())
-                    .isError(true)
-                    .build();
-        }
+                Object rawSku = itemMap.get("sku");
+                if (rawSku == null || rawSku.toString().isBlank()) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("Item 'sku' is required.")
+                            .isError(true)
+                            .build();
+                }
+                String sku = rawSku.toString().trim();
+
+                Object rawQty = itemMap.get("quantity");
+                Integer qty = parseInteger(rawQty);
+                if (qty == null || qty < 1) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("Item 'quantity' must be at least 1 for SKU '" + sku + "'.")
+                            .isError(true)
+                            .build();
+                }
+
+                reqItems.add(new OrderItemRequest(sku, qty));
+            }
+
+            Object rawKey = arguments.get("idempotency_key") != null ? arguments.get("idempotency_key") : arguments.get("idempotencyKey");
+            String idempotencyKey = rawKey != null ? rawKey.toString().trim() : null;
+
+            try {
+                Order order = orderService.placeOrder(customerId, reqItems, idempotencyKey);
+                String confirmation = formatOrderPlaced(order);
+                return McpSchema.CallToolResult.builder().addTextContent(confirmation).isError(false).build();
+            } catch (InsufficientStockException ex) {
+                String errorMsg = String.format(
+                        "Insufficient stock for product '%s'. Requested: %d, available: %d. Remedy: Reduce order quantity for '%s' to %d or fewer units.",
+                        ex.getSku(), ex.getRequestedQuantity(), ex.getAvailableQuantity(),
+                        ex.getSku(), ex.getAvailableQuantity()
+                );
+                return McpSchema.CallToolResult.builder().addTextContent(errorMsg).isError(true).build();
+            } catch (ResourceNotFoundException ex) {
+                return McpSchema.CallToolResult.builder().addTextContent(ex.getMessage()).isError(true).build();
+            } catch (Exception ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Error placing order: " + ex.getMessage())
+                        .isError(true)
+                        .build();
+            }
+        });
     }
 
     public McpSchema.CallToolResult listCustomerOrders(Map<String, Object> arguments) {
-        if (arguments == null) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Arguments are required.")
-                    .isError(true)
-                    .build();
-        }
-
-        Long customerId = parseLong(arguments.get("customer_id") != null ? arguments.get("customer_id") : arguments.get("customerId"));
-        if (customerId == null) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Parameter 'customer_id' is required.")
-                    .isError(true)
-                    .build();
-        }
-
-        OrderStatus orderStatus = null;
-        Object rawStatus = arguments.get("status");
-        if (rawStatus != null && !rawStatus.toString().isBlank()) {
-            String statusStr = rawStatus.toString().trim().toUpperCase();
-            try {
-                orderStatus = OrderStatus.valueOf(statusStr);
-            } catch (IllegalArgumentException e) {
+        return executeWithSpan(TOOL_LIST_CUSTOMER_ORDERS, () -> {
+            if (arguments == null) {
                 return McpSchema.CallToolResult.builder()
-                        .addTextContent("Invalid status '" + rawStatus + "'. Allowed values: [PLACED, CONFIRMED, PARCELED, DELIVERING, DELIVERED, CANCELLED]")
+                        .addTextContent("Arguments are required.")
                         .isError(true)
                         .build();
             }
-        }
 
-        int page = parseIntegerOrDefault(arguments.get("page"), 0);
-        int size = parseIntegerOrDefault(arguments.get("size"), 20);
-        if (page < 0) page = 0;
-        if (size < 1) size = 20;
+            Long customerId = parseLong(arguments.get("customer_id") != null ? arguments.get("customer_id") : arguments.get("customerId"));
+            if (customerId == null) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Parameter 'customer_id' is required.")
+                        .isError(true)
+                        .build();
+            }
 
-        try {
-            Page<OrderResponse> ordersPage = orderService.searchOrders(
-                    customerId,
-                    orderStatus,
-                    PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "placedAt"))
-            );
-            String formatted = formatOrderList(customerId, ordersPage);
-            return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
-        } catch (Exception ex) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Error searching orders: " + ex.getMessage())
-                    .isError(true)
-                    .build();
-        }
+            OrderStatus orderStatus = null;
+            Object rawStatus = arguments.get("status");
+            if (rawStatus != null && !rawStatus.toString().isBlank()) {
+                String statusStr = rawStatus.toString().trim().toUpperCase();
+                try {
+                    orderStatus = OrderStatus.valueOf(statusStr);
+                } catch (IllegalArgumentException e) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("Invalid status '" + rawStatus + "'. Allowed values: [PLACED, CONFIRMED, PARCELED, DELIVERING, DELIVERED, CANCELLED]")
+                            .isError(true)
+                            .build();
+                }
+            }
+
+            int page = parseIntegerOrDefault(arguments.get("page"), 0);
+            int size = parseIntegerOrDefault(arguments.get("size"), 20);
+            if (page < 0) page = 0;
+            if (size < 1) size = 20;
+
+            try {
+                Page<OrderResponse> ordersPage = orderService.searchOrders(
+                        customerId,
+                        orderStatus,
+                        PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "placedAt"))
+                );
+                String formatted = formatOrderList(customerId, ordersPage);
+                return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
+            } catch (Exception ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Error searching orders: " + ex.getMessage())
+                        .isError(true)
+                        .build();
+            }
+        });
     }
 
     public McpSchema.CallToolResult cancelOrder(Map<String, Object> arguments) {
         String orderNumber = getOrderNumber(arguments);
-        if (orderNumber == null || orderNumber.isBlank()) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Parameter 'order_number' is required.")
-                    .isError(true)
-                    .build();
-        }
         return cancelOrder(orderNumber);
     }
 
     public McpSchema.CallToolResult cancelOrder(String orderNumber) {
-        try {
-            Order order = orderService.cancelOrder(orderNumber.trim());
-            String formatted = formatOrderCancelled(order);
-            return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
-        } catch (ResourceNotFoundException ex) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Order not found with order number: " + orderNumber.trim())
-                    .isError(true)
-                    .build();
-        } catch (IllegalStateException ex) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Cannot cancel order: " + ex.getMessage())
-                    .isError(true)
-                    .build();
-        } catch (Exception ex) {
-            return McpSchema.CallToolResult.builder()
-                    .addTextContent("Error cancelling order '" + orderNumber + "': " + ex.getMessage())
-                    .isError(true)
-                    .build();
-        }
+        return executeWithSpan(TOOL_CANCEL_ORDER, () -> {
+            if (orderNumber == null || orderNumber.isBlank()) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Parameter 'order_number' is required.")
+                        .isError(true)
+                        .build();
+            }
+            try {
+                Order order = orderService.cancelOrder(orderNumber.trim());
+                String formatted = formatOrderCancelled(order);
+                return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
+            } catch (ResourceNotFoundException ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Order not found with order number: " + orderNumber.trim())
+                        .isError(true)
+                        .build();
+            } catch (IllegalStateException ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Cannot cancel order: " + ex.getMessage())
+                        .isError(true)
+                        .build();
+            } catch (Exception ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Error cancelling order '" + orderNumber + "': " + ex.getMessage())
+                        .isError(true)
+                        .build();
+            }
+        });
     }
 
     private String formatOrderStatus(Order order) {

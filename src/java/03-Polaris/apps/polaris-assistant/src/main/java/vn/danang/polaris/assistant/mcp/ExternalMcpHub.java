@@ -47,9 +47,32 @@ public class ExternalMcpHub {
 
     /**
      * Discovers all tools available from Polaris Core.
+     * Records a child distributed trace span ('mcp.list_tools') with provider and tool count tags.
      */
     public List<Tool> discoverAllTools() {
-        return polarisMcpClient.listAvailableTools();
+        if (this.tracer == null) {
+            return polarisMcpClient.listAvailableTools();
+        }
+
+        String spanName = "mcp.list_tools";
+        Span span = this.tracer.nextSpan().name(spanName);
+        span.tag("mcp.provider", "polaris-core");
+        span.tag("mcp.operation", "tools/list");
+        span.start();
+
+        try (Tracer.SpanInScope ws = this.tracer.withSpan(span)) {
+            List<Tool> tools = polarisMcpClient.listAvailableTools();
+            if (tools != null) {
+                span.tag("mcp.tools.count", String.valueOf(tools.size()));
+            }
+            return tools;
+        } catch (Exception ex) {
+            span.error(ex);
+            span.tag("error", "true");
+            throw ex;
+        } finally {
+            span.end();
+        }
     }
 
     /**
@@ -69,6 +92,7 @@ public class ExternalMcpHub {
             span.tag("mcp.tool.name", toolName);
         }
         span.tag("mcp.provider", "polaris-core");
+        span.tag("mcp.operation", "tools/call");
         span.start();
 
         try (Tracer.SpanInScope ws = this.tracer.withSpan(span)) {

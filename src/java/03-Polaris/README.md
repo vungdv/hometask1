@@ -15,12 +15,13 @@ Polaris is organized around clear bounded contexts adhering to Domain-Driven Des
 
 ### 2. AI Assistant Context (`/api/v1/assistant/chat`)
 * **Autonomous Microservice**: Standalone service (`apps/polaris-assistant`) decoupled from core commerce databases, routed via gateway sub-path `/api/v1/assistant/*` under `https://polaris.local`.
-* **MCP Integration**: Consumes product catalog and order operations from Polaris Core exclusively via Model Context Protocol (`/mcp/sse`).
+* **MCP Integration**: Consumes product catalog and order operations from Polaris Core exclusively via Model Context Protocol (`/mcp` / `/mcp/sse`).
 * **Multi-Tool Hub**: Aggregates tools across Polaris Core and external MCP servers via `ExternalMcpHub`.
-* **Conversational Commerce & Telemetry**: AI chat endpoint (`POST /api/v1/assistant/chat`) powered by Google Gemini, instrumented with full distributed tracing (`gemini.generate_content`), W3C `traceparent` context propagation, and OpenTelemetry GenAI semantics ([ADR-0011](docs/adr/0011-gemini-model-call-distributed-tracing.md)).
+* **Conversational Commerce & Telemetry**: AI chat endpoint (`POST /api/v1/assistant/chat`) powered by Google Gemini, instrumented with full distributed tracing (`gemini.generate_content`), W3C `traceparent` context propagation across outbound MCP HTTP calls, and OpenTelemetry GenAI semantics ([ADR-0011](docs/adr/0011-gemini-model-call-distributed-tracing.md), [ADR-0012](docs/adr/0012-mcp-cross-service-distributed-tracing.md)).
 
-### 3. Model Context Protocol (MCP) Gateway Context (`/mcp/sse`, `/mcp/message`)
-* **In-Process MCP Server**: Native Spring Boot MCP SDK integration in `apps/polaris` exposing standard JSON-RPC tools (`search_available_products`, `get_product_by_sku`, order query tools) for AI assistants.
+### 3. Model Context Protocol (MCP) Gateway Context (`/mcp`, `/mcp/sse`, `/mcp/message`)
+* **In-Process MCP Server**: Native Spring Boot MCP SDK integration in `apps/polaris` exposing standard JSON-RPC tools (`search_available_products`, `get_product_by_sku`, order query/placement/cancellation tools) for AI assistants.
+* **Server-Side Tool Observability**: Every MCP tool execution is instrumented with dedicated distributed trace spans (`mcp.server.tool_call <name>`) inheriting the caller's W3C trace context with standard attributes (`mcp.tool.name`, `mcp.server`, `mcp.category`, `error`) ([ADR-0012](docs/adr/0012-mcp-cross-service-distributed-tracing.md)).
 * **Enterprise Security**: OAuth2/OIDC Bearer token authentication strictly enforced across all MCP endpoints (zero security bypass).
 
 ### 4. Identity & Access Context (`https://id.polaris.local`)
@@ -125,6 +126,7 @@ To keep daily development focused, detailed guides for specialized areas are mai
 - 🔐 [**Local HTTPS Setup**](scripts/setup-local-https-mac-m1.sh): Manual setup script for `mkcert` and Java truststore.
 - 📐 [**Architecture Decision Records (ADRs)**](docs/adr/): Formal architecture records (e.g., [ADR-0008: Polaris Assistant Isolation](docs/adr/0008-polaris-assistant-independent-application-mcp-architecture.md)).
 - 🔍 [**ADR-0011: Gemini Distributed Tracing**](docs/adr/0011-gemini-model-call-distributed-tracing.md): Distributed tracing and W3C context propagation for AI model calls.
+- 🌐 [**ADR-0012: MCP Cross-Service Distributed Tracing**](docs/adr/0012-mcp-cross-service-distributed-tracing.md): Cross-service trace propagation via W3C `traceparent` and server-side MCP tool execution spans.
 - 📋 [**Product Requirements (PRDs)**](docs/prds/): Product requirement documents for catalog, orders, and AI assistant.
 - 📋 [**PRD-004: AI Model Observability**](docs/prds/PRD-004-gemini-model-observability-and-distributed-tracing.md): Business requirements and personas for GenAI distributed tracing.
 - 🏛️ [**Architecture, Design & Code Principles**](AGENTS.md): Foundational requirements for lower-layer protocol alignment, bounded context containment, and cross-cutting observability.

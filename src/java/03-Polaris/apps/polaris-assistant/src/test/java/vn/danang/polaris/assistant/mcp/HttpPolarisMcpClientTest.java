@@ -13,6 +13,7 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -20,6 +21,9 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
@@ -263,5 +267,121 @@ class HttpPolarisMcpClientTest {
     @Test
     void testResetClient_doesNotThrow() {
         assertDoesNotThrow(() -> client.resetClient());
+    }
+
+    @Test
+    void testCallTool_withTracer_injectsW3CTraceparentHeader() throws Exception {
+        Tracer mockTracer = mock(Tracer.class);
+        Span mockSpan = mock(Span.class);
+        TraceContext mockContext = mock(TraceContext.class);
+
+        when(mockTracer.currentSpan()).thenReturn(mockSpan);
+        when(mockSpan.context()).thenReturn(mockContext);
+        when(mockContext.traceId()).thenReturn("4bf92f3577b34da6a3ce929d0e0e4736");
+        when(mockContext.spanId()).thenReturn("00f067aa0ba902b7");
+        when(mockContext.sampled()).thenReturn(true);
+
+        HttpPolarisMcpClient tracedClient = new HttpPolarisMcpClient(
+                properties, objectMapper, new UserContext(properties), mockHttpClient, mockTracer);
+
+        when(mockHttpResponse.statusCode()).thenReturn(200);
+        when(mockHttpResponse.body()).thenReturn("""
+            {
+              "jsonrpc": "2.0",
+              "id": "1",
+              "result": {
+                "content": [{"type": "text", "text": "Success"}],
+                "isError": false
+              }
+            }
+            """);
+        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+        CallToolResult result = tracedClient.callTool("search_available_products", Map.of("query", "test"));
+        assertNotNull(result);
+        assertFalse(Boolean.TRUE.equals(result.isError()));
+
+        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(mockHttpClient).send(captor.capture(), any());
+
+        HttpRequest sentRequest = captor.getValue();
+        assertTrue(sentRequest.headers().firstValue("traceparent").isPresent());
+        assertEquals("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+                sentRequest.headers().firstValue("traceparent").get());
+    }
+
+    @Test
+    void testListAvailableTools_withTracer_injectsW3CTraceparentHeader() throws Exception {
+        Tracer mockTracer = mock(Tracer.class);
+        Span mockSpan = mock(Span.class);
+        TraceContext mockContext = mock(TraceContext.class);
+
+        when(mockTracer.currentSpan()).thenReturn(mockSpan);
+        when(mockSpan.context()).thenReturn(mockContext);
+        when(mockContext.traceId()).thenReturn("4bf92f3577b34da6a3ce929d0e0e4736");
+        when(mockContext.spanId()).thenReturn("00f067aa0ba902b7");
+        when(mockContext.sampled()).thenReturn(false);
+
+        HttpPolarisMcpClient tracedClient = new HttpPolarisMcpClient(
+                properties, objectMapper, new UserContext(properties), mockHttpClient, mockTracer);
+
+        when(mockHttpResponse.statusCode()).thenReturn(200);
+        when(mockHttpResponse.body()).thenReturn("""
+            {
+              "jsonrpc": "2.0",
+              "id": "1",
+              "result": {
+                "tools": []
+              }
+            }
+            """);
+        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+        List<Tool> tools = tracedClient.listAvailableTools();
+        assertNotNull(tools);
+
+        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(mockHttpClient).send(captor.capture(), any());
+
+        HttpRequest sentRequest = captor.getValue();
+        assertTrue(sentRequest.headers().firstValue("traceparent").isPresent());
+        assertEquals("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
+                sentRequest.headers().firstValue("traceparent").get());
+    }
+
+    @Test
+    void testCallTool_withoutTracer_doesNotInjectTraceparent() throws Exception {
+        when(mockHttpResponse.statusCode()).thenReturn(200);
+        when(mockHttpResponse.body()).thenReturn("""
+            {
+              "jsonrpc": "2.0",
+              "id": "1",
+              "result": {
+                "content": [{"type": "text", "text": "Success"}]
+              }
+            }
+            """);
+        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+        client.callTool("search_available_products", Map.of("query", "test"));
+
+        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(mockHttpClient).send(captor.capture(), any());
+
+        HttpRequest sentRequest = captor.getValue();
+        assertFalse(sentRequest.headers().firstValue("traceparent").isPresent());
+    }
+
+    @Test
+    void testConstructor_withObjectProvider_extractsTracer() {
+        Tracer mockTracer = mock(Tracer.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<Tracer> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(mockTracer);
+
+        HttpPolarisMcpClient clientFromProvider = new HttpPolarisMcpClient(
+                properties, objectMapper, new UserContext(properties), provider);
+        assertNotNull(clientFromProvider);
+        verify(provider).getIfAvailable();
     }
 }

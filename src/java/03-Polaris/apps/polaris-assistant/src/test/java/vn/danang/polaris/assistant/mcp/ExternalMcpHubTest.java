@@ -170,4 +170,42 @@ class ExternalMcpHubTest {
 
         verify(tracer, times(1)).nextSpan();
     }
+
+    @Test
+    void testDiscoverAllTools_withTracer_createsSpanAndTags() {
+        mockTracerSetup();
+        ExternalMcpHub tracedHub = new ExternalMcpHub(polarisMcpClient, tracer);
+
+        Tool polarisTool = Tool.builder("search_available_products").description("Search").build();
+        when(polarisMcpClient.listAvailableTools()).thenReturn(List.of(polarisTool));
+
+        List<Tool> allTools = tracedHub.discoverAllTools();
+
+        assertEquals(1, allTools.size());
+        verify(tracer, times(1)).nextSpan();
+        verify(span, times(1)).name("mcp.list_tools");
+        verify(span, times(1)).tag("mcp.provider", "polaris-core");
+        verify(span, times(1)).tag("mcp.operation", "tools/list");
+        verify(span, times(1)).tag("mcp.tools.count", "1");
+        verify(span, times(1)).start();
+        verify(tracer, times(1)).withSpan(span);
+        verify(spanInScope, times(1)).close();
+        verify(span, times(1)).end();
+    }
+
+    @Test
+    void testDiscoverAllTools_withTracer_recordsExceptionOnFailure() {
+        mockTracerSetup();
+        ExternalMcpHub tracedHub = new ExternalMcpHub(polarisMcpClient, tracer);
+
+        RuntimeException ex = new RuntimeException("MCP server connection refused");
+        when(polarisMcpClient.listAvailableTools()).thenThrow(ex);
+
+        assertThrows(RuntimeException.class, tracedHub::discoverAllTools);
+
+        verify(span, times(1)).error(ex);
+        verify(span, times(1)).tag("error", "true");
+        verify(spanInScope, times(1)).close();
+        verify(span, times(1)).end();
+    }
 }

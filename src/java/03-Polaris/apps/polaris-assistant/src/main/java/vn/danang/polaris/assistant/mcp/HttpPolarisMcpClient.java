@@ -14,11 +14,15 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -27,6 +31,7 @@ import io.modelcontextprotocol.spec.McpSchema.JSONRPCResponse;
 import io.modelcontextprotocol.spec.McpSchema.ListToolsResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.security.UserContext;
 
 /**
@@ -47,24 +52,37 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
     private final JacksonMcpJsonMapper jsonMapper;
     private final UserContext userContext;
     private final HttpClient httpClient;
+    @Nullable
+    private final Tracer tracer;
 
     @Autowired
-    public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, UserContext userContext) {
+    public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, UserContext userContext, ObjectProvider<Tracer> tracerProvider) {
         this(properties, objectMapper, userContext, HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(properties.getCore().getTimeoutSeconds()))
-                .build());
+                .build(), tracerProvider != null ? tracerProvider.getIfAvailable() : null);
     }
 
-    public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, UserContext userContext, HttpClient httpClient) {
+    public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, UserContext userContext, HttpClient httpClient, @Nullable Tracer tracer) {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.jsonMapper = new JacksonMcpJsonMapper(objectMapper);
         this.userContext = userContext;
         this.httpClient = httpClient;
+        this.tracer = tracer;
+    }
+
+    public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, UserContext userContext, HttpClient httpClient) {
+        this(properties, objectMapper, userContext, httpClient, null);
+    }
+
+    public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, UserContext userContext) {
+        this(properties, objectMapper, userContext, HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(properties.getCore().getTimeoutSeconds()))
+                .build(), (Tracer) null);
     }
 
     public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, HttpClient httpClient) {
-        this(properties, objectMapper, new UserContext(properties), httpClient);
+        this(properties, objectMapper, new UserContext(properties), httpClient, null);
     }
 
     public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper) {
@@ -101,6 +119,19 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
         // No persistent connection state to reset for standard HTTP client
     }
 
+    private void injectTraceParent(HttpRequest.Builder builder) {
+        if (this.tracer == null) {
+            return;
+        }
+        Span currentSpan = this.tracer.currentSpan();
+        TraceContext context = (currentSpan != null) ? currentSpan.context()
+                : (this.tracer.currentTraceContext() != null ? this.tracer.currentTraceContext().context() : null);
+        if (context != null && context.traceId() != null && context.spanId() != null) {
+            String sampled = (context.sampled() != null && !context.sampled()) ? "00" : "01";
+            builder.header("traceparent", "00-" + context.traceId() + "-" + context.spanId() + "-" + sampled);
+        }
+    }
+
     private HttpRequest buildJsonRpcRequest(String jsonBody) {
         String endpoint = resolveEndpoint();
         HttpRequest.Builder builder = HttpRequest.newBuilder()
@@ -114,6 +145,8 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
         if (token != null && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token);
         }
+
+        injectTraceParent(builder);
 
         return builder.build();
     }
