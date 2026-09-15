@@ -82,6 +82,7 @@ public class AssistantChatService {
         // 4. Autonomous tool execution loop (ReAct loop)
         int iterations = 0;
         String finalReply = null;
+        String finalThoughtSignature = null;
 
         while (iterations < MAX_TOOL_ITERATIONS) {
             iterations++;
@@ -94,6 +95,9 @@ public class AssistantChatService {
             }
 
             if (modelResponse.hasToolCalls() && mcpHub != null) {
+                List<AssistantMessage> modelTurns = new ArrayList<>();
+                List<AssistantMessage> toolTurns = new ArrayList<>();
+
                 for (ToolCall toolCall : modelResponse.toolCalls()) {
                     log.info("Model requested tool call: '{}' with arguments: {}", toolCall.name(), toolCall.arguments());
 
@@ -106,8 +110,9 @@ public class AssistantChatService {
                     } catch (Exception e) {
                         modelTurn.setWidgetPayload("{}");
                     }
+                    modelTurn.setThoughtSignature(toolCall.thoughtSignature());
                     modelTurn.setCreatedAt(Instant.now());
-                    history.add(modelTurn);
+                    modelTurns.add(modelTurn);
 
                     // Execute tool via MCP
                     CallToolResult toolResult = mcpHub.executeTool(toolCall.name(), toolCall.arguments());
@@ -119,10 +124,14 @@ public class AssistantChatService {
                     toolTurn.setToolCallId(toolCall.name());
                     toolTurn.setContent(resultText);
                     toolTurn.setCreatedAt(Instant.now());
-                    history.add(toolTurn);
+                    toolTurns.add(toolTurn);
                 }
+
+                history.addAll(modelTurns);
+                history.addAll(toolTurns);
             } else {
                 finalReply = modelResponse.text();
+                finalThoughtSignature = modelResponse.thoughtSignature();
                 break;
             }
         }
@@ -135,6 +144,7 @@ public class AssistantChatService {
         AssistantMessage assistantMsg = new AssistantMessage();
         assistantMsg.setRole(MessageRole.ASSISTANT);
         assistantMsg.setContent(finalReply);
+        assistantMsg.setThoughtSignature(finalThoughtSignature);
         assistantMsg.setCreatedAt(Instant.now());
         history.add(assistantMsg);
 

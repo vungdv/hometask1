@@ -44,7 +44,7 @@ flowchart LR
     subgraph Main[" "]
         direction TB
         subgraph L1["Clients"]
-            direction TB
+            direction LR
             k6["API Performance Tests"]
             SwaggerUI["Swagger UI / REST<br/>(/swagger-ui)"]
         end
@@ -52,7 +52,7 @@ flowchart LR
             Nginx["Nginx/Gateway<br/>(polaris.local :443)"]
         end
         subgraph L3["Apps"]
-            direction TB
+            direction LR
             Keycloak["Keycloak IdP<br/>(id.polaris.local)"]
             Polaris-App["Order, Product Catalog<br/>(polaris.local/*)"]
             Polaris-Assistant["AI Assistant<br/>(polaris.local/api/v1/assistant/*)"]
@@ -61,7 +61,6 @@ flowchart LR
     L1 -->|HTTPS / REST| L2
     L2 -->|Proxy| L3
     Polaris-Assistant -->|MCP /http| Polaris-App
-    Polaris-Assistant -.->|W3C Trace & Inference| Gemini["Google Gemini API<br/>(generativelanguage.googleapis.com)"]
     Main -.->|OTLP Telemetry| Observability
 ```
 

@@ -190,38 +190,44 @@ public class GeminiAiModelClient implements AssistantModelClient {
             for (AssistantMessage msg : messages) {
                 if (msg.getRole() == MessageRole.USER || msg.getRole() == null) {
                     if (msg.getContent() != null && !msg.getContent().isBlank()) {
-                        contents.add(Map.of(
-                                "role", "user",
-                                "parts", List.of(Map.of("text", msg.getContent()))
-                        ));
+                        addContentPart(contents, "user", Map.of("text", msg.getContent()));
                     }
                 } else if (msg.getRole() == MessageRole.ASSISTANT) {
                     if (msg.getToolCallId() != null && !msg.getToolCallId().isBlank()) {
                         Map<String, Object> functionCall = new HashMap<>();
                         functionCall.put("name", msg.getToolCallId());
                         functionCall.put("args", parseJsonMap(msg.getWidgetPayload()));
-                        contents.add(Map.of(
-                                "role", "model",
-                                "parts", List.of(Map.of("functionCall", functionCall))
-                        ));
+
+                        Map<String, Object> part = new HashMap<>();
+                        part.put("functionCall", functionCall);
+
+                        String sig = msg.getThoughtSignature();
+                        if (sig != null && !sig.isBlank()) {
+                            part.put("thoughtSignature", sig);
+                        } else if (isFirstFunctionCallInCurrentModelTurn(contents)) {
+                            // Gemini 3/2.5 requires thoughtSignature on functionCall parts.
+                            // If missing, use the official bypass signature to prevent 400 validation error.
+                            part.put("thoughtSignature", "skip_thought_signature_validator");
+                        }
+                        addContentPart(contents, "model", part);
                     } else if (msg.getContent() != null && !msg.getContent().isBlank()) {
-                        contents.add(Map.of(
-                                "role", "model",
-                                "parts", List.of(Map.of("text", msg.getContent()))
-                        ));
+                        Map<String, Object> part = new HashMap<>();
+                        part.put("text", msg.getContent());
+                        if (msg.getThoughtSignature() != null && !msg.getThoughtSignature().isBlank()) {
+                            part.put("thoughtSignature", msg.getThoughtSignature());
+                        }
+                        addContentPart(contents, "model", part);
                     }
                 } else if (msg.getRole() == MessageRole.TOOL) {
                     String toolName = msg.getToolCallId() != null ? msg.getToolCallId() : "tool";
                     String toolContent = msg.getContent() != null ? msg.getContent() : "";
-                    contents.add(Map.of(
-                            "role", "user",
-                            "parts", List.of(Map.of(
-                                    "functionResponse", Map.of(
-                                            "name", toolName,
-                                            "response", Map.of("result", toolContent)
-                                    )
-                            ))
-                    ));
+                    Map<String, Object> part = Map.of(
+                            "functionResponse", Map.of(
+                                    "name", toolName,
+                                    "response", Map.of("result", toolContent)
+                            )
+                    );
+                    addContentPart(contents, "user", part);
                 }
             }
         }
@@ -245,6 +251,47 @@ public class GeminiAiModelClient implements AssistantModelClient {
             log.error("Failed to serialize Gemini request body", e);
             throw new RuntimeException("Failed to serialize request body for Gemini API", e);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean isFirstFunctionCallInCurrentModelTurn(List<Map<String, Object>> contents) {
+        if (contents.isEmpty()) {
+            return true;
+        }
+        Map<String, Object> lastContent = contents.get(contents.size() - 1);
+        if (!"model".equals(lastContent.get("role"))) {
+            return true;
+        }
+        List<Map<String, Object>> parts = (List<Map<String, Object>>) lastContent.get("parts");
+        if (parts == null || parts.isEmpty()) {
+            return true;
+        }
+        for (Map<String, Object> p : parts) {
+            if (p.containsKey("functionCall")) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void addContentPart(List<Map<String, Object>> contents, String role, Map<String, Object> part) {
+        if (!contents.isEmpty()) {
+            Map<String, Object> last = contents.get(contents.size() - 1);
+            if (role.equals(last.get("role"))) {
+                List<Map<String, Object>> parts = (List<Map<String, Object>>) last.get("parts");
+                if (parts != null) {
+                    parts.add(part);
+                    return;
+                }
+            }
+        }
+        Map<String, Object> entry = new HashMap<>();
+        entry.put("role", role);
+        List<Map<String, Object>> parts = new ArrayList<>();
+        parts.add(part);
+        entry.put("parts", parts);
+        contents.add(entry);
     }
 
     private Map<String, Object> toFunctionDeclaration(Tool tool) {
@@ -294,8 +341,16 @@ public class GeminiAiModelClient implements AssistantModelClient {
                 if (parts.isArray() && !parts.isEmpty()) {
                     List<ToolCall> toolCalls = new ArrayList<>();
                     StringBuilder textBuilder = new StringBuilder();
+                    String responseThoughtSignature = null;
 
                     for (JsonNode part : parts) {
+                        String partSignature = null;
+                        if (part.hasNonNull("thoughtSignature")) {
+                            partSignature = part.path("thoughtSignature").asText();
+                        } else if (part.hasNonNull("thought_signature")) {
+                            partSignature = part.path("thought_signature").asText();
+                        }
+
                         if (part.has("functionCall")) {
                             JsonNode fc = part.path("functionCall");
                             String fnName = fc.path("name").asText();
@@ -303,14 +358,27 @@ public class GeminiAiModelClient implements AssistantModelClient {
                             if (fc.has("args") && fc.path("args").isObject()) {
                                 args = objectMapper.convertValue(fc.path("args"), new TypeReference<Map<String, Object>>() {});
                             }
-                            toolCalls.add(new ToolCall(fnName, args));
-                        } else if (part.has("text")) {
-                            String text = part.path("text").asText();
-                            if (text != null && !text.isBlank()) {
-                                if (!textBuilder.isEmpty()) {
-                                    textBuilder.append(" ");
+                            if (partSignature == null) {
+                                if (fc.hasNonNull("thoughtSignature")) {
+                                    partSignature = fc.path("thoughtSignature").asText();
+                                } else if (fc.hasNonNull("thought_signature")) {
+                                    partSignature = fc.path("thought_signature").asText();
                                 }
-                                textBuilder.append(text.trim());
+                            }
+                            toolCalls.add(new ToolCall(fnName, args, partSignature));
+                        } else {
+                            boolean isThought = part.path("thought").asBoolean(false);
+                            if (!isThought && part.has("text")) {
+                                String text = part.path("text").asText();
+                                if (text != null && !text.isBlank()) {
+                                    if (!textBuilder.isEmpty()) {
+                                        textBuilder.append(" ");
+                                    }
+                                    textBuilder.append(text.trim());
+                                }
+                            }
+                            if (partSignature != null) {
+                                responseThoughtSignature = partSignature;
                             }
                         }
                     }
@@ -319,7 +387,7 @@ public class GeminiAiModelClient implements AssistantModelClient {
                         span.tag("gemini.tool_calls.count", String.valueOf(toolCalls.size()));
                     }
 
-                    return new ModelResponse(textBuilder.toString(), toolCalls);
+                    return new ModelResponse(textBuilder.toString(), toolCalls, responseThoughtSignature);
                 }
             }
             return new ModelResponse("The AI Model returned an empty response.");

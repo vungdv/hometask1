@@ -39,6 +39,9 @@ public class AssistantMessage {
     @Column(name = "tool_call_id", length = 64)
     private String toolCallId;
 
+    @Column(name = "thought_signature", columnDefinition = "TEXT")
+    private String thoughtSignature;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 }

@@ -164,5 +164,105 @@ class AssistantChatServiceTest {
         verify(modelClient, times(5)).generateResponse(anyList(), anyList());
         verify(mcpHub, times(5)).executeTool(any(), any());
     }
+
+    @Test
+    @DisplayName("Should preserve thoughtSignature on AssistantMessage in history across tool execution turns")
+    @SuppressWarnings("unchecked")
+    void sendMessage_withToolCallAndThoughtSignature_propagatesSignatureToNextTurnHistory() {
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        chatService = new AssistantChatService(modelClient, mcpHub);
+
+        Tool tool = Tool.builder("default_api:search_available_products").build();
+        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+        when(mcpHub.executeTool(any(), any())).thenReturn(new CallToolResult(List.of(new TextContent("Product found: Charger")), false, null, Map.of()));
+
+        // Turn 1: Model requests tool call with a thought signature
+        ModelResponse turn1Response = new ModelResponse("", List.of(
+                new ToolCall("default_api:search_available_products", Map.of("query", "charger"), "sig_token_xyz789")
+        ));
+        // Turn 2: Model returns final response with its own thought signature
+        ModelResponse turn2Response = new ModelResponse("I found the charger for you.", List.of(), "sig_final_reply_token");
+
+        when(modelClient.generateResponse(anyList(), anyList()))
+                .thenReturn(turn1Response)
+                .thenReturn(turn2Response);
+
+        ChatMessageRequest request = new ChatMessageRequest("Search for charger");
+        ChatMessageResponse response = chatService.sendMessage(request, "user-123");
+
+        assertThat(response).isNotNull();
+        assertThat(response.reply()).isEqualTo("I found the charger for you.");
+
+        ArgumentCaptor<List<AssistantMessage>> historyCaptor = ArgumentCaptor.forClass(List.class);
+        verify(modelClient, times(2)).generateResponse(historyCaptor.capture(), anyList());
+
+        // Inspect history passed to Turn 2:
+        // [0]: USER ("Search for charger")
+        // [1]: ASSISTANT (toolCallId: default_api:search_available_products, thoughtSignature: "sig_token_xyz789")
+        // [2]: TOOL (result)
+        List<AssistantMessage> turn2History = historyCaptor.getAllValues().get(1);
+        assertThat(turn2History).hasSize(3);
+
+        AssistantMessage modelTurn = turn2History.get(1);
+        assertThat(modelTurn.getRole()).isEqualTo(MessageRole.ASSISTANT);
+        assertThat(modelTurn.getToolCallId()).isEqualTo("default_api:search_available_products");
+        assertThat(modelTurn.getThoughtSignature()).isEqualTo("sig_token_xyz789");
+    }
+
+    @Test
+    @DisplayName("Should group parallel model turns before tool turns to prevent interleaved turns in history")
+    @SuppressWarnings("unchecked")
+    void sendMessage_withParallelToolCalls_groupsModelTurnsBeforeToolTurnsInHistory() {
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        chatService = new AssistantChatService(modelClient, mcpHub);
+
+        when(mcpHub.discoverAllTools()).thenReturn(List.of(
+                Tool.builder("search_products").build(),
+                Tool.builder("search_promotions").build()
+        ));
+        when(mcpHub.executeTool(eq("search_products"), any())).thenReturn(new CallToolResult(List.of(new TextContent("Charger")), false, null, Map.of()));
+        when(mcpHub.executeTool(eq("search_promotions"), any())).thenReturn(new CallToolResult(List.of(new TextContent("10% off")), false, null, Map.of()));
+
+        // Model returns 2 parallel tool calls
+        ModelResponse turn1Response = new ModelResponse("", List.of(
+                new ToolCall("search_products", Map.of("query", "charger"), "sig_parallel_call"),
+                new ToolCall("search_promotions", Map.of("category", "all"), null)
+        ));
+        ModelResponse turn2Response = new ModelResponse("Found charger with 10% discount.", List.of());
+
+        when(modelClient.generateResponse(anyList(), anyList()))
+                .thenReturn(turn1Response)
+                .thenReturn(turn2Response);
+
+        ChatMessageRequest request = new ChatMessageRequest("Search charger and deals");
+        ChatMessageResponse response = chatService.sendMessage(request, "user-123");
+
+        assertThat(response).isNotNull();
+        assertThat(response.reply()).isEqualTo("Found charger with 10% discount.");
+
+        ArgumentCaptor<List<AssistantMessage>> historyCaptor = ArgumentCaptor.forClass(List.class);
+        verify(modelClient, times(2)).generateResponse(historyCaptor.capture(), anyList());
+
+        List<AssistantMessage> turn2History = historyCaptor.getAllValues().get(1);
+        // History order must be:
+        // [0]: USER
+        // [1]: ASSISTANT (search_products)
+        // [2]: ASSISTANT (search_promotions)
+        // [3]: TOOL (search_products)
+        // [4]: TOOL (search_promotions)
+        assertThat(turn2History).hasSize(5);
+        assertThat(turn2History.get(1).getRole()).isEqualTo(MessageRole.ASSISTANT);
+        assertThat(turn2History.get(1).getToolCallId()).isEqualTo("search_products");
+        assertThat(turn2History.get(1).getThoughtSignature()).isEqualTo("sig_parallel_call");
+
+        assertThat(turn2History.get(2).getRole()).isEqualTo(MessageRole.ASSISTANT);
+        assertThat(turn2History.get(2).getToolCallId()).isEqualTo("search_promotions");
+
+        assertThat(turn2History.get(3).getRole()).isEqualTo(MessageRole.TOOL);
+        assertThat(turn2History.get(3).getToolCallId()).isEqualTo("search_products");
+
+        assertThat(turn2History.get(4).getRole()).isEqualTo(MessageRole.TOOL);
+        assertThat(turn2History.get(4).getToolCallId()).isEqualTo("search_promotions");
+    }
 }
 

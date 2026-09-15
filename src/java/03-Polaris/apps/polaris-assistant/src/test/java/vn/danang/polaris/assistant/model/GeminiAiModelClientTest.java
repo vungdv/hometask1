@@ -556,6 +556,286 @@ class GeminiAiModelClientTest {
         assertThat(clientFromProvider).isNotNull();
     }
 
+    // --- Thought Signature Tests (Gemini 3/2.5 function calling validation) ---
+
+    @Test
+    @DisplayName("Should parse thoughtSignature from response candidate part and populate ToolCall")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withThoughtSignature_parsesAndPopulatesToolCall() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-3.6-flash");
+
+        String mockResponseBody = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "functionCall": {
+                              "name": "default_api:search_available_products",
+                              "args": { "query": "charger" }
+                            },
+                            "thoughtSignature": "sig_base64_encoded_12345"
+                          }
+                        ],
+                        "role": "model"
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn(mockResponseBody);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        ModelResponse response = client.generateResponse(List.of(createUserMessage("Find chargers")), List.of());
+
+        assertThat(response.hasToolCalls()).isTrue();
+        assertThat(response.toolCalls()).hasSize(1);
+        ToolCall call = response.toolCalls().get(0);
+        assertThat(call.name()).isEqualTo("default_api:search_available_products");
+        assertThat(call.thoughtSignature()).isEqualTo("sig_base64_encoded_12345");
+    }
+
+    @Test
+    @DisplayName("Should parse snake_case thought_signature from response candidate part as fallback")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withSnakeCaseThoughtSignature_parsesAndPopulatesToolCall() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-3.6-flash");
+
+        String mockResponseBody = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "functionCall": {
+                              "name": "default_api:search_available_products",
+                              "args": { "query": "phone" },
+                              "thought_signature": "nested_snake_case_sig_999"
+                            }
+                          }
+                        ],
+                        "role": "model"
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn(mockResponseBody);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        ModelResponse response = client.generateResponse(List.of(createUserMessage("Find phone")), List.of());
+
+        assertThat(response.hasToolCalls()).isTrue();
+        ToolCall call = response.toolCalls().get(0);
+        assertThat(call.thoughtSignature()).isEqualTo("nested_snake_case_sig_999");
+    }
+
+    @Test
+    @DisplayName("Should ignore internal thought text in final response while preserving thoughtSignature")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withThoughtPart_ignoresThoughtTextInReply() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-3.6-flash");
+
+        String mockResponseBody = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "thought": true,
+                            "text": "Internal chain-of-thought: user wants a phone, looking at catalog...",
+                            "thoughtSignature": "internal_sig_111"
+                          },
+                          {
+                            "text": "Here are the top phones available in store.",
+                            "thoughtSignature": "final_text_sig_222"
+                          }
+                        ],
+                        "role": "model"
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn(mockResponseBody);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        ModelResponse response = client.generateResponse(List.of(createUserMessage("Find phones")), List.of());
+
+        assertThat(response.text()).isEqualTo("Here are the top phones available in store.");
+        assertThat(response.thoughtSignature()).isEqualTo("final_text_sig_222");
+    }
+
+    @Test
+    @DisplayName("Should include thoughtSignature in HTTP request body when message has saved signature")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withSavedThoughtSignature_serializesSignatureInRequest() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-3.6-flash");
+
+        AssistantMessage userMsg = createUserMessage("Find chargers");
+
+        AssistantMessage modelMsg = new AssistantMessage();
+        modelMsg.setRole(MessageRole.ASSISTANT);
+        modelMsg.setToolCallId("default_api:search_available_products");
+        modelMsg.setWidgetPayload("{\"query\":\"charger\"}");
+        modelMsg.setThoughtSignature("sig_previous_turn_token_456");
+
+        AssistantMessage toolMsg = new AssistantMessage();
+        toolMsg.setRole(MessageRole.TOOL);
+        toolMsg.setToolCallId("default_api:search_available_products");
+        toolMsg.setContent("Found 2 items");
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Found 2 chargers\"}],\"role\":\"model\"}}]}");
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        client.generateResponse(List.of(userMsg, modelMsg, toolMsg), List.of());
+
+        ArgumentCaptor<HttpRequest> requestCaptor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(httpClient).send(requestCaptor.capture(), any());
+
+        String requestPayload = extractRequestBody(requestCaptor.getValue());
+
+        assertThat(requestPayload).contains("\"thoughtSignature\":\"sig_previous_turn_token_456\"");
+        assertThat(requestPayload).contains("\"name\":\"default_api:search_available_products\"");
+    }
+
+    @Test
+    @DisplayName("Should inject bypass signature 'skip_thought_signature_validator' when function call lacks signature")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withoutThoughtSignature_injectsBypassSignatureToPreventGeminiValidationError() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-3.6-flash");
+
+        AssistantMessage userMsg = createUserMessage("Find chargers");
+
+        AssistantMessage modelMsg = new AssistantMessage();
+        modelMsg.setRole(MessageRole.ASSISTANT);
+        modelMsg.setToolCallId("default_api:search_available_products");
+        modelMsg.setWidgetPayload("{\"query\":\"charger\"}");
+        // thoughtSignature is null
+
+        AssistantMessage toolMsg = new AssistantMessage();
+        toolMsg.setRole(MessageRole.TOOL);
+        toolMsg.setToolCallId("default_api:search_available_products");
+        toolMsg.setContent("Found 2 items");
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Found 2 chargers\"}],\"role\":\"model\"}}]}");
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        client.generateResponse(List.of(userMsg, modelMsg, toolMsg), List.of());
+
+        ArgumentCaptor<HttpRequest> requestCaptor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(httpClient).send(requestCaptor.capture(), any());
+
+        String requestPayload = extractRequestBody(requestCaptor.getValue());
+
+        assertThat(requestPayload).contains("\"thoughtSignature\":\"skip_thought_signature_validator\"");
+    }
+
+    @Test
+    @DisplayName("Should merge parallel function calls and only attach thoughtSignature to first part")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withParallelToolCalls_mergesIntoSingleContentAndOnlySignsFirstPart() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-3.6-flash");
+
+        AssistantMessage userMsg = createUserMessage("Find products and deals");
+
+        AssistantMessage modelMsg1 = new AssistantMessage();
+        modelMsg1.setRole(MessageRole.ASSISTANT);
+        modelMsg1.setToolCallId("search_products");
+        modelMsg1.setWidgetPayload("{\"query\":\"charger\"}");
+        modelMsg1.setThoughtSignature("sig_parallel_first");
+
+        AssistantMessage modelMsg2 = new AssistantMessage();
+        modelMsg2.setRole(MessageRole.ASSISTANT);
+        modelMsg2.setToolCallId("search_promotions");
+        modelMsg2.setWidgetPayload("{\"type\":\"discount\"}");
+        modelMsg2.setThoughtSignature(null); // parallel subsequent call has no signature
+
+        AssistantMessage toolMsg1 = new AssistantMessage();
+        toolMsg1.setRole(MessageRole.TOOL);
+        toolMsg1.setToolCallId("search_products");
+        toolMsg1.setContent("Found products");
+
+        AssistantMessage toolMsg2 = new AssistantMessage();
+        toolMsg2.setRole(MessageRole.TOOL);
+        toolMsg2.setToolCallId("search_promotions");
+        toolMsg2.setContent("Found deals");
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Found deals\"}],\"role\":\"model\"}}]}");
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        client.generateResponse(List.of(userMsg, modelMsg1, modelMsg2, toolMsg1, toolMsg2), List.of());
+
+        ArgumentCaptor<HttpRequest> requestCaptor = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(httpClient).send(requestCaptor.capture(), any());
+
+        String requestPayload = extractRequestBody(requestCaptor.getValue());
+
+        // Must contain sig on the first part
+        assertThat(requestPayload).contains("\"thoughtSignature\":\"sig_parallel_first\"");
+        // Must NOT contain skip_thought_signature_validator for the second parallel part
+        assertThat(requestPayload).doesNotContain("skip_thought_signature_validator");
+    }
+
+    private String extractRequestBody(HttpRequest request) {
+        if (request.bodyPublisher().isEmpty()) {
+            return "";
+        }
+        var flowSubscriber = HttpResponse.BodySubscribers.ofString(java.nio.charset.StandardCharsets.UTF_8);
+        request.bodyPublisher().get().subscribe(new java.util.concurrent.Flow.Subscriber<java.nio.ByteBuffer>() {
+            @Override
+            public void onSubscribe(java.util.concurrent.Flow.Subscription subscription) {
+                flowSubscriber.onSubscribe(subscription);
+            }
+
+            @Override
+            public void onNext(java.nio.ByteBuffer item) {
+                flowSubscriber.onNext(List.of(item));
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                flowSubscriber.onError(throwable);
+            }
+
+            @Override
+            public void onComplete() {
+                flowSubscriber.onComplete();
+            }
+        });
+        return flowSubscriber.getBody().toCompletableFuture().join();
+    }
+
     private AssistantMessage createUserMessage(String content) {
         AssistantMessage msg = new AssistantMessage();
         msg.setRole(MessageRole.USER);
