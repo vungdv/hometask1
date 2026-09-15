@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: Polaris-Assistant
+  threads:
+    virtual:
+      enabled: true
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:h2:file:./data/polaris_assistant;AUTO_SERVER=TRUE}
     driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:org.h2.Driver}

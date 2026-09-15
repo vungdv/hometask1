@@ -1,6 +1,5 @@
 package vn.danang.polaris.assistant.mcp;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -15,6 +14,7 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,6 +48,7 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
     private final UserContext userContext;
     private final HttpClient httpClient;
 
+    @Autowired
     public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, UserContext userContext) {
         this(properties, objectMapper, userContext, HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(properties.getCore().getTimeoutSeconds()))
