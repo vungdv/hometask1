@@ -20,8 +20,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.modelcontextprotocol.server.McpStatelessSyncServer;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
+import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
 import io.modelcontextprotocol.spec.McpSchema;
 import vn.danang.polaris.order.entity.OrderStatus;
 import vn.danang.polaris.order.repository.OrderRepository;
@@ -46,6 +48,12 @@ class McpServerTest {
 
     @Autowired
     private HttpServletSseServerTransportProvider transport;
+
+    @Autowired
+    private McpStatelessSyncServer mcpStatelessSyncServer;
+
+    @Autowired
+    private HttpServletStatelessServerTransport statelessTransport;
 
     @Autowired
     private OrderRepository orderRepository;
@@ -511,6 +519,41 @@ class McpServerTest {
                             .with(JwtMockFactory.user())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"jsonrpc\":\"2.0\",\"method\":\"ping\",\"id\":1}"))
+                    .andExpect(result -> {
+                        int statusCode = result.getResponse().getStatus();
+                        assertThat(statusCode).isNotEqualTo(401);
+                        assertThat(statusCode).isNotEqualTo(403);
+                    });
+        }
+
+        @Test
+        @DisplayName("Verify McpStatelessSyncServer bean is instantiated")
+        void mcpStatelessSyncServer_isNotNull() {
+            assertThat(mcpStatelessSyncServer).isNotNull();
+        }
+
+        @Test
+        @DisplayName("Verify HttpServletStatelessServerTransport bean is instantiated")
+        void statelessTransport_isNotNull() {
+            assertThat(statelessTransport).isNotNull();
+        }
+
+        @Test
+        @DisplayName("Security: unauthenticated POST /mcp returns 401 Unauthorized")
+        void mcpStateless_unauthenticated_returnsUnauthorized() throws Exception {
+            mockMvc.perform(post("/mcp")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}"))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @DisplayName("Security: authenticated POST /mcp is authorized")
+        void mcpStateless_authenticated_isAuthorized() throws Exception {
+            mockMvc.perform(post("/mcp")
+                            .with(JwtMockFactory.user())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}"))
                     .andExpect(result -> {
                         int statusCode = result.getResponse().getStatus();
                         assertThat(statusCode).isNotEqualTo(401);

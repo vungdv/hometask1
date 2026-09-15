@@ -8,25 +8,15 @@ public record ChatMessageRequest(
     String sessionId,
 
     @Schema(description = "User natural language message", example = "Can you tell me about your shipping policy?")
-    String message,
-
-    @Schema(description = "Alternative message field name for compatibility", example = "Can you tell me about your shipping policy?")
-    String content
+    String message
 ) {
     public ChatMessageRequest(String message) {
-        this(null, message, null);
-    }
-
-    public ChatMessageRequest(String sessionId, String message) {
-        this(sessionId, message, null);
+        this(null, message);
     }
 
     public String resolvedMessage() {
         if (message != null && !message.isBlank()) {
             return message.trim();
-        }
-        if (content != null && !content.isBlank()) {
-            return content.trim();
         }
         return "";
     }
