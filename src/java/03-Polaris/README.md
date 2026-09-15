@@ -17,7 +17,7 @@ Polaris is organized around clear bounded contexts adhering to Domain-Driven Des
 * **Autonomous Microservice**: Standalone service (`apps/polaris-assistant`) decoupled from core commerce databases, routed via gateway sub-path `/api/v1/assistant/*` under `https://polaris.local`.
 * **MCP Integration**: Consumes product catalog and order operations from Polaris Core exclusively via Model Context Protocol (`/mcp/sse`).
 * **Multi-Tool Hub**: Aggregates tools across Polaris Core and external MCP servers via `ExternalMcpHub`.
-* **Conversational Commerce**: AI chat endpoint (`POST /api/v1/assistant/chat`) powered by foundation model integration (Google Gemini).
+* **Conversational Commerce & Telemetry**: AI chat endpoint (`POST /api/v1/assistant/chat`) powered by Google Gemini, instrumented with full distributed tracing (`gemini.generate_content`), W3C `traceparent` context propagation, and OpenTelemetry GenAI semantics ([ADR-0011](docs/adr/0011-gemini-model-call-distributed-tracing.md)).
 
 ### 3. Model Context Protocol (MCP) Gateway Context (`/mcp/sse`, `/mcp/message`)
 * **In-Process MCP Server**: Native Spring Boot MCP SDK integration in `apps/polaris` exposing standard JSON-RPC tools (`search_available_products`, `get_product_by_sku`, order query tools) for AI assistants.
@@ -59,7 +59,8 @@ flowchart LR
     end
     L1 -->|HTTPS / REST| L2
     L2 -->|Proxy| L3
-    Polaris-Assistant -->|MCP /sse| Polaris-App
+    Polaris-Assistant -->|MCP /http| Polaris-App
+    Polaris-Assistant -.->|W3C Trace & Inference| Gemini["Google Gemini API<br/>(generativelanguage.googleapis.com)"]
     Main -.->|OTLP Telemetry| Observability
 ```
 
@@ -123,6 +124,8 @@ To keep daily development focused, detailed guides for specialized areas are mai
 
 - 🔐 [**Local HTTPS Setup**](scripts/setup-local-https-mac-m1.sh): Manual setup script for `mkcert` and Java truststore.
 - 📐 [**Architecture Decision Records (ADRs)**](docs/adr/): Formal architecture records (e.g., [ADR-0008: Polaris Assistant Isolation](docs/adr/0008-polaris-assistant-independent-application-mcp-architecture.md)).
+- 🔍 [**ADR-0011: Gemini Distributed Tracing**](docs/adr/0011-gemini-model-call-distributed-tracing.md): Distributed tracing and W3C context propagation for AI model calls.
 - 📋 [**Product Requirements (PRDs)**](docs/prds/): Product requirement documents for catalog, orders, and AI assistant.
+- 📋 [**PRD-004: AI Model Observability**](docs/prds/PRD-004-gemini-model-observability-and-distributed-tracing.md): Business requirements and personas for GenAI distributed tracing.
 - 🏛️ [**Architecture, Design & Code Principles**](AGENTS.md): Foundational requirements for lower-layer protocol alignment, bounded context containment, and cross-cutting observability.
 - [**Engineer-Guidelines**](Engineer-Guidelines.md)

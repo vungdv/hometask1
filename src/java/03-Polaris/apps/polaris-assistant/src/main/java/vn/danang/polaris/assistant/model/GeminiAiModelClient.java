@@ -16,6 +16,8 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -23,7 +25,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.config.AssistantAiProperties;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
@@ -36,18 +41,36 @@ public class GeminiAiModelClient implements AssistantModelClient {
     private final AssistantAiProperties aiModelConfig;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    @Nullable
+    private final Tracer tracer;
 
-    @org.springframework.beans.factory.annotation.Autowired
-    public GeminiAiModelClient(AssistantAiProperties aiModelConfig) {
+    @Autowired
+    public GeminiAiModelClient(AssistantAiProperties aiModelConfig, ObjectProvider<Tracer> tracerProvider) {
         this(aiModelConfig, HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
-                .build(), new ObjectMapper().findAndRegisterModules());
+                .build(), new ObjectMapper().findAndRegisterModules(),
+                tracerProvider != null ? tracerProvider.getIfAvailable() : null);
+    }
+
+    public GeminiAiModelClient(AssistantAiProperties aiModelConfig) {
+        this(aiModelConfig, (Tracer) null);
+    }
+
+    public GeminiAiModelClient(AssistantAiProperties aiModelConfig, @Nullable Tracer tracer) {
+        this(aiModelConfig, HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build(), new ObjectMapper().findAndRegisterModules(), tracer);
     }
 
     public GeminiAiModelClient(AssistantAiProperties aiModelConfig, HttpClient httpClient, ObjectMapper objectMapper) {
+        this(aiModelConfig, httpClient, objectMapper, null);
+    }
+
+    public GeminiAiModelClient(AssistantAiProperties aiModelConfig, HttpClient httpClient, ObjectMapper objectMapper, @Nullable Tracer tracer) {
         this.aiModelConfig = aiModelConfig;
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
+        this.tracer = tracer;
     }
 
     @Override
@@ -74,28 +97,65 @@ public class GeminiAiModelClient implements AssistantModelClient {
             return new ModelResponse("I am Polaris Assistant! (Live AI Model key is not configured. Set GEMINI_API_KEY or polaris.ai.api-key to connect to live Gemini. Echo: \"" + lastUserMessage + "\")");
         }
 
+        if (this.tracer == null) {
+            return executeAndParse(messages, tools, null);
+        }
+
+        String model = Optional.ofNullable(aiModelConfig.getModel()).filter(s -> !s.isBlank()).orElse("unknown");
+        String spanName = "gemini.generate_content %s".formatted(model);
+        Span span = this.tracer.nextSpan().name(spanName);
+        span.tag("gen_ai.system", "gemini");
+        span.tag("gen_ai.request.model", model);
+        span.tag("gen_ai.operation.name", "generateContent");
+        span.tag("gen_ai.client", "GeminiAiModelClient");
+        span.tag("peer.service", "generativelanguage.googleapis.com");
+        if (tools != null && !tools.isEmpty()) {
+            span.tag("gemini.tools.count", String.valueOf(tools.size()));
+        }
+        span.start();
+
+        try (Tracer.SpanInScope ws = this.tracer.withSpan(span)) {
+            return executeAndParse(messages, tools, span);
+        } finally {
+            span.end();
+        }
+    }
+
+    private ModelResponse executeAndParse(List<AssistantMessage> messages, List<Tool> tools, @Nullable Span span) {
         try {
-            HttpRequest request = buildRequest(messages, tools);
+            HttpRequest request = buildRequest(messages, tools, span);
             HttpResponse<String> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            return parseModelResponse(response);
+            return parseModelResponse(response, span);
         } catch (InterruptedException e) {
+            recordSpanException(span, e);
             Thread.currentThread().interrupt();
             log.error("Gemini request interrupted", e);
             return new ModelResponse("Request to AI model was interrupted.");
         } catch (IOException e) {
+            recordSpanException(span, e);
             log.error("Gemini request I/O error", e);
             return new ModelResponse("Failed to communicate with AI Model: " + e.getMessage());
         } catch (IllegalArgumentException e) {
+            recordSpanException(span, e);
             log.error("Invalid Gemini client configuration", e);
             return new ModelResponse("Invalid AI model configuration.");
         } catch (RuntimeException e) {
+            recordSpanException(span, e);
             log.error("Unexpected error in Gemini client", e);
             return new ModelResponse("Unexpected error communicating with AI Model.");
         }
     }
 
-    private HttpRequest buildRequest(List<AssistantMessage> messages, List<Tool> tools) throws IllegalArgumentException {
+    private void recordSpanException(@Nullable Span span, Throwable e) {
+        if (span != null) {
+            span.error(e);
+            span.tag("error", "true");
+            span.tag("error.type", e.getClass().getSimpleName());
+        }
+    }
+
+    private HttpRequest buildRequest(List<AssistantMessage> messages, List<Tool> tools, @Nullable Span span) throws IllegalArgumentException {
         String apiKey = aiModelConfig.getApiKey();
         if (aiModelConfig.getBaseUrl() == null || aiModelConfig.getBaseUrl().isBlank()
                 || aiModelConfig.getModel() == null || aiModelConfig.getModel().isBlank()) {
@@ -107,12 +167,21 @@ public class GeminiAiModelClient implements AssistantModelClient {
                 + "/v1beta/models/" + aiModelConfig.getModel() + ":generateContent";
 
         log.info("Sending request to Gemini model {}", aiModelConfig.getModel());
-        return HttpRequest.newBuilder().uri(URI.create(url))
+        HttpRequest.Builder builder = HttpRequest.newBuilder().uri(URI.create(url))
                 .header("Content-Type", "application/json")
                 .header("x-goog-api-key", apiKey)
                 .timeout(Duration.ofSeconds(aiModelConfig.getTimeoutSeconds()))
-                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
-                .build();
+                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8));
+
+        if (span != null && span.context() != null) {
+            String traceId = span.context().traceId();
+            String spanId = span.context().spanId();
+            if (traceId != null && spanId != null) {
+                builder.header("traceparent", "00-" + traceId + "-" + spanId + "-01");
+            }
+        }
+
+        return builder.build();
     }
 
     private String getGeminiRequestBody(List<AssistantMessage> messages, List<Tool> tools) {
@@ -202,9 +271,23 @@ public class GeminiAiModelClient implements AssistantModelClient {
         }
     }
 
-    private ModelResponse parseModelResponse(HttpResponse<String> response) throws IOException {
+    private ModelResponse parseModelResponse(HttpResponse<String> response, @Nullable Span span) throws IOException {
         if (response.statusCode() == 200) {
             JsonNode root = objectMapper.readTree(response.body());
+
+            if (span != null && root.has("usageMetadata")) {
+                JsonNode usage = root.path("usageMetadata");
+                if (usage.has("promptTokenCount")) {
+                    span.tag("gen_ai.usage.prompt_tokens", usage.path("promptTokenCount").asText());
+                }
+                if (usage.has("candidatesTokenCount")) {
+                    span.tag("gen_ai.usage.completion_tokens", usage.path("candidatesTokenCount").asText());
+                }
+                if (usage.has("totalTokenCount")) {
+                    span.tag("gen_ai.usage.total_tokens", usage.path("totalTokenCount").asText());
+                }
+            }
+
             JsonNode candidates = root.path("candidates");
             if (candidates.isArray() && !candidates.isEmpty()) {
                 JsonNode parts = candidates.get(0).path("content").path("parts");
@@ -232,11 +315,19 @@ public class GeminiAiModelClient implements AssistantModelClient {
                         }
                     }
 
+                    if (span != null && !toolCalls.isEmpty()) {
+                        span.tag("gemini.tool_calls.count", String.valueOf(toolCalls.size()));
+                    }
+
                     return new ModelResponse(textBuilder.toString(), toolCalls);
                 }
             }
             return new ModelResponse("The AI Model returned an empty response.");
         } else {
+            if (span != null) {
+                span.tag("http.status_code", String.valueOf(response.statusCode()));
+                span.tag("error", "true");
+            }
             log.error("Gemini API error status: {} body: {}", response.statusCode(), response.body());
             String errorDetail = "Status " + response.statusCode();
             try {
