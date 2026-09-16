@@ -10,15 +10,19 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
@@ -38,25 +42,78 @@ public class AssistantChatService {
     private final AssistantModelClient modelClient;
     private final ExternalMcpHub mcpHub;
     private final ObjectMapper objectMapper;
+    @Nullable
+    private final Tracer tracer;
     // In-memory conversation store: sessionId -> List of AssistantMessage
     private final Map<String, List<AssistantMessage>> conversationStore = new ConcurrentHashMap<>();
 
     @Autowired
+    public AssistantChatService(
+            AssistantModelClient modelClient,
+            ExternalMcpHub mcpHub,
+            ObjectMapper objectMapper,
+            ObjectProvider<Tracer> tracerProvider) {
+        this(modelClient, mcpHub, objectMapper, tracerProvider != null ? tracerProvider.getIfAvailable() : null);
+    }
+
     public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub mcpHub, ObjectMapper objectMapper) {
-        this.modelClient = modelClient;
-        this.mcpHub = mcpHub;
-        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+        this(modelClient, mcpHub, objectMapper, (Tracer) null);
     }
 
     public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub mcpHub) {
-        this(modelClient, mcpHub, new ObjectMapper());
+        this(modelClient, mcpHub, new ObjectMapper(), (Tracer) null);
     }
 
     public AssistantChatService(AssistantModelClient modelClient) {
-        this(modelClient, null, new ObjectMapper());
+        this(modelClient, null, new ObjectMapper(), (Tracer) null);
+    }
+
+    public AssistantChatService(
+            AssistantModelClient modelClient,
+            ExternalMcpHub mcpHub,
+            ObjectMapper objectMapper,
+            @Nullable Tracer tracer) {
+        this.modelClient = modelClient;
+        this.mcpHub = mcpHub;
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+        this.tracer = tracer;
     }
 
     public ChatMessageResponse sendMessage(ChatMessageRequest request, String userId) {
+        if (this.tracer == null) {
+            return executeTurn(request, userId, null);
+        }
+
+        String sessionId = (request != null && request.sessionId() != null && !request.sessionId().isBlank())
+                ? request.sessionId()
+                : null;
+
+        Span span = this.tracer.nextSpan().name("agent.turn");
+        span.tag("agent.name", "assistant-chat");
+        span.tag("agent.framework", "polaris-assistant");
+        if (sessionId != null) {
+            span.tag("agent.session_id", sessionId);
+        }
+        span.tag("agent.user_id", userId != null ? userId : "anonymous");
+        span.start();
+
+        try (Tracer.SpanInScope ws = this.tracer.withSpan(span)) {
+            return executeTurn(request, userId, span);
+        } catch (Exception ex) {
+            span.error(ex);
+            span.tag("error", "true");
+            throw ex;
+        } finally {
+            span.end();
+        }
+    }
+
+    private ChatMessageResponse executeTurn(ChatMessageRequest request, String userId, @Nullable Span span) {
+        recordEvent(span, "agent.request.received");
+
+        if (request == null) {
+            throw new IllegalArgumentException("Message content must not be blank.");
+        }
         String messageText = request.resolvedMessage();
         if (messageText == null || messageText.isBlank()) {
             throw new IllegalArgumentException("Message content must not be blank.");
@@ -78,6 +135,13 @@ public class AssistantChatService {
 
         // 3. Discover available tools from MCP
         List<Tool> availableTools = (mcpHub != null) ? mcpHub.discoverAllTools() : List.of();
+        if (availableTools == null) {
+            availableTools = List.of();
+        }
+        recordEvent(span, "tools.discovered");
+        if (span != null) {
+            span.tag("agent.tools.count", String.valueOf(availableTools.size()));
+        }
 
         // 4. Autonomous tool execution loop (ReAct loop)
         int iterations = 0;
@@ -86,13 +150,16 @@ public class AssistantChatService {
 
         while (iterations < MAX_TOOL_ITERATIONS) {
             iterations++;
+            recordEvent(span, "agent.iteration.started");
             log.info("Executing conversation turn iteration {} for sessionId: {}, userId: {}", iterations, sessionId, userId);
 
+            recordEvent(span, "model.request");
             ModelResponse modelResponse = modelClient.generateResponse(new ArrayList<>(history), availableTools);
             if (modelResponse == null) {
                 String fallbackText = modelClient.chat(new ArrayList<>(history));
                 modelResponse = new ModelResponse(fallbackText != null ? fallbackText : "");
             }
+            recordEvent(span, "model.response");
 
             if (modelResponse.hasToolCalls() && mcpHub != null) {
                 List<AssistantMessage> modelTurns = new ArrayList<>();
@@ -115,8 +182,10 @@ public class AssistantChatService {
                     modelTurns.add(modelTurn);
 
                     // Execute tool via MCP
+                    recordEvent(span, "agent.tool.call");
                     CallToolResult toolResult = mcpHub.executeTool(toolCall.name(), toolCall.arguments());
                     String resultText = extractToolResultText(toolResult);
+                    recordEvent(span, "agent.tool.result");
 
                     // Save tool execution result turn to message history
                     AssistantMessage toolTurn = new AssistantMessage();
@@ -140,6 +209,11 @@ public class AssistantChatService {
             finalReply = "I have completed processing your request.";
         }
 
+        recordEvent(span, "agent.response.generated");
+        if (span != null) {
+            span.tag("agent.iterations.count", String.valueOf(iterations));
+        }
+
         // 5. Append assistant reply to history
         AssistantMessage assistantMsg = new AssistantMessage();
         assistantMsg.setRole(MessageRole.ASSISTANT);
@@ -148,12 +222,20 @@ public class AssistantChatService {
         assistantMsg.setCreatedAt(Instant.now());
         history.add(assistantMsg);
 
+        recordEvent(span, "agent.completed");
+
         return new ChatMessageResponse(
                 sessionId,
                 MessageRole.ASSISTANT.name(),
                 finalReply,
                 assistantMsg.getCreatedAt()
         );
+    }
+
+    private void recordEvent(@Nullable Span span, String eventName) {
+        if (span != null) {
+            span.event(eventName);
+        }
     }
 
     private String extractToolResultText(CallToolResult result) {
