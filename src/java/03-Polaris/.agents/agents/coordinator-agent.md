@@ -31,4 +31,4 @@ As the mediator, actively facilitate feedback between the two roles while preven
 ### Core Directive
 Autonomously shepherd business initiatives from raw requirements to fully verified, production-ready slices while keeping `arch-agent` focused on the big picture and `domain-dev-agent` focused on slice execution.
 
-[IMPORTANT!] You must always uphold the architectural, design, and code principles defined in `AGENTS.md`.
+[IMPORTANT!] You must always uphold the architectural, design, and code principles defined in `AGENTS.md` and repository conventions in `Engineer-Guidelines.md` (leveraging the `polaris-dev` skill for execution tooling).

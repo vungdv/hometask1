@@ -1,4 +1,4 @@
-.PHONY: pull build up down validate-docs setup-hooks test status playwright-ui playwright-close run
+.PHONY: pull build up down validate-docs setup-hooks test test-perf test-concurrency gcx gcx-exec status playwright-ui playwright-close run run-assistant clean polaris-sql
 
 run:
 	mvn spring-boot:run -pl apps/polaris
@@ -22,8 +22,14 @@ restart-%:
 	docker compose restart $*
 test:
 	mvn clean test
+test-perf:
+	docker run --network host --rm -i -v $$(pwd)/tests/perf:/scripts -w /scripts grafana/k6 run api-test.js
+test-concurrency:
+	docker run --network host --rm -i -v $$(pwd)/tests/perf:/scripts -w /scripts -e SKU=NG-CHARGER-02 grafana/k6 run order-concurrency-test.js
 gcx: 
 	docker exec -it gcx-cli sh
+gcx-exec:
+	docker exec gcx-cli gcx $(CMD)
 agy-ls:
 	ls -t ~/.gemini/antigravity-cli/brain | head -n 10
 validate-docs:
@@ -36,3 +42,4 @@ playwright-ui:
 	playwright-cli open https://polaris.local/swagger-ui/index.html
 playwright-close:
 	playwright-cli close-all
+

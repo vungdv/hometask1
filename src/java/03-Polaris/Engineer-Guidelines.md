@@ -79,16 +79,18 @@ Verification follows a strict multi-tier hierarchy:
   - Run `mvn clean test` (or `mvn test -pl apps/polaris`) before completing any slice.
   - Mock only external boundary seams; exercise domain logic, validation rules, and persistence deterministically.
 - **Tier 2: API Performance & Concurrency Validation (k6)**:
-  - Located under `tests/perf/`. Run via Docker without installing local dependencies:
+  - Located under `tests/perf/`. Run easily via Makefile or directly via Docker:
     ```bash
     # Contract, latency (p95 < 200ms), and W3C traceparent verification:
-    docker run --network host --rm -i -v $(pwd)/tests/perf:/scripts -w /scripts grafana/k6 run api-test.js
+    make test-perf
+    # Or directly: docker run --network host --rm -i -v $(pwd)/tests/perf:/scripts -w /scripts grafana/k6 run api-test.js
 
     # High-concurrency inventory race condition audit:
-    docker run --network host --rm -i -v $(pwd)/tests/perf:/scripts -w /scripts -e SKU=NG-CHARGER-02 grafana/k6 run order-concurrency-test.js
+    make test-concurrency
+    # Or directly: docker run --network host --rm -i -v $(pwd)/tests/perf:/scripts -w /scripts -e SKU=NG-CHARGER-02 grafana/k6 run order-concurrency-test.js
     ```
 - **Tier 3: Live End-to-End Session Proofs (Playwright CLI)**:
-  - Playwright CLI captures deterministic browser evidence against the live stack (`make playwright-ui`, `tests/e2e/`).
+  - Playwright CLI captures deterministic browser evidence against the live stack (`make playwright-ui`, `tests/e2e/`). Refer to `.agents/skills/playwright-cli/SKILL.md` and `.agents/skills/polaris-dev/SKILL.md`.
   - Session artifacts, snapshots, and screenshots must be stored in `.playwright-cli/` to serve as auditable proof.
 - **Architect Verification Gate**: Slice Work Orders (`WO-xxx`) require dual-tier sign-off (clean automated test logs + live Playwright CLI session proof or k6 performance logs) before merge.
 
@@ -104,7 +106,7 @@ Verification follows a strict multi-tier hierarchy:
   - The collector routes traces to Tempo (`:3200`), logs to Loki (`:3100`), and metrics to Prometheus (`:9090`).
 - **Telemetry Inspection (UI & CLI)**:
   - Access Grafana at [https://grafana.polaris.local](https://grafana.polaris.local) (OAuth login via Keycloak or default `admin`/`admin`).
-  - Access in-terminal telemetry directly via `make gcx` (or `./gcx.sh`) to query Tempo traces and Loki logs without opening a browser.
+  - Access in-terminal telemetry directly via `make gcx` (interactive TTY) or non-interactive/agent CLI via `./gcx.sh` (e.g. `make gcx-exec CMD="traces query '{resource.service.name=\"polaris\"}'"` or `./gcx.sh traces get <trace-id>`). See `.agents/skills/polaris-dev/SKILL.md` for CLI query recipes.
 
 ---
 
