@@ -14,6 +14,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -556,4 +557,81 @@ class AssistantChatServiceTest {
         assertThat(response).isNotNull();
         assertThat(response.reply()).isEqualTo("Reply");
     }
+
+    // =========================================================================
+    // WO-014 & ADR-0014: Agent Decision Events Schema and Recording Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("WO-014: sendMessage records tool execution decision tags on agent.turn span")
+    void sendMessage_withToolCall_recordsDecisionTagsOnSpan() {
+        Span span = mock(Span.class);
+        Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
+        Tracer tracer = mockTracerSetup(span, spanInScope);
+
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
+        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+
+        CallToolResult toolResult = new CallToolResult(
+                List.of(new TextContent("Found: Fast Charger 65W ($24.90)")),
+                false,
+                null,
+                Map.of()
+        );
+        when(mcpHub.executeTool(eq("search_available_products"), any())).thenReturn(toolResult);
+
+        ModelResponse turn1Response = new ModelResponse("", List.of(
+                new ToolCall("search_available_products", Map.of("query", "charger"))
+        ));
+        ModelResponse turn2Response = new ModelResponse("I found the Fast Charger 65W for $24.90.", List.of());
+
+        when(modelClient.generateResponse(anyList(), anyList()))
+                .thenReturn(turn1Response)
+                .thenReturn(turn2Response);
+
+        AssistantChatService serviceWithTracer = new AssistantChatService(
+                modelClient, mcpHub, new ObjectMapper(), tracer);
+
+        ChatMessageRequest request = new ChatMessageRequest("sess-001", "Find fast chargers");
+        ChatMessageResponse response = serviceWithTracer.sendMessage(request, "user-456");
+
+        assertThat(response).isNotNull();
+
+        // Verify decision tags attached to span across iterations
+        verify(span).tag("decision.action", "search_available_products");
+        verify(span).tag("decision.action", "reply_to_user");
+        verify(span, atLeastOnce()).tag("decision.intent", "Find fast chargers");
+        verify(span, atLeastOnce()).tag("decision.policy", "MAX_TOOL_ITERATIONS=5");
+        verify(span, atLeastOnce()).tag("decision.outcome.status", "SUCCESS");
+    }
+
+    @Test
+    @DisplayName("WO-014: sendMessage records direct response decision tags on agent.turn span")
+    void sendMessage_withoutToolCalls_recordsDirectResponseDecisionTagsOnSpan() {
+        Span span = mock(Span.class);
+        Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
+        Tracer tracer = mockTracerSetup(span, spanInScope);
+
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        when(mcpHub.discoverAllTools()).thenReturn(List.of());
+
+        ModelResponse directResponse = new ModelResponse("Hello! How can I assist you today?", List.of());
+        when(modelClient.generateResponse(anyList(), anyList())).thenReturn(directResponse);
+
+        AssistantChatService serviceWithTracer = new AssistantChatService(
+                modelClient, mcpHub, new ObjectMapper(), tracer);
+
+        ChatMessageRequest request = new ChatMessageRequest("Hello");
+        ChatMessageResponse response = serviceWithTracer.sendMessage(request, null);
+
+        assertThat(response).isNotNull();
+
+        // Verify direct response decision tags attached to span
+        verify(span).tag("decision.action", "reply_to_user");
+        verify(span).tag("decision.intent", "Hello");
+        verify(span).tag("decision.outcome.status", "SUCCESS");
+        verify(span).tag("decision.outcome.detail", "Direct conversational response generated");
+    }
 }
+

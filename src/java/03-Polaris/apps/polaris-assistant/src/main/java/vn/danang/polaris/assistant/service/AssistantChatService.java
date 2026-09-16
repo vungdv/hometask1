@@ -31,6 +31,7 @@ import vn.danang.polaris.assistant.mcp.ExternalMcpHub;
 import vn.danang.polaris.assistant.model.AssistantModelClient;
 import vn.danang.polaris.assistant.model.ModelResponse;
 import vn.danang.polaris.assistant.model.ToolCall;
+import vn.danang.polaris.assistant.observability.AgentDecisionRecorder;
 
 @Service
 @Transactional
@@ -44,6 +45,7 @@ public class AssistantChatService {
     private final ObjectMapper objectMapper;
     @Nullable
     private final Tracer tracer;
+    private final AgentDecisionRecorder decisionRecorder;
     // In-memory conversation store: sessionId -> List of AssistantMessage
     private final Map<String, List<AssistantMessage>> conversationStore = new ConcurrentHashMap<>();
 
@@ -52,20 +54,35 @@ public class AssistantChatService {
             AssistantModelClient modelClient,
             ExternalMcpHub mcpHub,
             ObjectMapper objectMapper,
+            ObjectProvider<Tracer> tracerProvider,
+            ObjectProvider<AgentDecisionRecorder> decisionRecorderProvider) {
+        this.modelClient = modelClient;
+        this.mcpHub = mcpHub;
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+        this.tracer = tracerProvider != null ? tracerProvider.getIfAvailable() : null;
+        this.decisionRecorder = decisionRecorderProvider != null && decisionRecorderProvider.getIfAvailable() != null
+                ? decisionRecorderProvider.getIfAvailable()
+                : new AgentDecisionRecorder(this.objectMapper, this.tracer);
+    }
+
+    public AssistantChatService(
+            AssistantModelClient modelClient,
+            ExternalMcpHub mcpHub,
+            ObjectMapper objectMapper,
             ObjectProvider<Tracer> tracerProvider) {
-        this(modelClient, mcpHub, objectMapper, tracerProvider != null ? tracerProvider.getIfAvailable() : null);
+        this(modelClient, mcpHub, objectMapper, tracerProvider, null);
     }
 
     public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub mcpHub, ObjectMapper objectMapper) {
-        this(modelClient, mcpHub, objectMapper, (Tracer) null);
+        this(modelClient, mcpHub, objectMapper, (Tracer) null, (AgentDecisionRecorder) null);
     }
 
     public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub mcpHub) {
-        this(modelClient, mcpHub, new ObjectMapper(), (Tracer) null);
+        this(modelClient, mcpHub, new ObjectMapper(), (Tracer) null, (AgentDecisionRecorder) null);
     }
 
     public AssistantChatService(AssistantModelClient modelClient) {
-        this(modelClient, null, new ObjectMapper(), (Tracer) null);
+        this(modelClient, null, new ObjectMapper(), (Tracer) null, (AgentDecisionRecorder) null);
     }
 
     public AssistantChatService(
@@ -73,10 +90,22 @@ public class AssistantChatService {
             ExternalMcpHub mcpHub,
             ObjectMapper objectMapper,
             @Nullable Tracer tracer) {
+        this(modelClient, mcpHub, objectMapper, tracer, null);
+    }
+
+    public AssistantChatService(
+            AssistantModelClient modelClient,
+            ExternalMcpHub mcpHub,
+            ObjectMapper objectMapper,
+            @Nullable Tracer tracer,
+            @Nullable AgentDecisionRecorder decisionRecorder) {
         this.modelClient = modelClient;
         this.mcpHub = mcpHub;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
         this.tracer = tracer;
+        this.decisionRecorder = decisionRecorder != null
+                ? decisionRecorder
+                : new AgentDecisionRecorder(this.objectMapper, this.tracer);
     }
 
     public ChatMessageResponse sendMessage(ChatMessageRequest request, String userId) {
@@ -181,9 +210,16 @@ public class AssistantChatService {
                     modelTurn.setCreatedAt(Instant.now());
                     modelTurns.add(modelTurn);
 
-                    // Execute tool via MCP
+                    // Execute tool via MCP with decision recording
                     recordEvent(span, "agent.tool.call");
-                    CallToolResult toolResult = mcpHub.executeTool(toolCall.name(), toolCall.arguments());
+                    CallToolResult toolResult = decisionRecorder.recordToolExecution(
+                            sessionId,
+                            messageText,
+                            toolCall.name(),
+                            availableTools,
+                            span,
+                            () -> mcpHub.executeTool(toolCall.name(), toolCall.arguments())
+                    );
                     String resultText = extractToolResultText(toolResult);
                     recordEvent(span, "agent.tool.result");
 
@@ -201,12 +237,14 @@ public class AssistantChatService {
             } else {
                 finalReply = modelResponse.text();
                 finalThoughtSignature = modelResponse.thoughtSignature();
+                decisionRecorder.recordDirectResponseDecision(sessionId, messageText, availableTools, span);
                 break;
             }
         }
 
         if (finalReply == null || finalReply.isBlank()) {
             finalReply = "I have completed processing your request.";
+            decisionRecorder.recordDirectResponseDecision(sessionId, messageText, availableTools, span);
         }
 
         recordEvent(span, "agent.response.generated");

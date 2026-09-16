@@ -16,6 +16,7 @@ Polaris is organized around clear bounded contexts adhering to Domain-Driven Des
 ### 2. AI Assistant Context (`/api/v1/assistant/chat`)
 * **Autonomous Microservice**: Standalone service (`apps/polaris-assistant`) decoupled from core commerce databases, routed via gateway sub-path `/api/v1/assistant/*` under `https://polaris.local`.
 * **Turn-Level Distributed Observability**: Enclosing distributed tracing span (`agent.turn`) with structured lifecycle milestone events (`agent.request.received`, `tools.discovered`, `agent.iteration.started`, `model.request`, `model.response`, `agent.tool.call`, `agent.tool.result`, `agent.response.generated`, `agent.completed`) capturing autonomous ReAct loop progression in Grafana Tempo.
+* **Structured Decision Observability**: High-cardinality decision auditing (`AgentDecisionRecorder`) emitting JSON-structured correlated events (`DecisionEvent` under `[STARTING]`, `[COMPLETED]`, `[FAILED]`, `[ERROR]`) and semantic tags (`decision.action`, `decision.intent`, `decision.confidence`, `decision.policy`, `decision.outcome.*`) on `agent.turn` spans.
 
 ### 3. Integration
 * **MCP Integration**: Consumes product catalog and order operations from Polaris Core exclusively via Model Context Protocol (`/mcp`).
@@ -129,6 +130,7 @@ To keep daily development focused, detailed guides for specialized areas are mai
 - 🔍 [**ADR-0011: Gemini Distributed Tracing**](docs/adr/0011-gemini-model-call-distributed-tracing.md): Distributed tracing and W3C context propagation for AI model calls.
 - 🌐 [**ADR-0012: MCP Cross-Service Distributed Tracing**](docs/adr/0012-mcp-cross-service-distributed-tracing.md): Cross-service trace propagation via W3C `traceparent` and server-side MCP tool execution spans.
 - ⏱️ [**ADR-0013: AI Assistant Turn Observability & Lifecycle Events**](docs/adr/0013-agent-turn-span-and-lifecycle-events.md): Enclosing trace span (`agent.turn`) and structured span events for ReAct agent loop execution.
+- 🎯 [**ADR-0014: Agent Decision Events and Observability Schema**](docs/adr/0014-agent-decision-events-and-observability-schema.md): Structured decision event schema (`DecisionEvent`), alternative evaluation, policy enforcement, and correlated trace/log observability for AI agent turns.
 - 📋 [**Product Requirements (PRDs)**](docs/prds/): Product requirement documents for catalog, orders, and AI assistant.
 - 📋 [**PRD-004: AI Model Observability**](docs/prds/PRD-004-gemini-model-observability-and-distributed-tracing.md): Business requirements and personas for GenAI distributed tracing.
 - 📋 [**PRD-005: AI Assistant Turn Observability**](docs/prds/PRD-005-agent-turn-observability-and-lifecycle-events.md): Business requirements, personas, and acceptance criteria for agent turn lifecycle telemetry.
