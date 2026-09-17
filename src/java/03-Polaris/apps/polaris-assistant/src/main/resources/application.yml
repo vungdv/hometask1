@@ -40,6 +40,103 @@ polaris:
     core:
       url: ${POLARIS_CORE_MCP_URL:http://localhost:8080/mcp}
       message-endpoint: ${POLARIS_CORE_MCP_MESSAGE_ENDPOINT:http://localhost:8080/mcp}
+  assistant:
+    intent:
+      intents:
+        - id: general.conversation
+          description: "User engages in greetings, small talk, or general inquiries unrelated to catalog or orders"
+          examples:
+            - "hello"
+            - "hi there"
+            - "who are you"
+            - "help me"
+          allowedTools: []
+          requiredScope: null
+          confidenceThreshold: 0.50
+          mutating: false
+
+        - id: catalog.product.search
+          description: "User wants to browse or search for products by keyword, category, or price range"
+          examples:
+            - "show me running shoes under $100"
+            - "what electronics do you have in stock"
+            - "find chargers"
+          allowedTools:
+            - search_available_products
+          requiredScope: catalog.read
+          confidenceThreshold: 0.80
+          mutating: false
+
+        - id: catalog.product.lookup
+          description: "User wants details on a specific, already-identified product by SKU"
+          examples:
+            - "tell me more about SM-PH-001"
+            - "is PROD-001 in stock"
+            - "check sku NG-CHARGER-02"
+          allowedTools:
+            - get_product_by_sku
+          requiredScope: catalog.read
+          confidenceThreshold: 0.85
+          mutating: false
+
+        - id: information.lookup.order.status
+          description: "User wants a quick status check on a single known order — not full details"
+          examples:
+            - "where is my order ORD-1001"
+            - "status of order 1234"
+            - "track order ORD-55"
+          allowedTools:
+            - get_order_status
+          requiredScope: order.read
+          confidenceThreshold: 0.85
+          mutating: false
+
+        - id: information.lookup.order.details
+          description: "User wants full order contents — line items, pricing, fulfillment — not just status"
+          examples:
+            - "what did I order in ORD-1001"
+            - "show me the full details of my last order"
+            - "view details for order ORD-999"
+          allowedTools:
+            - get_order_details
+          requiredScope: order.read
+          confidenceThreshold: 0.85
+          mutating: false
+
+        - id: information.lookup.order.history
+          description: "User wants to see multiple past orders, optionally filtered by status"
+          examples:
+            - "show my order history"
+            - "list my cancelled orders"
+            - "show all my previous purchases"
+          allowedTools:
+            - list_customer_orders
+          requiredScope: order.read
+          confidenceThreshold: 0.80
+          mutating: false
+
+        - id: commerce.order.place
+          description: "User wants to place a new order for one or more items"
+          examples:
+            - "order 2 of NG-EARBUD-01"
+            - "buy the wireless earbuds"
+            - "place order for item PROD-1"
+          allowedTools:
+            - place_order
+          requiredScope: order.write
+          confidenceThreshold: 0.92
+          mutating: true
+
+        - id: commerce.order.cancel
+          description: "User wants to cancel an existing order"
+          examples:
+            - "cancel my order ORD-1001"
+            - "I want to cancel that last order"
+          allowedTools:
+            - cancel_order
+          requiredScope: order.write
+          confidenceThreshold: 0.92
+          mutating: true
 
 springdoc:
   swagger-ui:

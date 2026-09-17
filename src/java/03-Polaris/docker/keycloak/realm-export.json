@@ -19,7 +19,17 @@
       "protocol": "openid-connect",
       "attributes": {
         "pkce.code.challenge.method": "S256"
-      }
+      },
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles",
+        "web-origins",
+        "catalog.read",
+        "order.read",
+        "order.write"
+      ]
     },
     {
       "clientId": "polaris-local",
@@ -38,7 +48,17 @@
       "protocol": "openid-connect",
       "attributes": {
         "pkce.code.challenge.method": "S256"
-      }
+      },
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles",
+        "web-origins",
+        "catalog.read",
+        "order.read",
+        "order.write"
+      ]
     },
     {
       "clientId": "polaris-mcp",
@@ -60,7 +80,17 @@
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "+"
-      }
+      },
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles",
+        "web-origins",
+        "catalog.read",
+        "order.read",
+        "order.write"
+      ]
     },
     {
       "clientId": "grafana",
@@ -84,6 +114,38 @@
       "protocol": "openid-connect",
       "attributes": {
         "post.logout.redirect.uris": "+"
+      }
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "catalog.read",
+      "description": "Read access to the product catalog — search products and look up SKUs",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "View product catalog"
+      }
+    },
+    {
+      "name": "order.read",
+      "description": "Read access to orders — status checks, full details, and order history",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "View your orders"
+      }
+    },
+    {
+      "name": "order.write",
+      "description": "Write access to orders — place new orders and cancel existing ones",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "Place and cancel orders on your behalf"
       }
     }
   ],

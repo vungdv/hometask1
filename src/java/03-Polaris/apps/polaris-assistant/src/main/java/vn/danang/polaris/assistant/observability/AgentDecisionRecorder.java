@@ -63,12 +63,21 @@ public class AgentDecisionRecorder {
             String sessionId,
             String intent,
             List<Tool> availableTools) {
-        return recordDirectResponseDecision(sessionId, intent, availableTools, null);
+        return recordDirectResponseDecision(sessionId, intent, 1.0, availableTools, null);
     }
 
     public DecisionEvent recordDirectResponseDecision(
             String sessionId,
             String intent,
+            List<Tool> availableTools,
+            @Nullable Span span) {
+        return recordDirectResponseDecision(sessionId, intent, 1.0, availableTools, span);
+    }
+
+    public DecisionEvent recordDirectResponseDecision(
+            String sessionId,
+            String intent,
+            double confidence,
             List<Tool> availableTools,
             @Nullable Span span) {
         long startTime = System.currentTimeMillis();
@@ -87,13 +96,134 @@ public class AgentDecisionRecorder {
                 intent != null ? intent : "",
                 alternatives,
                 "reply_to_user",
-                1.0,
+                confidence,
                 DEFAULT_POLICY,
                 outcome
         );
 
         logDecision("COMPLETED", event);
         event.recordOn(targetSpan);
+        return event;
+    }
+
+    /**
+     * Records intent resolution decision event and span tags.
+     */
+    public DecisionEvent recordIntentResolution(
+            String sessionId,
+            String userMessage,
+            String intentId,
+            double confidence,
+            double threshold,
+            boolean resolved,
+            @Nullable Span span) {
+        Span targetSpan = resolveSpan(span);
+        Outcome outcome = new Outcome(
+                resolved ? "RESOLVED" : "LOW_CONFIDENCE",
+                "Intent resolved with confidence " + confidence + " (threshold: " + threshold + ")",
+                0
+        );
+
+        DecisionEvent event = new DecisionEvent(
+                resolveTraceId(targetSpan),
+                resolveSpanId(targetSpan),
+                DEFAULT_AGENT_ID,
+                sessionId != null ? sessionId : "unknown",
+                Instant.now(),
+                intentId != null ? intentId : "unknown",
+                List.of(),
+                "intent.resolve",
+                confidence,
+                "THRESHOLD=" + threshold,
+                outcome
+        );
+
+        logDecision("COMPLETED", event);
+        if (targetSpan != null) {
+            targetSpan.tag("decision.action", "intent.resolve");
+            targetSpan.tag("decision.intent", intentId != null ? intentId : "unknown");
+            targetSpan.tag("decision.confidence", String.valueOf(confidence));
+            targetSpan.tag("decision.outcome.status", resolved ? "RESOLVED" : "LOW_CONFIDENCE");
+        }
+        return event;
+    }
+
+    /**
+     * Records tool registry validation defensive check.
+     */
+    public DecisionEvent recordRegistryValidation(
+            String sessionId,
+            String intentId,
+            String toolName,
+            boolean valid,
+            @Nullable Span span) {
+        Span targetSpan = resolveSpan(span);
+        Outcome outcome = new Outcome(
+                valid ? "VALID" : "TOOL_MISMATCH",
+                valid ? "Tool is permitted for intent" : "Tool " + toolName + " is not permitted for intent " + intentId,
+                0
+        );
+
+        DecisionEvent event = new DecisionEvent(
+                resolveTraceId(targetSpan),
+                resolveSpanId(targetSpan),
+                DEFAULT_AGENT_ID,
+                sessionId != null ? sessionId : "unknown",
+                Instant.now(),
+                intentId != null ? intentId : "unknown",
+                List.of(),
+                "registry.validate",
+                1.0,
+                "INTENT=" + intentId,
+                outcome
+        );
+
+        logDecision(valid ? "COMPLETED" : "FAILED", event);
+        if (targetSpan != null) {
+            targetSpan.tag("decision.action", "registry.validate");
+            targetSpan.tag("decision.outcome.status", valid ? "VALID" : "TOOL_MISMATCH");
+        }
+        return event;
+    }
+
+    /**
+     * Records policy engine authorization check.
+     */
+    public DecisionEvent recordPolicyAuthorization(
+            String sessionId,
+            String intentId,
+            String toolName,
+            @Nullable String requiredScope,
+            boolean allowed,
+            @Nullable String reason,
+            @Nullable Span span) {
+        Span targetSpan = resolveSpan(span);
+        Outcome outcome = new Outcome(
+                allowed ? "ALLOW" : "DENY",
+                reason != null ? reason : (allowed ? "Scope granted" : "Scope denied"),
+                0
+        );
+
+        DecisionEvent event = new DecisionEvent(
+                resolveTraceId(targetSpan),
+                resolveSpanId(targetSpan),
+                DEFAULT_AGENT_ID,
+                sessionId != null ? sessionId : "unknown",
+                Instant.now(),
+                intentId != null ? intentId : "unknown",
+                List.of(),
+                "policy.authorize",
+                1.0,
+                requiredScope != null ? requiredScope : "none",
+                outcome
+        );
+
+        logDecision(allowed ? "COMPLETED" : "FAILED", event);
+        if (targetSpan != null) {
+            targetSpan.tag("decision.action", "policy.authorize");
+            targetSpan.tag("decision.policy", requiredScope != null ? requiredScope : "none");
+            targetSpan.tag("decision.outcome.status", allowed ? "ALLOW" : "DENY");
+        }
         return event;
     }
 
@@ -107,12 +237,23 @@ public class AgentDecisionRecorder {
             String toolName,
             List<Tool> availableTools,
             Supplier<CallToolResult> toolExecution) {
-        return recordToolExecution(sessionId, intent, toolName, availableTools, null, toolExecution);
+        return recordToolExecution(sessionId, intent, 1.0, toolName, availableTools, null, toolExecution);
     }
 
     public CallToolResult recordToolExecution(
             String sessionId,
             String intent,
+            String toolName,
+            List<Tool> availableTools,
+            @Nullable Span span,
+            Supplier<CallToolResult> toolExecution) {
+        return recordToolExecution(sessionId, intent, 1.0, toolName, availableTools, span, toolExecution);
+    }
+
+    public CallToolResult recordToolExecution(
+            String sessionId,
+            String intent,
+            double confidence,
             String toolName,
             List<Tool> availableTools,
             @Nullable Span span,
@@ -129,7 +270,7 @@ public class AgentDecisionRecorder {
                 intent != null ? intent : "",
                 alternatives,
                 toolName,
-                1.0,
+                confidence,
                 DEFAULT_POLICY,
                 null
         );

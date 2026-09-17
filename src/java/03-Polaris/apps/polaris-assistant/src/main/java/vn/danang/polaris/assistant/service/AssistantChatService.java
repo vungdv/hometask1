@@ -27,6 +27,14 @@ import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
+import vn.danang.polaris.assistant.intent.DefaultIntentResolver;
+import vn.danang.polaris.assistant.intent.DefaultPolicyEngine;
+import vn.danang.polaris.assistant.intent.IntentClassification;
+import vn.danang.polaris.assistant.intent.IntentResolver;
+import vn.danang.polaris.assistant.intent.IntentTaxonomyProperties;
+import vn.danang.polaris.assistant.intent.IntentToolRegistry;
+import vn.danang.polaris.assistant.intent.PolicyDecision;
+import vn.danang.polaris.assistant.intent.PolicyEngine;
 import vn.danang.polaris.assistant.mcp.ExternalMcpHub;
 import vn.danang.polaris.assistant.model.AssistantModelClient;
 import vn.danang.polaris.assistant.model.ModelResponse;
@@ -46,6 +54,9 @@ public class AssistantChatService {
     @Nullable
     private final Tracer tracer;
     private final AgentDecisionRecorder decisionRecorder;
+    private final IntentResolver intentResolver;
+    private final IntentToolRegistry intentToolRegistry;
+    private final PolicyEngine policyEngine;
     // In-memory conversation store: sessionId -> List of AssistantMessage
     private final Map<String, List<AssistantMessage>> conversationStore = new ConcurrentHashMap<>();
 
@@ -55,7 +66,10 @@ public class AssistantChatService {
             ExternalMcpHub mcpHub,
             ObjectMapper objectMapper,
             ObjectProvider<Tracer> tracerProvider,
-            ObjectProvider<AgentDecisionRecorder> decisionRecorderProvider) {
+            ObjectProvider<AgentDecisionRecorder> decisionRecorderProvider,
+            ObjectProvider<IntentResolver> intentResolverProvider,
+            ObjectProvider<IntentToolRegistry> intentToolRegistryProvider,
+            ObjectProvider<PolicyEngine> policyEngineProvider) {
         this.modelClient = modelClient;
         this.mcpHub = mcpHub;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
@@ -63,6 +77,24 @@ public class AssistantChatService {
         this.decisionRecorder = decisionRecorderProvider != null && decisionRecorderProvider.getIfAvailable() != null
                 ? decisionRecorderProvider.getIfAvailable()
                 : new AgentDecisionRecorder(this.objectMapper, this.tracer);
+        this.intentToolRegistry = intentToolRegistryProvider != null && intentToolRegistryProvider.getIfAvailable() != null
+                ? intentToolRegistryProvider.getIfAvailable()
+                : new IntentToolRegistry();
+        this.intentResolver = intentResolverProvider != null && intentResolverProvider.getIfAvailable() != null
+                ? intentResolverProvider.getIfAvailable()
+                : new DefaultIntentResolver(new IntentTaxonomyProperties());
+        this.policyEngine = policyEngineProvider != null && policyEngineProvider.getIfAvailable() != null
+                ? policyEngineProvider.getIfAvailable()
+                : new DefaultPolicyEngine();
+    }
+
+    public AssistantChatService(
+            AssistantModelClient modelClient,
+            ExternalMcpHub mcpHub,
+            ObjectMapper objectMapper,
+            ObjectProvider<Tracer> tracerProvider,
+            ObjectProvider<AgentDecisionRecorder> decisionRecorderProvider) {
+        this(modelClient, mcpHub, objectMapper, tracerProvider, decisionRecorderProvider, null, null, null);
     }
 
     public AssistantChatService(
@@ -99,6 +131,18 @@ public class AssistantChatService {
             ObjectMapper objectMapper,
             @Nullable Tracer tracer,
             @Nullable AgentDecisionRecorder decisionRecorder) {
+        this(modelClient, mcpHub, objectMapper, tracer, decisionRecorder, null, null, null);
+    }
+
+    public AssistantChatService(
+            AssistantModelClient modelClient,
+            ExternalMcpHub mcpHub,
+            ObjectMapper objectMapper,
+            @Nullable Tracer tracer,
+            @Nullable AgentDecisionRecorder decisionRecorder,
+            @Nullable IntentResolver intentResolver,
+            @Nullable IntentToolRegistry intentToolRegistry,
+            @Nullable PolicyEngine policyEngine) {
         this.modelClient = modelClient;
         this.mcpHub = mcpHub;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
@@ -106,6 +150,15 @@ public class AssistantChatService {
         this.decisionRecorder = decisionRecorder != null
                 ? decisionRecorder
                 : new AgentDecisionRecorder(this.objectMapper, this.tracer);
+        this.intentToolRegistry = intentToolRegistry != null
+                ? intentToolRegistry
+                : new IntentToolRegistry();
+        this.intentResolver = intentResolver != null
+                ? intentResolver
+                : new DefaultIntentResolver(new IntentTaxonomyProperties());
+        this.policyEngine = policyEngine != null
+                ? policyEngine
+                : new DefaultPolicyEngine();
     }
 
     public ChatMessageResponse sendMessage(ChatMessageRequest request, String userId) {
@@ -172,18 +225,46 @@ public class AssistantChatService {
             span.tag("agent.tools.count", String.valueOf(availableTools.size()));
         }
 
-        // 4. Autonomous tool execution loop (ReAct loop)
-        int iterations = 0;
+        // 4. Resolve intent once per turn
+        IntentClassification classification = intentResolver.resolve(messageText, new ArrayList<>(history));
+        String intentId = (classification != null && classification.intentId() != null)
+                ? classification.intentId()
+                : IntentClassification.GENERAL_CONVERSATION;
+        double confidence = classification != null ? classification.confidence() : 1.0;
+        double threshold = intentToolRegistry.getConfidenceThreshold(intentId);
+        boolean meetsThreshold = confidence >= threshold;
+        boolean isMutating = intentToolRegistry.isMutating(intentId);
+
+        decisionRecorder.recordIntentResolution(sessionId, messageText, intentId, confidence, threshold, meetsThreshold, span);
+
+        // Filter tools or prompt for clarification
+        List<Tool> filteredTools;
         String finalReply = null;
         String finalThoughtSignature = null;
 
-        while (iterations < MAX_TOOL_ITERATIONS) {
+        if (!meetsThreshold && isMutating) {
+            finalReply = "I noticed you may want to " + (IntentClassification.ORDER_CANCEL.equals(intentId) ? "cancel an order" : "place an order")
+                    + ", but could you please clarify your request with specific details?";
+            filteredTools = List.of();
+            decisionRecorder.recordDirectResponseDecision(sessionId, intentId, confidence, availableTools, span);
+        } else if (!meetsThreshold) {
+            // Read-only intent with low confidence -> fall back to full available tools
+            filteredTools = availableTools;
+        } else {
+            // Confidence meets threshold -> filter tools by intent
+            filteredTools = intentToolRegistry.allowedTools(intentId, availableTools);
+        }
+
+        // 5. Autonomous tool execution loop (ReAct loop)
+        int iterations = 0;
+
+        while (finalReply == null && iterations < MAX_TOOL_ITERATIONS) {
             iterations++;
             recordEvent(span, "agent.iteration.started");
             log.info("Executing conversation turn iteration {} for sessionId: {}, userId: {}", iterations, sessionId, userId);
 
             recordEvent(span, "model.request");
-            ModelResponse modelResponse = modelClient.generateResponse(new ArrayList<>(history), availableTools);
+            ModelResponse modelResponse = modelClient.generateResponse(new ArrayList<>(history), filteredTools);
             if (modelResponse == null) {
                 String fallbackText = modelClient.chat(new ArrayList<>(history));
                 modelResponse = new ModelResponse(fallbackText != null ? fallbackText : "");
@@ -193,6 +274,7 @@ public class AssistantChatService {
             if (modelResponse.hasToolCalls() && mcpHub != null) {
                 List<AssistantMessage> modelTurns = new ArrayList<>();
                 List<AssistantMessage> toolTurns = new ArrayList<>();
+                boolean policyDenied = false;
 
                 for (ToolCall toolCall : modelResponse.toolCalls()) {
                     log.info("Model requested tool call: '{}' with arguments: {}", toolCall.name(), toolCall.arguments());
@@ -210,13 +292,44 @@ public class AssistantChatService {
                     modelTurn.setCreatedAt(Instant.now());
                     modelTurns.add(modelTurn);
 
-                    // Execute tool via MCP with decision recording
+                    // 1. Defensive tool validation against intent
+                    boolean isValidTool = meetsThreshold
+                            ? intentToolRegistry.isValid(intentId, toolCall.name())
+                            : filteredTools.stream().anyMatch(t -> t.name().equals(toolCall.name()));
+
+                    decisionRecorder.recordRegistryValidation(sessionId, intentId, toolCall.name(), isValidTool, span);
+
+                    if (!isValidTool) {
+                        log.warn("Tool '{}' is not permitted for intent '{}'", toolCall.name(), intentId);
+                        AssistantMessage toolTurn = new AssistantMessage();
+                        toolTurn.setRole(MessageRole.TOOL);
+                        toolTurn.setToolCallId(toolCall.name());
+                        toolTurn.setContent("Tool execution denied: Tool '" + toolCall.name() + "' is not permitted for intent '" + intentId + "'. Please provide a direct response or use permitted tools.");
+                        toolTurn.setCreatedAt(Instant.now());
+                        toolTurns.add(toolTurn);
+                        continue;
+                    }
+
+                    // 2. Defensive policy authorization against caller scopes
+                    String requiredScope = intentToolRegistry.getRequiredScope(toolCall.name());
+                    PolicyDecision policyDecision = policyEngine.authorize(userId, requiredScope);
+                    decisionRecorder.recordPolicyAuthorization(sessionId, intentId, toolCall.name(), requiredScope, policyDecision.allowed(), policyDecision.reason(), span);
+
+                    if (!policyDecision.allowed()) {
+                        log.warn("Policy DENIED execution of tool '{}' for user '{}': {}", toolCall.name(), userId, policyDecision.reason());
+                        finalReply = "Action denied: " + (policyDecision.reason() != null ? policyDecision.reason() : "Authorization required.");
+                        policyDenied = true;
+                        break;
+                    }
+
+                    // 3. Execute tool via MCP with decision recording
                     recordEvent(span, "agent.tool.call");
                     CallToolResult toolResult = decisionRecorder.recordToolExecution(
                             sessionId,
-                            messageText,
+                            intentId,
+                            confidence,
                             toolCall.name(),
-                            availableTools,
+                            filteredTools,
                             span,
                             () -> mcpHub.executeTool(toolCall.name(), toolCall.arguments())
                     );
@@ -234,17 +347,21 @@ public class AssistantChatService {
 
                 history.addAll(modelTurns);
                 history.addAll(toolTurns);
+
+                if (policyDenied) {
+                    break;
+                }
             } else {
                 finalReply = modelResponse.text();
                 finalThoughtSignature = modelResponse.thoughtSignature();
-                decisionRecorder.recordDirectResponseDecision(sessionId, messageText, availableTools, span);
+                decisionRecorder.recordDirectResponseDecision(sessionId, intentId, confidence, filteredTools, span);
                 break;
             }
         }
 
         if (finalReply == null || finalReply.isBlank()) {
             finalReply = "I have completed processing your request.";
-            decisionRecorder.recordDirectResponseDecision(sessionId, messageText, availableTools, span);
+            decisionRecorder.recordDirectResponseDecision(sessionId, intentId, confidence, filteredTools, span);
         }
 
         recordEvent(span, "agent.response.generated");
@@ -252,7 +369,7 @@ public class AssistantChatService {
             span.tag("agent.iterations.count", String.valueOf(iterations));
         }
 
-        // 5. Append assistant reply to history
+        // 6. Append assistant reply to history
         AssistantMessage assistantMsg = new AssistantMessage();
         assistantMsg.setRole(MessageRole.ASSISTANT);
         assistantMsg.setContent(finalReply);

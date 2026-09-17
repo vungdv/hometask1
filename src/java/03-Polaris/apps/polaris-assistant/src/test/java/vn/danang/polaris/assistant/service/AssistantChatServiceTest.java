@@ -34,6 +34,8 @@ import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
+import vn.danang.polaris.assistant.intent.IntentClassification;
+import vn.danang.polaris.assistant.intent.IntentResolver;
 import vn.danang.polaris.assistant.mcp.ExternalMcpHub;
 import vn.danang.polaris.assistant.model.AssistantModelClient;
 import vn.danang.polaris.assistant.model.ModelResponse;
@@ -601,7 +603,7 @@ class AssistantChatServiceTest {
         // Verify decision tags attached to span across iterations
         verify(span).tag("decision.action", "search_available_products");
         verify(span).tag("decision.action", "reply_to_user");
-        verify(span, atLeastOnce()).tag("decision.intent", "Find fast chargers");
+        verify(span, atLeastOnce()).tag("decision.intent", "catalog.product.search");
         verify(span, atLeastOnce()).tag("decision.policy", "MAX_TOOL_ITERATIONS=5");
         verify(span, atLeastOnce()).tag("decision.outcome.status", "SUCCESS");
     }
@@ -629,9 +631,152 @@ class AssistantChatServiceTest {
 
         // Verify direct response decision tags attached to span
         verify(span).tag("decision.action", "reply_to_user");
-        verify(span).tag("decision.intent", "Hello");
+        verify(span, atLeastOnce()).tag("decision.intent", "general.conversation");
         verify(span).tag("decision.outcome.status", "SUCCESS");
         verify(span).tag("decision.outcome.detail", "Direct conversational response generated");
     }
+
+    // =========================================================================
+    // WO-015 & ADR-0015: Intent Management and Policy Engine Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("WO-015: Should narrow tools offered to model client based on resolved intent")
+    @SuppressWarnings("unchecked")
+    void sendMessage_withIntentManagement_narrowsToolsOfferedToModelClient() {
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        List<Tool> allTools = List.of(
+                Tool.builder("search_available_products").description("Search catalog").build(),
+                Tool.builder("place_order").description("Place order").build(),
+                Tool.builder("cancel_order").description("Cancel order").build(),
+                Tool.builder("get_order_status").description("Order status").build()
+        );
+        when(mcpHub.discoverAllTools()).thenReturn(allTools);
+
+        ModelResponse directReply = new ModelResponse("Found 3 chargers.", List.of());
+        when(modelClient.generateResponse(anyList(), anyList())).thenReturn(directReply);
+
+        AssistantChatService service = new AssistantChatService(modelClient, mcpHub);
+        ChatMessageRequest request = new ChatMessageRequest("Find chargers in stock");
+        ChatMessageResponse response = service.sendMessage(request, "user-123");
+
+        assertThat(response.reply()).isEqualTo("Found 3 chargers.");
+
+        ArgumentCaptor<List<Tool>> toolCaptor = ArgumentCaptor.forClass(List.class);
+        verify(modelClient).generateResponse(anyList(), toolCaptor.capture());
+
+        List<Tool> offeredTools = toolCaptor.getValue();
+        assertThat(offeredTools).hasSize(1);
+        assertThat(offeredTools.get(0).name()).isEqualTo("search_available_products");
+    }
+
+    @Test
+    @DisplayName("WO-015: Should ask clarifying question when mutating intent has low confidence")
+    void sendMessage_withMutatingIntentLowConfidence_asksClarifyingQuestionWithoutCallingTools() {
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        when(mcpHub.discoverAllTools()).thenReturn(List.of(Tool.builder("place_order").build()));
+
+        IntentResolver mockResolver = mock(IntentResolver.class);
+        // Return mutating intent below threshold (0.60 < 0.92)
+        when(mockResolver.resolve(anyString(), anyList()))
+                .thenReturn(new vn.danang.polaris.assistant.intent.IntentClassification(
+                        vn.danang.polaris.assistant.intent.IntentClassification.ORDER_PLACE, 0.60));
+
+        AssistantChatService service = new AssistantChatService(
+                modelClient, mcpHub, new ObjectMapper(), null, null, mockResolver, null, null);
+
+        ChatMessageRequest request = new ChatMessageRequest("buy something maybe");
+        ChatMessageResponse response = service.sendMessage(request, "user-123");
+
+        assertThat(response).isNotNull();
+        assertThat(response.reply()).contains("could you please clarify your request with specific details");
+        // Model client should never be prompted for autonomous generation on low confidence mutating intents
+        verify(modelClient, never()).generateResponse(anyList(), anyList());
+        verify(mcpHub, never()).executeTool(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("WO-015: Should append corrective history message and continue loop when model calls invalid tool for intent")
+    @SuppressWarnings("unchecked")
+    void sendMessage_withToolMismatch_recordsWarningAndAppendsCorrectiveMessage() {
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        Tool allowedTool = Tool.builder("search_available_products").build();
+        Tool forbiddenTool = Tool.builder("cancel_order").build();
+        when(mcpHub.discoverAllTools()).thenReturn(List.of(allowedTool, forbiddenTool));
+
+        // Turn 1: Model requests forbidden tool for catalog.product.search
+        ModelResponse turn1Response = new ModelResponse("", List.of(new ToolCall("cancel_order", Map.of("order_id", "ORD-123"))));
+        // Turn 2: Model self-corrects and returns text response
+        ModelResponse turn2Response = new ModelResponse("Understood, I am looking up products instead.", List.of());
+
+        when(modelClient.generateResponse(anyList(), anyList()))
+                .thenReturn(turn1Response)
+                .thenReturn(turn2Response);
+
+        AssistantChatService service = new AssistantChatService(modelClient, mcpHub);
+        ChatMessageRequest request = new ChatMessageRequest("Find chargers");
+        ChatMessageResponse response = service.sendMessage(request, "user-123");
+
+        assertThat(response.reply()).isEqualTo("Understood, I am looking up products instead.");
+
+        // Verify that cancel_order was rejected and NOT executed
+        verify(mcpHub, never()).executeTool(eq("cancel_order"), any());
+
+        // Verify history captured the corrective tool turn
+        ArgumentCaptor<List<AssistantMessage>> historyCaptor = ArgumentCaptor.forClass(List.class);
+        verify(modelClient, times(2)).generateResponse(historyCaptor.capture(), anyList());
+
+        List<AssistantMessage> turn2History = historyCaptor.getAllValues().get(1);
+        assertThat(turn2History).hasSize(3);
+        assertThat(turn2History.get(2).getRole()).isEqualTo(MessageRole.TOOL);
+        assertThat(turn2History.get(2).getContent()).contains("not permitted for intent 'catalog.product.search'");
+    }
+
+    @Test
+    @DisplayName("WO-015: Should short-circuit and return denial message when PolicyEngine denies scope")
+    void sendMessage_withPolicyDenial_shortCircuitsAndReturnsDenialReason() {
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        Tool tool = Tool.builder("place_order").build();
+        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+
+        vn.danang.polaris.assistant.intent.PolicyEngine mockPolicy = mock(vn.danang.polaris.assistant.intent.PolicyEngine.class);
+        when(mockPolicy.authorize(anyString(), eq("order.write")))
+                .thenReturn(vn.danang.polaris.assistant.intent.PolicyDecision.deny("Missing scope 'order.write'."));
+
+        ModelResponse turn1Response = new ModelResponse("", List.of(new ToolCall("place_order", Map.of("sku", "PROD-1"))));
+        when(modelClient.generateResponse(anyList(), anyList())).thenReturn(turn1Response);
+
+        AssistantChatService service = new AssistantChatService(
+                modelClient, mcpHub, new ObjectMapper(), null, null, null, null, mockPolicy);
+
+        ChatMessageRequest request = new ChatMessageRequest("buy the wireless earbuds");
+        ChatMessageResponse response = service.sendMessage(request, "user-no-scope");
+
+        assertThat(response).isNotNull();
+        assertThat(response.reply()).isEqualTo("Action denied: Missing scope 'order.write'.");
+        verify(mcpHub, never()).executeTool(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("WO-015: Should provide empty tool list for general conversation intent")
+    @SuppressWarnings("unchecked")
+    void sendMessage_withGeneralConversation_providesEmptyToolList() {
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        when(mcpHub.discoverAllTools()).thenReturn(List.of(Tool.builder("search_available_products").build()));
+
+        ModelResponse directReply = new ModelResponse("Hello! How can I assist you?", List.of());
+        when(modelClient.generateResponse(anyList(), anyList())).thenReturn(directReply);
+
+        AssistantChatService service = new AssistantChatService(modelClient, mcpHub);
+        ChatMessageRequest request = new ChatMessageRequest("Hello there!");
+        ChatMessageResponse response = service.sendMessage(request, "user-123");
+
+        assertThat(response.reply()).isEqualTo("Hello! How can I assist you?");
+
+        ArgumentCaptor<List<Tool>> toolCaptor = ArgumentCaptor.forClass(List.class);
+        verify(modelClient).generateResponse(anyList(), toolCaptor.capture());
+        assertThat(toolCaptor.getValue()).isEmpty();
+    }
 }
+
 

@@ -131,6 +131,7 @@ To keep daily development focused, detailed guides for specialized areas are mai
 - 🌐 [**ADR-0012: MCP Cross-Service Distributed Tracing**](docs/adr/0012-mcp-cross-service-distributed-tracing.md): Cross-service trace propagation via W3C `traceparent` and server-side MCP tool execution spans.
 - ⏱️ [**ADR-0013: AI Assistant Turn Observability & Lifecycle Events**](docs/adr/0013-agent-turn-span-and-lifecycle-events.md): Enclosing trace span (`agent.turn`) and structured span events for ReAct agent loop execution.
 - 🎯 [**ADR-0014: Agent Decision Events and Observability Schema**](docs/adr/0014-agent-decision-events-and-observability-schema.md): Structured decision event schema (`DecisionEvent`), alternative evaluation, policy enforcement, and correlated trace/log observability for AI agent turns.
+- 🛡️ [**ADR-0015: Intent Management and Policy Engine Architecture**](docs/adr/0015-intent-management-and-policy-engine-architecture.md): Proactive tool set narrowing, defensive tool validation, OAuth2 scope authorization, and intent observability.
 - 📋 [**Product Requirements (PRDs)**](docs/prds/): Product requirement documents for catalog, orders, and AI assistant.
 - 📋 [**PRD-004: AI Model Observability**](docs/prds/PRD-004-gemini-model-observability-and-distributed-tracing.md): Business requirements and personas for GenAI distributed tracing.
 - 📋 [**PRD-005: AI Assistant Turn Observability**](docs/prds/PRD-005-agent-turn-observability-and-lifecycle-events.md): Business requirements, personas, and acceptance criteria for agent turn lifecycle telemetry.
