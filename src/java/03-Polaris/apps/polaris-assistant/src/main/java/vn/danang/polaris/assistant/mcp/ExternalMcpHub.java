@@ -89,7 +89,7 @@ public class ExternalMcpHub {
         String spanName = "mcp.tool_call %s".formatted(Optional.ofNullable(toolName).orElse("unknown"));
         Span span = this.tracer.nextSpan().name(spanName);
         if (toolName != null) {
-            span.tag("mcp.tool.name", toolName);
+            span.tag("gen_ai.tool.name", toolName);
         }
         span.tag("mcp.provider", "polaris-core");
         span.tag("mcp.operation", "tools/call");

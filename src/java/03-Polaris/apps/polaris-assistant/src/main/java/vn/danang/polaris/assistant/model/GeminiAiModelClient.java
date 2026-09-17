@@ -80,6 +80,11 @@ public class GeminiAiModelClient implements AssistantModelClient {
 
     @Override
     public ModelResponse generateResponse(List<AssistantMessage> messages, List<Tool> tools) {
+        return generateResponse(messages, tools, ModelRequestContext.empty());
+    }
+
+    @Override
+    public ModelResponse generateResponse(List<AssistantMessage> messages, List<Tool> tools, @Nullable ModelRequestContext context) {
         String apiKey = aiModelConfig.getApiKey();
         if (apiKey == null) {
             throw new IllegalArgumentException("Live AI Model key is not configured. Set GEMINI_API_KEY or polaris.ai.api-key to connect to live Gemini.");
@@ -106,11 +111,17 @@ public class GeminiAiModelClient implements AssistantModelClient {
         Span span = this.tracer.nextSpan().name(spanName);
         span.tag("gen_ai.system", "gemini");
         span.tag("gen_ai.request.model", model);
-        span.tag("gen_ai.operation.name", "generateContent");
+        span.tag("gen_ai.operation.name", "chat");
         span.tag("gen_ai.client", "GeminiAiModelClient");
         span.tag("peer.service", "generativelanguage.googleapis.com");
         if (tools != null && !tools.isEmpty()) {
             span.tag("gemini.tools.count", String.valueOf(tools.size()));
+        }
+        if (context != null) {
+            span.tag("agent.iteration", String.valueOf(context.iteration()));
+            span.tag("agent.intent_id", context.intentId() != null ? context.intentId() : "unknown");
+            span.tag("agent.intent_confidence", String.valueOf(context.intentConfidence()));
+            span.tag("agent.tools_offered_count", String.valueOf(context.toolsOfferedCount()));
         }
         span.start();
 
@@ -325,10 +336,12 @@ public class GeminiAiModelClient implements AssistantModelClient {
             if (span != null && root.has("usageMetadata")) {
                 JsonNode usage = root.path("usageMetadata");
                 if (usage.has("promptTokenCount")) {
-                    span.tag("gen_ai.usage.prompt_tokens", usage.path("promptTokenCount").asText());
+                    String promptTokens = usage.path("promptTokenCount").asText();
+                    span.tag("gen_ai.usage.input_tokens", promptTokens);
                 }
                 if (usage.has("candidatesTokenCount")) {
-                    span.tag("gen_ai.usage.completion_tokens", usage.path("candidatesTokenCount").asText());
+                    String completionTokens = usage.path("candidatesTokenCount").asText();
+                    span.tag("gen_ai.usage.output_tokens", completionTokens);
                 }
                 if (usage.has("totalTokenCount")) {
                     span.tag("gen_ai.usage.total_tokens", usage.path("totalTokenCount").asText());
@@ -383,12 +396,20 @@ public class GeminiAiModelClient implements AssistantModelClient {
                         }
                     }
 
-                    if (span != null && !toolCalls.isEmpty()) {
-                        span.tag("gemini.tool_calls.count", String.valueOf(toolCalls.size()));
+                    if (span != null) {
+                        if (!toolCalls.isEmpty()) {
+                            span.tag("gemini.tool_calls.count", String.valueOf(toolCalls.size()));
+                            span.tag("gen_ai.response.finish_reason", "tool_calls");
+                        } else {
+                            span.tag("gen_ai.response.finish_reason", "stop");
+                        }
                     }
 
                     return new ModelResponse(textBuilder.toString(), toolCalls, responseThoughtSignature);
                 }
+            }
+            if (span != null) {
+                span.tag("gen_ai.response.finish_reason", "stop");
             }
             return new ModelResponse("The AI Model returned an empty response.");
         } else {

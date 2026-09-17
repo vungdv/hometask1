@@ -37,6 +37,7 @@ import vn.danang.polaris.assistant.intent.PolicyDecision;
 import vn.danang.polaris.assistant.intent.PolicyEngine;
 import vn.danang.polaris.assistant.mcp.ExternalMcpHub;
 import vn.danang.polaris.assistant.model.AssistantModelClient;
+import vn.danang.polaris.assistant.model.ModelRequestContext;
 import vn.danang.polaris.assistant.model.ModelResponse;
 import vn.danang.polaris.assistant.model.ToolCall;
 import vn.danang.polaris.assistant.observability.AgentDecisionRecorder;
@@ -266,7 +267,16 @@ public class AssistantChatService {
 
             recordEvent(span, "model.request");
             // Agent's intent: reasoning
-            ModelResponse modelResponse = modelClient.generateResponse(new ArrayList<>(history), filteredTools);
+            ModelRequestContext context = new ModelRequestContext(
+                    iterations,
+                    intentId,
+                    confidence,
+                    filteredTools.size()
+            );
+            ModelResponse modelResponse = modelClient.generateResponse(new ArrayList<>(history), filteredTools, context);
+            if (modelResponse == null) {
+                modelResponse = modelClient.generateResponse(new ArrayList<>(history), filteredTools);
+            }
             if (modelResponse == null) {
                 String fallbackText = modelClient.chat(new ArrayList<>(history));
                 modelResponse = new ModelResponse(fallbackText != null ? fallbackText : "");
@@ -294,6 +304,8 @@ public class AssistantChatService {
                     modelTurn.setThoughtSignature(toolCall.thoughtSignature());
                     modelTurn.setCreatedAt(Instant.now());
                     modelTurns.add(modelTurn);
+
+                    logThoughtSignatureSampling(sessionId, iterations, toolCall.thoughtSignature(), span);
 
                     // 1. Defensive tool validation against intent
                     boolean isValidTool = meetsThreshold
@@ -326,18 +338,24 @@ public class AssistantChatService {
                     }
 
                     // 3. Execute tool via MCP with decision recording
-                    recordEvent(span, "agent.tool.call");
+                    recordEvent(span, "agent.tool.call: " + toolCall.name());
                     CallToolResult toolResult = decisionRecorder.recordToolExecution(
                             sessionId,
                             intentId,
                             confidence,
+                            iterations,
                             toolCall.name(),
+                            isValidTool,
+                            policyDecision.allowed() ? "ALLOW" : "DENY",
+                            policyDecision.reason(),
+                            requiredScope,
+                            toolCall.arguments(),
                             filteredTools,
                             span,
                             () -> mcpHub.executeTool(toolCall.name(), toolCall.arguments())
                     );
                     String resultText = extractToolResultText(toolResult);
-                    recordEvent(span, "agent.tool.result");
+                    recordEvent(span, "agent.tool.result: " + toolCall.name());
 
                     // Save tool execution result turn to message history
                     AssistantMessage toolTurn = new AssistantMessage();
@@ -357,6 +375,7 @@ public class AssistantChatService {
             } else {
                 finalReply = modelResponse.text();
                 finalThoughtSignature = modelResponse.thoughtSignature();
+                logThoughtSignatureSampling(sessionId, iterations, finalThoughtSignature, span);
                 decisionRecorder.recordDirectResponseDecision(sessionId, intentId, confidence, filteredTools, span);
                 break;
             }
@@ -409,5 +428,41 @@ public class AssistantChatService {
             }
         }
         return sb.toString();
+    }
+
+    private void logThoughtSignatureSampling(String sessionId, int iteration, String thoughtSignature, @Nullable Span span) {
+        if (thoughtSignature == null || thoughtSignature.isBlank()) {
+            return;
+        }
+        // 1% deterministic sampling based on sessionId hash, or always when DEBUG enabled
+        boolean isSampled = log.isDebugEnabled() || (Math.abs(sessionId.hashCode()) % 100 == 0);
+        if (!isSampled) {
+            return;
+        }
+
+        String traceId = "00000000000000000000000000000000";
+        String spanId = "0000000000000000";
+        if (span != null && span.context() != null) {
+            if (span.context().traceId() != null) {
+                traceId = span.context().traceId();
+            }
+            if (span.context().spanId() != null) {
+                spanId = span.context().spanId();
+            }
+        }
+
+        try {
+            Map<String, Object> logPayload = Map.of(
+                    "event", "thought_signature_sampled",
+                    "trace_id", traceId,
+                    "span_id", spanId,
+                    "session_id", sessionId,
+                    "iteration", iteration,
+                    "thought_signature", thoughtSignature
+            );
+            log.info("Agent reasoning [THOUGHT]: {}", objectMapper.writeValueAsString(logPayload));
+        } catch (Exception e) {
+            log.debug("Failed to serialize thought signature sample log: {}", e.getMessage());
+        }
     }
 }

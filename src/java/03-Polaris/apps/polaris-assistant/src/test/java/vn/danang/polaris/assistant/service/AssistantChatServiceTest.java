@@ -11,6 +11,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -38,8 +41,10 @@ import vn.danang.polaris.assistant.intent.IntentClassification;
 import vn.danang.polaris.assistant.intent.IntentResolver;
 import vn.danang.polaris.assistant.mcp.ExternalMcpHub;
 import vn.danang.polaris.assistant.model.AssistantModelClient;
+import vn.danang.polaris.assistant.model.ModelRequestContext;
 import vn.danang.polaris.assistant.model.ModelResponse;
 import vn.danang.polaris.assistant.model.ToolCall;
+import vn.danang.polaris.assistant.observability.AgentDecisionRecorder;
 
 class AssistantChatServiceTest {
 
@@ -332,8 +337,8 @@ class AssistantChatServiceTest {
         inOrder.verify(span).event("agent.iteration.started");
         inOrder.verify(span).event("model.request");
         inOrder.verify(span).event("model.response");
-        inOrder.verify(span).event("agent.tool.call");
-        inOrder.verify(span).event("agent.tool.result");
+        inOrder.verify(span).event("agent.tool.call: search_available_products");
+        inOrder.verify(span).event("agent.tool.result: search_available_products");
         inOrder.verify(span).event("agent.iteration.started");
         inOrder.verify(span).event("model.request");
         inOrder.verify(span).event("model.response");
@@ -478,10 +483,10 @@ class AssistantChatServiceTest {
         inOrder.verify(span).event("agent.iteration.started");
         inOrder.verify(span).event("model.request");
         inOrder.verify(span).event("model.response");
-        inOrder.verify(span).event("agent.tool.call");
-        inOrder.verify(span).event("agent.tool.result");
-        inOrder.verify(span).event("agent.tool.call");
-        inOrder.verify(span).event("agent.tool.result");
+        inOrder.verify(span).event("agent.tool.call: search_products");
+        inOrder.verify(span).event("agent.tool.result: search_products");
+        inOrder.verify(span).event("agent.tool.call: search_promotions");
+        inOrder.verify(span).event("agent.tool.result: search_promotions");
         inOrder.verify(span).event("agent.iteration.started");
         inOrder.verify(span).event("model.request");
         inOrder.verify(span).event("model.response");
@@ -517,8 +522,8 @@ class AssistantChatServiceTest {
         assertThat(response.reply()).isEqualTo("I have completed processing your request.");
 
         verify(span, times(5)).event("agent.iteration.started");
-        verify(span, times(5)).event("agent.tool.call");
-        verify(span, times(5)).event("agent.tool.result");
+        verify(span, times(5)).event("agent.tool.call: loop_tool");
+        verify(span, times(5)).event("agent.tool.result: loop_tool");
         verify(span).event("agent.response.generated");
         verify(span).event("agent.completed");
         verify(span).tag("agent.iterations.count", "5");
@@ -776,6 +781,158 @@ class AssistantChatServiceTest {
         ArgumentCaptor<List<Tool>> toolCaptor = ArgumentCaptor.forClass(List.class);
         verify(modelClient).generateResponse(anyList(), toolCaptor.capture());
         assertThat(toolCaptor.getValue()).isEmpty();
+    }
+
+    // =========================================================================
+    // WO-018 & ADR-0016: ReAct Orchestrator Wiring and Observability Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("WO-018: ReAct loop passes ModelRequestContext with iteration and intent details to modelClient")
+    @SuppressWarnings("unchecked")
+    void reactLoop_passesModelRequestContextToClient() {
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
+        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+
+        ModelResponse directReply = new ModelResponse("Found the products.", List.of());
+        when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class))).thenReturn(directReply);
+
+        AssistantChatService service = new AssistantChatService(modelClient, mcpHub);
+        ChatMessageRequest request = new ChatMessageRequest("Find chargers in stock");
+        ChatMessageResponse response = service.sendMessage(request, "user-123");
+
+        assertThat(response.reply()).isEqualTo("Found the products.");
+
+        ArgumentCaptor<ModelRequestContext> contextCaptor = ArgumentCaptor.forClass(ModelRequestContext.class);
+        verify(modelClient).generateResponse(anyList(), anyList(), contextCaptor.capture());
+
+        ModelRequestContext captured = contextCaptor.getValue();
+        assertThat(captured).isNotNull();
+        assertThat(captured.iteration()).isEqualTo(1);
+        assertThat(captured.intentId()).isEqualTo("catalog.product.search");
+        assertThat(captured.intentConfidence()).isGreaterThanOrEqualTo(0.9);
+        assertThat(captured.toolsOfferedCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("WO-018: ReAct loop emits enriched span events with tool names on agent.turn span")
+    void reactLoop_emitsEnrichedSpanEventsWithToolNames() {
+        Span span = mock(Span.class);
+        Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
+        Tracer tracer = mockTracerSetup(span, spanInScope);
+
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
+        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+        when(mcpHub.executeTool(eq("search_available_products"), any()))
+                .thenReturn(new CallToolResult(List.of(new TextContent("Charger 65W")), false, null, Map.of()));
+
+        ModelResponse turn1 = new ModelResponse("", List.of(new ToolCall("search_available_products", Map.of("query", "charger"))));
+        ModelResponse turn2 = new ModelResponse("Found charger 65W.", List.of());
+        when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                .thenReturn(turn1)
+                .thenReturn(turn2);
+
+        AssistantChatService service = new AssistantChatService(
+                modelClient, mcpHub, new ObjectMapper(), tracer);
+
+        ChatMessageRequest request = new ChatMessageRequest("sess-enriched-events", "Find charger");
+        ChatMessageResponse response = service.sendMessage(request, "user-456");
+
+        assertThat(response).isNotNull();
+        assertThat(response.reply()).isEqualTo("Found charger 65W.");
+
+        // Verify enriched event syntax containing tool name
+        verify(span).event("agent.tool.call: search_available_products");
+        verify(span).event("agent.tool.result: search_available_products");
+
+        // Verify bare event syntax is never emitted
+        verify(span, never()).event("agent.tool.call");
+        verify(span, never()).event("agent.tool.result");
+    }
+
+    @Test
+    @DisplayName("WO-018: ReAct loop invokes enriched recordToolExecution with audit metadata and arguments")
+    void reactLoop_invokesEnrichedRecordToolExecution() {
+        AgentDecisionRecorder mockRecorder = mock(AgentDecisionRecorder.class);
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
+        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+
+        CallToolResult expectedResult = new CallToolResult(List.of(new TextContent("Charger 65W")), false, null, Map.of());
+        when(mockRecorder.recordToolExecution(
+                anyString(), anyString(), anyDouble(), anyInt(), anyString(),
+                anyBoolean(), anyString(), any(), any(), any(), anyList(), any(), any()))
+                .thenReturn(expectedResult);
+
+        ModelResponse turn1 = new ModelResponse("", List.of(new ToolCall("search_available_products", Map.of("query", "charger"))));
+        ModelResponse turn2 = new ModelResponse("Found charger 65W.", List.of());
+        when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                .thenReturn(turn1)
+                .thenReturn(turn2);
+
+        AssistantChatService service = new AssistantChatService(
+                modelClient, mcpHub, new ObjectMapper(), (Tracer) null, mockRecorder, null, null, null);
+
+        ChatMessageRequest request = new ChatMessageRequest("sess-record-audit", "Find charger");
+        ChatMessageResponse response = service.sendMessage(request, "user-789");
+
+        assertThat(response).isNotNull();
+
+        verify(mockRecorder).recordToolExecution(
+                eq("sess-record-audit"),
+                eq("catalog.product.search"),
+                eq(0.92),
+                eq(1),
+                eq("search_available_products"),
+                eq(true),
+                eq("ALLOW"),
+                org.mockito.ArgumentMatchers.nullable(String.class),
+                eq("catalog.read"),
+                eq(Map.of("query", "charger")),
+                anyList(),
+                any(),
+                any()
+        );
+    }
+
+    @Test
+    @DisplayName("WO-018: Thought signatures are logged with sampling and never attached to span attributes")
+    void reactLoop_logsSampledThoughtSignatureWithoutAttachingToSpan() {
+        Span span = mock(Span.class);
+        Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
+        Tracer tracer = mockTracerSetup(span, spanInScope);
+
+        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
+        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+        when(mcpHub.executeTool(eq("search_available_products"), any()))
+                .thenReturn(new CallToolResult(List.of(new TextContent("Result")), false, null, Map.of()));
+
+        String secretThought = "THOUGHT_SIGNATURE_CONFIDENTIAL_12345";
+        ModelResponse turn1 = new ModelResponse("", List.of(new ToolCall("search_available_products", Map.of("query", "test"), secretThought)));
+        ModelResponse turn2 = new ModelResponse("Final reply.", List.of(), "THOUGHT_SIGNATURE_FINAL_67890");
+
+        when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                .thenReturn(turn1)
+                .thenReturn(turn2);
+
+        AssistantChatService service = new AssistantChatService(
+                modelClient, mcpHub, new ObjectMapper(), tracer);
+
+        ChatMessageRequest request = new ChatMessageRequest("session-sampling-test", "Find products");
+        ChatMessageResponse response = service.sendMessage(request, "user-test");
+
+        assertThat(response).isNotNull();
+        assertThat(response.reply()).isEqualTo("Final reply.");
+
+        // CRITICAL PRIVACY VERIFICATION: Span tags must NEVER contain the thought signature or raw thoughts
+        verify(span, never()).tag(eq("thoughtSignature"), anyString());
+        verify(span, never()).tag(eq("gen_ai.thought"), anyString());
+        verify(span, never()).tag(eq("thought"), anyString());
+        verify(span, never()).tag(anyString(), eq(secretThought));
+        verify(span, never()).tag(anyString(), eq("THOUGHT_SIGNATURE_FINAL_67890"));
     }
 }
 

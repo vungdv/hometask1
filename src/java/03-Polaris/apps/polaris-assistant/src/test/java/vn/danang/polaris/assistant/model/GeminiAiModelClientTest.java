@@ -18,6 +18,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -346,7 +348,7 @@ class GeminiAiModelClientTest {
         verify(span).name("gemini.generate_content gemini-3.6-flash");
         verify(span).tag("gen_ai.system", "gemini");
         verify(span).tag("gen_ai.request.model", "gemini-3.6-flash");
-        verify(span).tag("gen_ai.operation.name", "generateContent");
+        verify(span).tag("gen_ai.operation.name", "chat");
         verify(span).tag("gen_ai.client", "GeminiAiModelClient");
         verify(span).tag("peer.service", "generativelanguage.googleapis.com");
         verify(span).tag("gemini.tools.count", "1");
@@ -473,10 +475,13 @@ class GeminiAiModelClientTest {
 
         // Assert
         assertThat(response.hasToolCalls()).isTrue();
-        verify(span).tag("gen_ai.usage.prompt_tokens", "28");
-        verify(span).tag("gen_ai.usage.completion_tokens", "45");
+        verify(span).tag("gen_ai.usage.input_tokens", "28");
+        verify(span).tag("gen_ai.usage.output_tokens", "45");
+        verify(span, never()).tag(eq("gen_ai.usage.prompt_tokens"), anyString());
+        verify(span, never()).tag(eq("gen_ai.usage.completion_tokens"), anyString());
         verify(span).tag("gen_ai.usage.total_tokens", "73");
         verify(span).tag("gemini.tool_calls.count", "1");
+        verify(span).tag("gen_ai.response.finish_reason", "tool_calls");
         verify(span).end();
     }
 
@@ -805,6 +810,323 @@ class GeminiAiModelClientTest {
         assertThat(requestPayload).contains("\"thoughtSignature\":\"sig_parallel_first\"");
         // Must NOT contain skip_thought_signature_validator for the second parallel part
         assertThat(requestPayload).doesNotContain("skip_thought_signature_validator");
+    }
+
+    // --- WO-016 OpenTelemetry GenAI Semantic Conventions Tests ---
+
+    @Test
+    @DisplayName("Should attach standard OTel GenAI semantic convention tags for chat and token usage")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withOtelGenAiSemanticConventions() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-2.5-flash");
+
+        Tracer tracer = mock(Tracer.class);
+        Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
+
+        when(tracer.nextSpan()).thenReturn(span);
+        when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
+
+        String mockResponseBody = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "text": "The inventory has 5 items available."
+                          }
+                        ],
+                        "role": "model"
+                      }
+                    }
+                  ],
+                  "usageMetadata": {
+                    "promptTokenCount": 150,
+                    "candidatesTokenCount": 50,
+                    "totalTokenCount": 200
+                  }
+                }
+                """;
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn(mockResponseBody);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+
+        ModelResponse response = clientWithTracer.generateResponse(
+                List.of(createUserMessage("Check stock")),
+                List.of()
+        );
+
+        assertThat(response.text()).isEqualTo("The inventory has 5 items available.");
+        verify(span).tag("gen_ai.operation.name", "chat");
+        verify(span).tag("gen_ai.usage.input_tokens", "150");
+        verify(span).tag("gen_ai.usage.output_tokens", "50");
+        verify(span).tag("gen_ai.usage.total_tokens", "200");
+        verify(span).tag("gen_ai.response.finish_reason", "stop");
+    }
+
+    @Test
+    @DisplayName("Should set finish_reason to tool_calls when functionCall is returned")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withToolCalls_setsFinishReasonToolCalls() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-2.5-flash");
+
+        Tracer tracer = mock(Tracer.class);
+        Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
+
+        when(tracer.nextSpan()).thenReturn(span);
+        when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
+
+        String mockResponseBody = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "functionCall": {
+                              "name": "search_products",
+                              "args": { "query": "keyboard" }
+                            }
+                          }
+                        ],
+                        "role": "model"
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn(mockResponseBody);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+
+        ModelResponse response = clientWithTracer.generateResponse(
+                List.of(createUserMessage("Find keyboard")),
+                List.of()
+        );
+
+        assertThat(response.hasToolCalls()).isTrue();
+        verify(span).tag("gen_ai.response.finish_reason", "tool_calls");
+    }
+
+    @Test
+    @DisplayName("Should attach reasoning context tags when ModelRequestContext is provided")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withRequestContext_attachesContextTags() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-2.5-flash");
+
+        Tracer tracer = mock(Tracer.class);
+        Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
+
+        when(tracer.nextSpan()).thenReturn(span);
+        when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
+
+        String mockResponseBody = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "text": "Found 3 matching products"
+                          }
+                        ],
+                        "role": "model"
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn(mockResponseBody);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+        ModelRequestContext context = new ModelRequestContext(2, "catalog.product.search", 0.95, 3);
+
+        ModelResponse response = clientWithTracer.generateResponse(
+                List.of(createUserMessage("Search products")),
+                List.of(),
+                context
+        );
+
+        assertThat(response.text()).isEqualTo("Found 3 matching products");
+        verify(span).tag("agent.iteration", "2");
+        verify(span).tag("agent.intent_id", "catalog.product.search");
+        verify(span).tag("agent.intent_confidence", "0.95");
+        verify(span).tag("agent.tools_offered_count", "3");
+    }
+
+    @Test
+    @DisplayName("Should strictly guarantee that no raw prompt, completion text, or thought signatures leak into span tags")
+    @SuppressWarnings("unchecked")
+    void generateResponse_strictExclusion_noRawPromptOrThoughtSignatureInSpanTags() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-2.5-flash");
+
+        Tracer tracer = mock(Tracer.class);
+        Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
+
+        when(tracer.nextSpan()).thenReturn(span);
+        when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
+
+        String sensitiveUserPrompt = "My password is superSecret123 and credit card is 4111222233334444";
+        String sensitiveCompletionText = "Sensitive completion content that must never be in span tags";
+        String sensitiveThoughtSignature = "sig_super_secret_opaque_thought_signature_blob";
+
+        String mockResponseBody = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "text": "Sensitive completion content that must never be in span tags",
+                            "thoughtSignature": "sig_super_secret_opaque_thought_signature_blob"
+                          }
+                        ],
+                        "role": "model"
+                      }
+                    }
+                  ],
+                  "usageMetadata": {
+                    "promptTokenCount": 50,
+                    "candidatesTokenCount": 20,
+                    "totalTokenCount": 70
+                  }
+                }
+                """;
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn(mockResponseBody);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+        ModelRequestContext context = new ModelRequestContext(1, "catalog.search", 0.99, 1);
+
+        ModelResponse response = clientWithTracer.generateResponse(
+                List.of(createUserMessage(sensitiveUserPrompt)),
+                List.of(),
+                context
+        );
+
+        assertThat(response.text()).isEqualTo(sensitiveCompletionText);
+        assertThat(response.thoughtSignature()).isEqualTo(sensitiveThoughtSignature);
+
+        ArgumentCaptor<String> tagKeyCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> tagValueCaptor = ArgumentCaptor.forClass(String.class);
+        verify(span, org.mockito.Mockito.atLeastOnce()).tag(tagKeyCaptor.capture(), tagValueCaptor.capture());
+
+        List<String> capturedKeys = tagKeyCaptor.getAllValues();
+        List<String> capturedValues = tagValueCaptor.getAllValues();
+
+        // 1. Prohibited tag keys check
+        assertThat(capturedKeys)
+                .noneMatch(key -> key.equalsIgnoreCase("prompt")
+                        || key.equalsIgnoreCase("raw_prompt")
+                        || key.equalsIgnoreCase("text")
+                        || key.equalsIgnoreCase("completion")
+                        || key.equalsIgnoreCase("thought")
+                        || key.equalsIgnoreCase("thoughtSignature")
+                        || key.equalsIgnoreCase("thought_signature")
+                        || key.contains("message"));
+
+        // 2. Prohibited tag values check (leakage prevention)
+        assertThat(capturedValues)
+                .noneMatch(val -> val.contains(sensitiveUserPrompt)
+                        || val.contains(sensitiveCompletionText)
+                        || val.contains(sensitiveThoughtSignature));
+    }
+
+    @Test
+    @DisplayName("Should operate gracefully without exceptions when tracer is null and context is provided")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withNullTracer_operatesGracefully() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-2.5-flash");
+
+        String mockResponseBody = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "text": "Graceful without tracer"
+                          }
+                        ],
+                        "role": "model"
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn(mockResponseBody);
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        GeminiAiModelClient clientWithoutTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, null);
+        ModelRequestContext context = new ModelRequestContext(1, "catalog.search", 1.0, 2);
+
+        ModelResponse response = clientWithoutTracer.generateResponse(
+                List.of(createUserMessage("Hello")),
+                List.of(),
+                context
+        );
+
+        assertThat(response.text()).isEqualTo("Graceful without tracer");
+    }
+
+    @Test
+    @DisplayName("Should handle null ModelRequestContext gracefully without throwing NPE")
+    @SuppressWarnings("unchecked")
+    void generateResponse_withNullContext_operatesGracefully() throws Exception {
+        properties.setApiKey("test-valid-api-key");
+        properties.setModel("gemini-2.5-flash");
+
+        Tracer tracer = mock(Tracer.class);
+        Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
+
+        when(tracer.nextSpan()).thenReturn(span);
+        when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
+
+        HttpResponse<String> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(mockResponse.body()).thenReturn("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"OK\"}],\"role\":\"model\"}}]}");
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(mockResponse);
+
+        GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+
+        ModelResponse response = clientWithTracer.generateResponse(
+                List.of(createUserMessage("Hello")),
+                List.of(),
+                null
+        );
+
+        assertThat(response.text()).isEqualTo("OK");
+        verify(span).tag("gen_ai.operation.name", "chat");
+        verify(span, never()).tag(org.mockito.ArgumentMatchers.startsWith("agent."), any());
     }
 
     private String extractRequestBody(HttpRequest request) {

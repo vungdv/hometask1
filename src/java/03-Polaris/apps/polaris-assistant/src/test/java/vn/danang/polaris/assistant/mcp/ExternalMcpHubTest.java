@@ -99,7 +99,8 @@ class ExternalMcpHubTest {
         assertFalse(actual.isError());
         verify(tracer, times(1)).nextSpan();
         verify(span, times(1)).name("mcp.tool_call search_available_products");
-        verify(span, times(1)).tag("mcp.tool.name", "search_available_products");
+        verify(span, times(1)).tag("gen_ai.tool.name", "search_available_products");
+        verify(span, never()).tag(eq("mcp.tool.name"), anyString());
         verify(span, times(1)).tag("mcp.provider", "polaris-core");
         verify(span, times(1)).start();
         verify(tracer, times(1)).withSpan(span);

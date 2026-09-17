@@ -32,5 +32,17 @@ public interface AssistantModelClient {
         String text = chat(messages);
         return new ModelResponse(text, List.of());
     }
+
+    /**
+     * Send conversation messages and available MCP tools to the AI Model with reasoning context.
+     *
+     * @param messages conversation messages in this session
+     * @param tools available tools discovered via MCP
+     * @param context reasoning context including iteration and resolved intent
+     * @return ModelResponse containing either text or tool calls
+     */
+    default ModelResponse generateResponse(List<AssistantMessage> messages, List<Tool> tools, ModelRequestContext context) {
+        return generateResponse(messages, tools);
+    }
 }
 

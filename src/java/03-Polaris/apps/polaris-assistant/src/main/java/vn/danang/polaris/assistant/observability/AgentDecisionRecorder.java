@@ -1,8 +1,10 @@
 package vn.danang.polaris.assistant.observability;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
@@ -258,6 +260,37 @@ public class AgentDecisionRecorder {
             List<Tool> availableTools,
             @Nullable Span span,
             Supplier<CallToolResult> toolExecution) {
+        return recordToolExecution(
+                sessionId,
+                intent,
+                confidence,
+                1,
+                toolName,
+                true,
+                "ALLOW",
+                "Default policy allowed",
+                "none",
+                Map.of(),
+                availableTools,
+                span,
+                toolExecution
+        );
+    }
+
+    public CallToolResult recordToolExecution(
+            String sessionId,
+            String intent,
+            double confidence,
+            int iteration,
+            String toolName,
+            boolean validationResult,
+            String policyDecision,
+            @Nullable String policyReason,
+            @Nullable String requiredScope,
+            @Nullable Map<String, Object> arguments,
+            List<Tool> availableTools,
+            @Nullable Span span,
+            Supplier<CallToolResult> toolExecution) {
         Span targetSpan = resolveSpan(span);
         List<EvaluatedAlternative> alternatives = buildEvaluatedAlternatives(availableTools, toolName, false);
 
@@ -277,12 +310,38 @@ public class AgentDecisionRecorder {
 
         logDecision("STARTING", startEvent);
 
+        if (targetSpan != null) {
+            targetSpan.tag("gen_ai.tool.name", toolName != null ? toolName : "unknown");
+            targetSpan.tag("agent.iteration", String.valueOf(iteration));
+            targetSpan.tag("agent.tool.validation_result", validationResult ? "VALID" : "TOOL_MISMATCH");
+            targetSpan.tag("agent.policy.decision", policyDecision != null ? policyDecision : "ALLOW");
+            targetSpan.tag("agent.policy.reason", policyReason != null ? policyReason : "None");
+            targetSpan.tag("agent.policy.required_scope", requiredScope != null ? requiredScope : "none");
+            String argsSummary = ArgumentSanitizer.sanitizeToSummary(arguments);
+            targetSpan.tag("mcp.tool.args_summary", argsSummary);
+        }
+
         long startNanos = System.nanoTime();
         try {
             CallToolResult result = toolExecution.get();
             long latencyMs = (System.nanoTime() - startNanos) / 1_000_000L;
 
+            int resultBytes = 0;
+            if (result != null && result.content() != null) {
+                for (var c : result.content()) {
+                    if (c instanceof TextContent tc && tc.text() != null) {
+                        resultBytes += tc.text().getBytes(StandardCharsets.UTF_8).length;
+                    }
+                }
+            }
+            if (targetSpan != null) {
+                targetSpan.tag("agent.tool.result_size_bytes", String.valueOf(resultBytes));
+            }
+
             if (result != null && result.isError()) {
+                if (targetSpan != null) {
+                    targetSpan.tag("error", "true");
+                }
                 String errorDetail = extractSummary(result);
                 if (errorDetail.isBlank()) {
                     errorDetail = "Tool returned error result";
@@ -304,6 +363,9 @@ public class AgentDecisionRecorder {
             return result;
         } catch (Exception ex) {
             long latencyMs = (System.nanoTime() - startNanos) / 1_000_000L;
+            if (targetSpan != null) {
+                targetSpan.tag("error", "true");
+            }
             String errorMsg = ex.getMessage() != null && !ex.getMessage().isBlank()
                     ? ex.getMessage()
                     : ex.getClass().getSimpleName();

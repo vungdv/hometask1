@@ -98,7 +98,8 @@ class McpTracingTest {
         assertThat(result.isError()).isFalse();
         verify(tracer).nextSpan();
         verify(span).name("mcp.server.tool_call search_available_products");
-        verify(span).tag("mcp.tool.name", "search_available_products");
+        verify(span).tag("gen_ai.tool.name", "search_available_products");
+        verify(span, never()).tag(eq("mcp.tool.name"), anyString());
         verify(span).tag("mcp.server", "polaris-mcp");
         verify(span).tag("mcp.category", "catalog");
         verify(span).start();
@@ -134,7 +135,8 @@ class McpTracingTest {
 
         assertThat(result.isError()).isFalse();
         verify(span).name("mcp.server.tool_call get_product_by_sku");
-        verify(span).tag("mcp.tool.name", "get_product_by_sku");
+        verify(span).tag("gen_ai.tool.name", "get_product_by_sku");
+        verify(span, never()).tag(eq("mcp.tool.name"), anyString());
         verify(span).tag("mcp.server", "polaris-mcp");
         verify(span).tag("mcp.category", "catalog");
         verify(span).start();
@@ -192,7 +194,8 @@ class McpTracingTest {
         assertThat(result.isError()).isFalse();
         verify(tracer).nextSpan();
         verify(span).name("mcp.server.tool_call place_order");
-        verify(span).tag("mcp.tool.name", "place_order");
+        verify(span).tag("gen_ai.tool.name", "place_order");
+        verify(span, never()).tag(eq("mcp.tool.name"), anyString());
         verify(span).tag("mcp.server", "polaris-mcp");
         verify(span).tag("mcp.category", "order");
         verify(span).start();
@@ -233,7 +236,8 @@ class McpTracingTest {
 
         assertThat(result.isError()).isFalse();
         verify(span).name("mcp.server.tool_call get_order_status");
-        verify(span).tag("mcp.tool.name", "get_order_status");
+        verify(span).tag("gen_ai.tool.name", "get_order_status");
+        verify(span, never()).tag(eq("mcp.tool.name"), anyString());
         verify(span).tag("mcp.server", "polaris-mcp");
         verify(span).tag("mcp.category", "order");
         verify(span).start();

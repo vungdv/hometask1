@@ -226,4 +226,52 @@ class AgentDecisionRecorderTest {
 
         assertThat(event.traceId()).isEqualTo("0123456789abcdef0123456789abcdef");
     }
+
+    @Test
+    @DisplayName("WO-017: recordToolExecution with audit metadata tags span with all governance and sanitized argument tags")
+    void recordToolExecution_withAuditMetadata_recordsAllAuditTagsOnSpan() {
+        Tool tool = Tool.builder("search_products").description("Search catalog").build();
+        CallToolResult result = new CallToolResult(
+                List.of(new TextContent("Found: Charger")),
+                false,
+                null,
+                Map.of()
+        );
+
+        Map<String, Object> arguments = Map.of(
+                "query", "charger",
+                "cardNumber", "4111222233334444"
+        );
+
+        CallToolResult actual = recorder.recordToolExecution(
+                "session-audit",
+                "catalog.product.search",
+                0.95,
+                2,
+                "search_products",
+                true,
+                "ALLOW",
+                "Scope granted",
+                "catalog.read",
+                arguments,
+                List.of(tool),
+                span,
+                () -> result
+        );
+
+        assertThat(actual).isSameAs(result);
+        verify(span).tag("gen_ai.tool.name", "search_products");
+        verify(span).tag("agent.iteration", "2");
+        verify(span).tag("agent.tool.validation_result", "VALID");
+        verify(span).tag("agent.policy.decision", "ALLOW");
+        verify(span).tag("agent.policy.reason", "Scope granted");
+        verify(span).tag("agent.policy.required_scope", "catalog.read");
+        verify(span).tag("agent.tool.result_size_bytes", "14");
+
+        org.mockito.ArgumentCaptor<String> argsCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(span).tag(org.mockito.ArgumentMatchers.eq("mcp.tool.args_summary"), argsCaptor.capture());
+        String capturedArgs = argsCaptor.getValue();
+        assertThat(capturedArgs).contains(ArgumentSanitizer.REDACTED);
+        assertThat(capturedArgs).doesNotContain("4111222233334444");
+    }
 }

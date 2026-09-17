@@ -135,7 +135,7 @@ public class ProductMcpTools {
 
         String spanName = "mcp.server.tool_call %s".formatted(toolName);
         Span span = this.tracer.nextSpan().name(spanName);
-        span.tag("mcp.tool.name", toolName);
+        span.tag("gen_ai.tool.name", toolName);
         span.tag("mcp.server", "polaris-mcp");
         span.tag("mcp.category", "catalog");
         span.start();
