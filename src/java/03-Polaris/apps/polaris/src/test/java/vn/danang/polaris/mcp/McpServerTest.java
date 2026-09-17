@@ -341,11 +341,27 @@ class McpServerTest {
             Map<String, Object> properties = (Map<String, Object>) tool.inputSchema().get("properties");
             assertThat(properties).isNotNull();
             assertThat(properties).containsKey("customer_id");
+            assertThat(properties).containsKey("customer_name");
             assertThat(properties).containsKey("items");
             assertThat(properties).containsKey("idempotency_key");
             @SuppressWarnings("unchecked")
             List<String> required = (List<String>) tool.inputSchema().get("required");
-            assertThat(required).isNotNull().contains("customer_id", "items");
+            assertThat(required).isNotNull().contains("items");
+        }
+
+        @Test
+        @DisplayName("Verify search_customers_by_name tool schema contract")
+        void searchCustomersByName_schemaContract() {
+            McpSchema.Tool tool = orderMcpTools.getSearchCustomersByNameTool();
+            assertThat(tool.name()).isEqualTo("search_customers_by_name");
+            assertThat(tool.description()).isNotBlank();
+            assertThat(tool.inputSchema()).isNotNull();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> properties = (Map<String, Object>) tool.inputSchema().get("properties");
+            assertThat(properties).isNotNull().containsKey("name");
+            @SuppressWarnings("unchecked")
+            List<String> required = (List<String>) tool.inputSchema().get("required");
+            assertThat(required).isNotNull().contains("name");
         }
 
         @Test
@@ -402,6 +418,56 @@ class McpServerTest {
         }
 
         @Test
+        @DisplayName("place_order with customer_name fuzzy match resolves customer and places order")
+        void placeOrder_withCustomerName_success() {
+            Map<String, Object> item = Map.of("sku", "NG-EARBUD-01", "quantity", 1);
+            Map<String, Object> args = Map.of(
+                    "customer_name", "Alice Tran",
+                    "items", List.of(item),
+                    "idempotency_key", "mcp-name-place-test-1"
+            );
+
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(args);
+            assertThat(result.isError()).isFalse();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).contains("Order successfully placed!");
+            assertThat(text).contains("Alice Tran");
+        }
+
+        @Test
+        @DisplayName("place_order with non-matching customer_name returns error")
+        void placeOrder_withCustomerName_notFound() {
+            Map<String, Object> item = Map.of("sku", "NG-EARBUD-01", "quantity", 1);
+            Map<String, Object> args = Map.of(
+                    "customer_name", "Unknown Person 999",
+                    "items", List.of(item)
+            );
+
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(args);
+            assertThat(result.isError()).isTrue();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).contains("No customer found matching");
+        }
+
+        @Test
+        @DisplayName("search_customers_by_name with partial name returns candidate list")
+        void searchCustomersByName_partial_success() {
+            McpSchema.CallToolResult result = orderMcpTools.searchCustomersByName(Map.of("name", "Alice"));
+            assertThat(result.isError()).isFalse();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).contains("Alice Tran");
+        }
+
+        @Test
+        @DisplayName("search_customers_by_name with non-matching name returns clean message")
+        void searchCustomersByName_noMatch() {
+            McpSchema.CallToolResult result = orderMcpTools.searchCustomersByName(Map.of("name", "xyz_nonexistent_zzz"));
+            assertThat(result.isError()).isFalse();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).contains("No customers found");
+        }
+
+        @Test
         @DisplayName("place_order with insufficient stock returns actionable error remedy")
         void placeOrder_insufficientStock_returnsRemedy() {
             Map<String, Object> item = Map.of("sku", "NG-WATCH-01", "quantity", 9999);
@@ -415,7 +481,7 @@ class McpServerTest {
         }
 
         @Test
-        @DisplayName("place_order with missing customer_id returns error")
+        @DisplayName("place_order with missing customer_id and customer_name returns error")
         void placeOrder_missingCustomerId() {
             Map<String, Object> item = Map.of("sku", "NG-EARBUD-01", "quantity", 1);
             Map<String, Object> args = Map.of("items", List.of(item));
@@ -423,7 +489,7 @@ class McpServerTest {
             McpSchema.CallToolResult result = orderMcpTools.placeOrder(args);
             assertThat(result.isError()).isTrue();
             String text = ((McpSchema.TextContent) result.content().get(0)).text();
-            assertThat(text).contains("Parameter 'customer_id' is required.");
+            assertThat(text).contains("customer_id");
         }
 
         @Test

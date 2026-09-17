@@ -37,7 +37,7 @@ public class IntentToolRegistry {
             if (def.getAllowedTools() != null) {
                 for (String tool : def.getAllowedTools()) {
                     if (def.getRequiredScope() != null) {
-                        toolToScopeMap.put(tool, def.getRequiredScope());
+                        toolToScopeMap.putIfAbsent(tool, def.getRequiredScope());
                     }
                 }
             }

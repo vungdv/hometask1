@@ -32,6 +32,10 @@ public class DefaultIntentResolver implements IntentResolver {
             "\\b(order\\s+history|past\\s+orders|previous\\s+orders|list.*orders|all.*orders|my\\s+orders|previous\\s+purchases)\\b",
             Pattern.CASE_INSENSITIVE);
 
+    private static final Pattern CUSTOMER_LOOKUP_PATTERN = Pattern.compile(
+            "\\b(find|search|lookup|look\\s+up|who\\s+is)\\b.*\\b(customer|client|user)\\b|\\b(customer|client)\\s+(lookup|search|named)\\b|\\b(my\\s+name\\s+is|i\\s+am|i'm)\\b",
+            Pattern.CASE_INSENSITIVE);
+
     private static final Pattern ORDER_STATUS_PATTERN = Pattern.compile(
             "\\b(status\\s+of|where\\s+is|track|tracking)\\b.*\\border\\b|\\border\\b.*\\b(status|track|where)\\b",
             Pattern.CASE_INSENSITIVE);
@@ -91,6 +95,11 @@ public class DefaultIntentResolver implements IntentResolver {
         // 2c. Order History
         if (ORDER_HISTORY_PATTERN.matcher(query).find()) {
             return new IntentClassification(IntentClassification.ORDER_HISTORY, 0.95);
+        }
+
+        // 2c-1. Customer Lookup
+        if (CUSTOMER_LOOKUP_PATTERN.matcher(query).find()) {
+            return new IntentClassification(IntentClassification.CUSTOMER_LOOKUP, 0.95);
         }
 
         // 2d. Order Details vs Status

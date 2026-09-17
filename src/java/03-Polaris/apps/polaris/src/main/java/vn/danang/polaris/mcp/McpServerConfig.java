@@ -70,6 +70,7 @@ public class McpServerConfig {
                 .toolCall(orderMcpTools.getPlaceOrderTool(jsonMapper), (exchange, request) -> orderMcpTools.placeOrder(request.arguments()))
                 .toolCall(orderMcpTools.getListCustomerOrdersTool(jsonMapper), (exchange, request) -> orderMcpTools.listCustomerOrders(request.arguments()))
                 .toolCall(orderMcpTools.getCancelOrderTool(jsonMapper), (exchange, request) -> orderMcpTools.cancelOrder(request.arguments()))
+                .toolCall(orderMcpTools.getSearchCustomersByNameTool(jsonMapper), (exchange, request) -> orderMcpTools.searchCustomersByName(request.arguments()))
                 .build();
     }
 
@@ -107,6 +108,7 @@ public class McpServerConfig {
                 .toolCall(orderMcpTools.getPlaceOrderTool(jsonMapper), (exchange, request) -> orderMcpTools.placeOrder(request.arguments()))
                 .toolCall(orderMcpTools.getListCustomerOrdersTool(jsonMapper), (exchange, request) -> orderMcpTools.listCustomerOrders(request.arguments()))
                 .toolCall(orderMcpTools.getCancelOrderTool(jsonMapper), (exchange, request) -> orderMcpTools.cancelOrder(request.arguments()))
+                .toolCall(orderMcpTools.getSearchCustomersByNameTool(jsonMapper), (exchange, request) -> orderMcpTools.searchCustomersByName(request.arguments()))
                 .build();
     }
 }

@@ -11,6 +11,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.tracing.Span;
@@ -19,12 +20,13 @@ import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema;
 import jakarta.annotation.Nullable;
+import vn.danang.polaris.order.dto.CustomerSummaryResponse;
 import vn.danang.polaris.order.dto.OrderItemRequest;
 import vn.danang.polaris.order.dto.OrderResponse;
 import vn.danang.polaris.order.entity.Order;
 import vn.danang.polaris.order.entity.OrderItem;
 import vn.danang.polaris.order.entity.OrderStatus;
-import org.springframework.transaction.annotation.Transactional;
+import vn.danang.polaris.order.service.CustomerService;
 import vn.danang.polaris.order.service.OrderService;
 import vn.danang.polaris.web.exception.InsufficientStockException;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
@@ -40,6 +42,7 @@ public class OrderMcpTools {
     public static final String TOOL_PLACE_ORDER = "place_order";
     public static final String TOOL_LIST_CUSTOMER_ORDERS = "list_customer_orders";
     public static final String TOOL_CANCEL_ORDER = "cancel_order";
+    public static final String TOOL_SEARCH_CUSTOMERS_BY_NAME = "search_customers_by_name";
 
     private static final String GET_ORDER_STATUS_SCHEMA = """
         {
@@ -73,7 +76,11 @@ public class OrderMcpTools {
           "properties": {
             "customer_id": {
               "type": "integer",
-              "description": "Unique numeric ID of the customer placing the order"
+              "description": "Unique numeric ID of the customer placing the order (use this or customer_name)"
+            },
+            "customer_name": {
+              "type": "string",
+              "description": "Customer name for fuzzy lookup — partial, case-insensitive, typo-tolerant. Used when customer_id is absent. Returns disambiguation list if multiple matches found."
             },
             "items": {
               "type": "array",
@@ -98,7 +105,7 @@ public class OrderMcpTools {
               "description": "Optional unique idempotency key to prevent duplicate orders during retries"
             }
           },
-          "required": ["customer_id", "items"]
+          "required": ["items"]
         }
         """;
 
@@ -140,20 +147,48 @@ public class OrderMcpTools {
         }
         """;
 
+    private static final String SEARCH_CUSTOMERS_BY_NAME_SCHEMA = """
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Customer name to search — partial or full, case-insensitive, typo-tolerant"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum number of candidates to return (default: 5, max: 20)"
+            }
+          },
+          "required": ["name"]
+        }
+        """;
+
     private final OrderService orderService;
+    private final CustomerService customerService;
     @Nullable
     private final Tracer tracer;
 
     @Autowired
     public OrderMcpTools(
             OrderService orderService,
+            CustomerService customerService,
             ObjectProvider<Tracer> tracerProvider) {
         this.orderService = orderService;
+        this.customerService = customerService;
         this.tracer = tracerProvider != null ? tracerProvider.getIfAvailable() : null;
     }
 
+    public OrderMcpTools(OrderService orderService, CustomerService customerService) {
+        this(orderService, customerService, null);
+    }
+
+    public OrderMcpTools(OrderService orderService, ObjectProvider<Tracer> tracerProvider) {
+        this(orderService, null, tracerProvider);
+    }
+
     public OrderMcpTools(OrderService orderService) {
-        this(orderService, null);
+        this(orderService, null, null);
     }
 
     public McpSchema.Tool getOrderStatusTool(McpJsonMapper jsonMapper) {
@@ -183,7 +218,8 @@ public class OrderMcpTools {
     public McpSchema.Tool getPlaceOrderTool(McpJsonMapper jsonMapper) {
         return McpSchema.Tool.builder()
                 .name(TOOL_PLACE_ORDER)
-                .description("Place a new multi-item order for a customer with atomic stock verification and idempotency protection")
+                .description("Place a new multi-item order for a customer. Accepts customer_id or customer_name (fuzzy match). "
+                        + "Returns a disambiguation candidate list if multiple name matches are found.")
                 .inputSchema(jsonMapper, PLACE_ORDER_SCHEMA)
                 .build();
     }
@@ -214,6 +250,19 @@ public class OrderMcpTools {
 
     public McpSchema.Tool getCancelOrderTool() {
         return getCancelOrderTool(new JacksonMcpJsonMapper(new ObjectMapper()));
+    }
+
+    public McpSchema.Tool getSearchCustomersByNameTool(McpJsonMapper jsonMapper) {
+        return McpSchema.Tool.builder()
+                .name(TOOL_SEARCH_CUSTOMERS_BY_NAME)
+                .description("Search for customers by partial or fuzzy name match. Returns ranked candidates with id, name, "
+                        + "and email for order placement disambiguation.")
+                .inputSchema(jsonMapper, SEARCH_CUSTOMERS_BY_NAME_SCHEMA)
+                .build();
+    }
+
+    public McpSchema.Tool getSearchCustomersByNameTool() {
+        return getSearchCustomersByNameTool(new JacksonMcpJsonMapper(new ObjectMapper()));
     }
 
     private McpSchema.CallToolResult executeWithSpan(String toolName, Supplier<McpSchema.CallToolResult> execution) {
@@ -311,12 +360,55 @@ public class OrderMcpTools {
                         .build();
             }
 
+            // Resolve customer: prefer customer_id, fall back to customer_name fuzzy lookup
             Long customerId = parseLong(arguments.get("customer_id") != null ? arguments.get("customer_id") : arguments.get("customerId"));
+
             if (customerId == null) {
-                return McpSchema.CallToolResult.builder()
-                        .addTextContent("Parameter 'customer_id' is required.")
-                        .isError(true)
-                        .build();
+                Object rawCustomerName = arguments.get("customer_name") != null ? arguments.get("customer_name") : arguments.get("customerName");
+                String customerName = rawCustomerName != null ? rawCustomerName.toString().trim() : null;
+
+                if (customerName == null || customerName.isBlank()) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("Either 'customer_id' or 'customer_name' is required to identify the customer.")
+                            .isError(true)
+                            .build();
+                }
+
+                // Fuzzy name lookup
+                List<CustomerSummaryResponse> candidates;
+                try {
+                    candidates = customerService.searchByName(customerName, 10);
+                } catch (Exception ex) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("Error searching customer '" + customerName + "': " + ex.getMessage())
+                            .isError(true)
+                            .build();
+                }
+
+                if (candidates.isEmpty()) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("No customer found matching '" + customerName + "'. "
+                                    + "Please check the name spelling and retry, or provide the customer_id directly.")
+                            .isError(true)
+                            .build();
+                }
+
+                if (candidates.size() > 1) {
+                    // Disambiguation: return candidate list without placing the order
+                    List<String> lines = new ArrayList<>();
+                    lines.add("Multiple customers found for '" + customerName + "'. Please confirm by specifying customer_id:");
+                    for (int i = 0; i < candidates.size(); i++) {
+                        CustomerSummaryResponse c = candidates.get(i);
+                        lines.add(String.format("%d. [ID: %d] %s | %s", i + 1, c.id(), c.fullName(), c.email()));
+                    }
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent(String.join("\n", lines))
+                            .isError(false)
+                            .build();
+                }
+
+                // Exactly 1 match — proceed with resolved customer
+                customerId = candidates.get(0).id();
             }
 
             Object rawItems = arguments.get("items");
@@ -465,6 +557,55 @@ public class OrderMcpTools {
             } catch (Exception ex) {
                 return McpSchema.CallToolResult.builder()
                         .addTextContent("Error cancelling order '" + orderNumber + "': " + ex.getMessage())
+                        .isError(true)
+                        .build();
+            }
+        });
+    }
+
+    public McpSchema.CallToolResult searchCustomersByName(Map<String, Object> arguments) {
+        return executeWithSpan(TOOL_SEARCH_CUSTOMERS_BY_NAME, () -> {
+            if (arguments == null) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Arguments are required.")
+                        .isError(true)
+                        .build();
+            }
+
+            Object rawName = arguments.get("name");
+            String name = rawName != null ? rawName.toString().trim() : null;
+            if (name == null || name.isBlank()) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Parameter 'name' is required and must not be blank.")
+                        .isError(true)
+                        .build();
+            }
+
+            int limit = parseIntegerOrDefault(arguments.get("limit"), 5);
+            limit = Math.max(1, Math.min(limit, 20));
+
+            try {
+                List<CustomerSummaryResponse> customers = customerService.searchByName(name, limit);
+                if (customers.isEmpty()) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("No customers found matching '" + name + "'.")
+                            .isError(false)
+                            .build();
+                }
+
+                List<String> lines = new ArrayList<>();
+                lines.add("Found " + customers.size() + " customer(s) matching '" + name + "':");
+                for (int i = 0; i < customers.size(); i++) {
+                    CustomerSummaryResponse c = customers.get(i);
+                    lines.add(String.format("%d. [ID: %d] %s | %s", i + 1, c.id(), c.fullName(), c.email()));
+                }
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent(String.join("\n", lines))
+                        .isError(false)
+                        .build();
+            } catch (Exception ex) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Error searching customers: " + ex.getMessage())
                         .isError(true)
                         .build();
             }

@@ -116,4 +116,32 @@ class DefaultIntentResolverTest {
         assertThat(res3.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
         assertThat(res3.confidence()).isEqualTo(1.0);
     }
+
+    @Test
+    @DisplayName("Should resolve customer lookup intent for customer name search queries")
+    void resolve_customerLookupQueries() {
+        IntentClassification res = resolver.resolve("find customer Alice", List.of());
+        assertThat(res.intentId()).isEqualTo(IntentClassification.CUSTOMER_LOOKUP);
+        assertThat(res.confidence()).isGreaterThanOrEqualTo(0.85);
+
+        IntentClassification res2 = resolver.resolve("who is customer Chi", List.of());
+        assertThat(res2.intentId()).isEqualTo(IntentClassification.CUSTOMER_LOOKUP);
+        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.85);
+
+        IntentClassification res3 = resolver.resolve("my name is Alice Tran", List.of());
+        assertThat(res3.intentId()).isEqualTo(IntentClassification.CUSTOMER_LOOKUP);
+        assertThat(res3.confidence()).isGreaterThanOrEqualTo(0.85);
+    }
+
+    @Test
+    @DisplayName("Should resolve place order intent when user specifies customer name in purchase request")
+    void resolve_orderPlaceWithCustomerName() {
+        IntentClassification res = resolver.resolve("order 2 of NG-EARBUD-01 for Alice", List.of());
+        assertThat(res.intentId()).isEqualTo(IntentClassification.ORDER_PLACE);
+        assertThat(res.confidence()).isGreaterThanOrEqualTo(0.92);
+
+        IntentClassification res2 = resolver.resolve("place order for Alice Tran", List.of());
+        assertThat(res2.intentId()).isEqualTo(IntentClassification.ORDER_PLACE);
+        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.92);
+    }
 }

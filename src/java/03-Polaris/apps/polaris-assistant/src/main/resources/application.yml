@@ -115,14 +115,32 @@ polaris:
           confidenceThreshold: 0.80
           mutating: false
 
+        - id: customer.lookup.by_name
+          description: "User wants to find, look up, or identify a customer by name"
+          examples:
+            - "find customer Alice"
+            - "look up customer Tran"
+            - "search customer named Bob"
+            - "who is customer Chi"
+            - "I am Alice Tran"
+            - "customer lookup for Alice"
+          allowedTools:
+            - search_customers_by_name
+          requiredScope: order.read
+          confidenceThreshold: 0.85
+          mutating: false
+
         - id: commerce.order.place
           description: "User wants to place a new order for one or more items"
           examples:
             - "order 2 of NG-EARBUD-01"
             - "buy the wireless earbuds"
             - "place order for item PROD-1"
+            - "order 2 of NG-EARBUD-01 for Alice"
+            - "place order for Alice Tran"
           allowedTools:
             - place_order
+            - search_customers_by_name
           requiredScope: order.write
           confidenceThreshold: 0.92
           mutating: true

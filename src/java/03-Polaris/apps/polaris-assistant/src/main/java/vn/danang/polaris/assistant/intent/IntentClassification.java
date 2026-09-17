@@ -14,4 +14,5 @@ public record IntentClassification(
     public static final String ORDER_HISTORY = "information.lookup.order.history";
     public static final String ORDER_PLACE = "commerce.order.place";
     public static final String ORDER_CANCEL = "commerce.order.cancel";
+    public static final String CUSTOMER_LOOKUP = "customer.lookup.by_name";
 }

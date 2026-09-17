@@ -90,10 +90,20 @@ public class IntentTaxonomyProperties {
         ));
 
         list.add(new IntentDefinition(
+                IntentClassification.CUSTOMER_LOOKUP,
+                "User wants to find, look up, or identify a customer by name",
+                List.of("find customer Alice", "look up customer Tran", "search customer named Bob", "who is customer Chi", "I am Alice Tran", "customer lookup for Alice"),
+                List.of("search_customers_by_name"),
+                "order.read",
+                0.85,
+                false
+        ));
+
+        list.add(new IntentDefinition(
                 IntentClassification.ORDER_PLACE,
                 "User wants to place a new order for one or more items",
-                List.of("order 2 of NG-EARBUD-01", "buy the wireless earbuds", "place order for item PROD-1", "I want to buy this"),
-                List.of("place_order"),
+                List.of("order 2 of NG-EARBUD-01", "buy the wireless earbuds", "place order for item PROD-1", "I want to buy this", "order 2 of NG-EARBUD-01 for Alice", "place order for Alice Tran"),
+                List.of("place_order", "search_customers_by_name"),
                 "order.write",
                 0.92,
                 true

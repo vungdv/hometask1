@@ -225,7 +225,7 @@ public class AssistantChatService {
             span.tag("agent.tools.count", String.valueOf(availableTools.size()));
         }
 
-        // 4. Resolve intent once per turn
+        // 4. Resolve intent once per user's turn
         IntentClassification classification = intentResolver.resolve(messageText, new ArrayList<>(history));
         String intentId = (classification != null && classification.intentId() != null)
                 ? classification.intentId()
@@ -235,6 +235,7 @@ public class AssistantChatService {
         boolean meetsThreshold = confidence >= threshold;
         boolean isMutating = intentToolRegistry.isMutating(intentId);
 
+        // record user's intent
         decisionRecorder.recordIntentResolution(sessionId, messageText, intentId, confidence, threshold, meetsThreshold, span);
 
         // Filter tools or prompt for clarification
@@ -264,6 +265,7 @@ public class AssistantChatService {
             log.info("Executing conversation turn iteration {} for sessionId: {}, userId: {}", iterations, sessionId, userId);
 
             recordEvent(span, "model.request");
+            // Agent's intent: reasoning
             ModelResponse modelResponse = modelClient.generateResponse(new ArrayList<>(history), filteredTools);
             if (modelResponse == null) {
                 String fallbackText = modelClient.chat(new ArrayList<>(history));
@@ -272,6 +274,7 @@ public class AssistantChatService {
             recordEvent(span, "model.response");
 
             if (modelResponse.hasToolCalls() && mcpHub != null) {
+                // Agent's intent: something? that lead to some tool_calls
                 List<AssistantMessage> modelTurns = new ArrayList<>();
                 List<AssistantMessage> toolTurns = new ArrayList<>();
                 boolean policyDenied = false;
