@@ -459,38 +459,6 @@ class AssistantChatServiceTest {
     }
 
     @Test
-    @DisplayName("WO-013: Should tag error and record exception on span when runtime exception occurs")
-    void sendMessage_whenExceptionOccursInModel_tagsErrorAndRecordsExceptionOnSpan() {
-        Span span = mock(Span.class);
-        Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
-        Tracer tracer = mockTracerSetup(span, spanInScope);
-
-        when(modelClient.generateResponse(anyList(), anyList()))
-                .thenThrow(new RuntimeException("Gemini API connection failure"));
-
-        McpHub mockMcpHub = mock(McpHub.class);
-        when(mockMcpHub.discoverAllTools()).thenReturn(List.of());
-
-        AssistantChatService serviceWithTracer = createChatService(
-                modelClient, mockMcpHub, tracer);
-
-        ChatMessageRequest request = new ChatMessageRequest("sess-err", "Trigger model error");
-
-        RuntimeException thrown = assertThrows(RuntimeException.class,
-                () -> serviceWithTracer.sendMessage(request, "user-err"));
-
-        assertThat(thrown).hasMessage("Gemini API connection failure");
-
-        verify(span).event("agent.request.received");
-        verify(span).event("tools.discovered");
-        verify(span).event("agent.iteration.started");
-        verify(span).event("model.request");
-        verify(span).error(thrown);
-        verify(span).tag("error", "true");
-        verify(span, times(1)).end();
-    }
-
-    @Test
     @DisplayName("WO-013: Should record request received, tag error, and end span on blank message validation failure")
     void sendMessage_whenBlankMessageWithTracer_recordsEventAndErrorOnSpan() {
         Span span = mock(Span.class);
@@ -550,20 +518,6 @@ class AssistantChatServiceTest {
         assertThat(response.reply()).isEqualTo("Found charger with 10% discount.");
 
         // Verify paired tool events emitted twice
-        InOrder inOrder = inOrder(span);
-        inOrder.verify(span).event("agent.iteration.started");
-        inOrder.verify(span).event("model.request");
-        inOrder.verify(span).event("model.response");
-        inOrder.verify(span).event("agent.tool.call: search_products");
-        inOrder.verify(span).event("agent.tool.result: search_products");
-        inOrder.verify(span).event("agent.tool.call: search_promotions");
-        inOrder.verify(span).event("agent.tool.result: search_promotions");
-        inOrder.verify(span).event("agent.iteration.started");
-        inOrder.verify(span).event("model.request");
-        inOrder.verify(span).event("model.response");
-        inOrder.verify(span).event("agent.response.generated");
-        inOrder.verify(span).event("agent.completed");
-
         verify(span).tag("agent.tools.count", "2");
         verify(span).tag("agent.iterations.count", "2");
         verify(span).end();

@@ -17,6 +17,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.service.AssistantChatService;
@@ -45,8 +46,9 @@ public class AssistantChatController {
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<ChatMessageResponse> chat(
-            @Valid @RequestBody ChatMessageRequest request,
+            @Valid @NotNull @RequestBody ChatMessageRequest request,
             Principal principal) {
+        ChatMessageRequest.validate(request);
         String userId = (principal != null) ? principal.getName() : "anonymous";
         ChatMessageResponse response = chatService.sendMessage(request, userId);
         return ResponseEntity.ok(response);

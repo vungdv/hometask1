@@ -125,16 +125,7 @@ public class AssistantChatService {
     }
 
     private ChatMessageResponse executeTurn(ChatMessageRequest request, String userId, @Nullable Span span) {
-        recordEvent(span, "agent.request.received");
-
-        if (request == null) {
-            throw new IllegalArgumentException("Message content must not be blank.");
-        }
-        String rawMessage = request.message();
-        if (rawMessage == null || rawMessage.isBlank()) {
-            throw new IllegalArgumentException("Message content must not be blank.");
-        }
-        String messageText = rawMessage.trim();
+        String messageText = request.message().trim();
 
         String sessionId = (request.sessionId() != null && !request.sessionId().isBlank())
                 ? request.sessionId()
@@ -150,10 +141,6 @@ public class AssistantChatService {
         List<Tool> availableTools = (mcpHub != null) ? mcpHub.discoverAllTools() : List.of();
         if (availableTools == null) {
             availableTools = List.of();
-        }
-        recordEvent(span, "tools.discovered");
-        if (span != null) {
-            span.tag("agent.tools.count", String.valueOf(availableTools.size()));
         }
 
         // 4. Resolve intent once per user's turn
@@ -192,7 +179,6 @@ public class AssistantChatService {
 
         while (finalReply == null && iterations < MAX_TOOL_ITERATIONS) {
             iterations++;
-            recordEvent(span, "agent.iteration.started");
             log.info("Executing conversation turn iteration {} for sessionId: {}, userId: {}", iterations, sessionId, userId);
 
             ModelRequestContext context = new ModelRequestContext(
@@ -202,7 +188,6 @@ public class AssistantChatService {
                     filteredTools.size()
             );
 
-            recordEvent(span, "model.request");
             ModelResponse modelResponse = modelClient.generateResponse(new ArrayList<>(history), filteredTools, context);
             if (modelResponse == null) {
                 modelResponse = modelClient.generateResponse(new ArrayList<>(history), filteredTools);
@@ -211,7 +196,6 @@ public class AssistantChatService {
                 String fallbackText = modelClient.chat(new ArrayList<>(history));
                 modelResponse = new ModelResponse(fallbackText != null ? fallbackText : "");
             }
-            recordEvent(span, "model.response");
 
             if (modelResponse.hasToolCalls() && mcpHub != null) {
                 ToolExecutionContext toolContext = new ToolExecutionContext(
@@ -250,20 +234,13 @@ public class AssistantChatService {
             decisionRecorder.recordDirectResponseDecision(sessionId, intentId, confidence, filteredTools, span);
         }
 
-        recordEvent(span, "agent.response.generated");
         if (span != null) {
             span.tag("agent.iterations.count", String.valueOf(iterations));
         }
 
         // 6. Append assistant reply to history
-        AssistantMessage assistantMsg = new AssistantMessage();
-        assistantMsg.setRole(MessageRole.ASSISTANT);
-        assistantMsg.setContent(finalReply);
-        assistantMsg.setThoughtSignature(finalThoughtSignature);
-        assistantMsg.setCreatedAt(Instant.now());
+        var assistantMsg = AssistantMessage.of(finalReply, MessageRole.ASSISTANT, finalThoughtSignature);
         history.add(assistantMsg);
-
-        recordEvent(span, "agent.completed");
 
         return new ChatMessageResponse(
                 sessionId,
@@ -271,11 +248,5 @@ public class AssistantChatService {
                 finalReply,
                 assistantMsg.getCreatedAt()
         );
-    }
-
-    private void recordEvent(@Nullable Span span, String eventName) {
-        if (span != null) {
-            span.event(eventName);
-        }
     }
 }
