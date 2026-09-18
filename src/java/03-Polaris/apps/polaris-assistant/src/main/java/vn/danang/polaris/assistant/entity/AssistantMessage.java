@@ -17,7 +17,7 @@ import lombok.Setter;
 @Table(name = "assistant_messages")
 @Getter
 @Setter
-public class AssistantMessage {
+public final class AssistantMessage {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -44,4 +44,11 @@ public class AssistantMessage {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
+    public static AssistantMessage of(String messageText){
+        var userMsg = new AssistantMessage();
+        userMsg.setRole(MessageRole.USER);
+        userMsg.setContent(messageText);
+        userMsg.setCreatedAt(Instant.now());
+        return userMsg;
+    }
 }

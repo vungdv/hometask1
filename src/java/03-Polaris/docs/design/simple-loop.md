@@ -39,11 +39,12 @@ sequenceDiagram
         ModelHandler-->>-Service: ModelResponse (text or toolCalls)
 
         alt Model returned Function Call
-            Service->>Service: Append model tool-call turn to history
-            loop For each ToolCall
-                Service->>+McpHub: executeTool(toolName, arguments)
-                McpHub-->>-Service: CallToolResult (JSON/Text output)
-                Service->>Service: Append tool result turn to history
+            Service->>+McpHub: handleToolCalls(toolCalls, context)
+            Note over McpHub: For each ToolCall: validate intent,<br/>authorize policy, call executeTool(),<br/>record decision audits and trace events
+            McpHub-->>-Service: ToolExecutionResult (turns, policyDenied)
+            Service->>Service: Append turns to history
+            alt Policy Denied
+                Service->>Service: Set denial reply & break loop
             end
         else Model returned Final Text
             Service->>Service: Append final assistant response to history
@@ -62,9 +63,9 @@ sequenceDiagram
 | Component | Class | Responsibility |
 | :--- | :--- | :--- |
 | **Web REST API** | [`AssistantChatController`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/web/AssistantChatController.java) | Ingress controller exposing `POST /api/v1/assistant/chat`, extracting authentication principal and validating request bodies. |
-| **Assistant Orchestrator** | [`AssistantChatService`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/service/AssistantChatService.java) | Coordinates the conversation turn: maintains session history, discovers tools from `ExternalMcpHub`, drives the `while` execution loop, and enforces safety bounds. |
+| **Assistant Orchestrator** | [`AssistantChatService`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/service/AssistantChatService.java) | Coordinates the conversation turn: maintains session history, resolves intent, discovers tools from `McpHub`, drives the high-level `while` execution loop, and delegates tool execution to `McpHub`. |
 | **Model Handler** | [`GeminiAiModelClient`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/model/GeminiAiModelClient.java) | Implements `AssistantModelClient`. Translates domain messages and MCP tools into Gemini REST format (`contents`, `tools`), calls Gemini API, and parses candidate parts into `ModelResponse`. |
-| **Tools Gateway** | [`ExternalMcpHub`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java) | Aggregates tools from Polaris Core (`HttpPolarisMcpClient`) and external MCP providers, executing tool calls over the standard Model Context Protocol. |
+| **Tools Gateway & Hub** | [`ExternalMcpHub`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java) | Implements [`McpHub`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/McpHub.java). Aggregates tools from Polaris Core and external MCP providers, and encapsulates the entire tool call execution loop (`handleToolCalls`): intent validation, policy authorization, MCP dispatching, decision auditing, and turns construction. |
 
 ---
 

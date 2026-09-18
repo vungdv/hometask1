@@ -22,8 +22,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.modelcontextprotocol.server.McpStatelessSyncServer;
 import io.modelcontextprotocol.server.McpSyncServer;
-import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
 import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
+import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 import vn.danang.polaris.order.entity.OrderStatus;
 import vn.danang.polaris.order.repository.OrderRepository;
@@ -47,7 +47,7 @@ class McpServerTest {
     private McpSyncServer mcpSyncServer;
 
     @Autowired
-    private HttpServletSseServerTransportProvider transport;
+    private HttpServletStreamableServerTransportProvider transport;
 
     @Autowired
     private McpStatelessSyncServer mcpStatelessSyncServer;
@@ -546,7 +546,7 @@ class McpServerTest {
         }
 
         @Test
-        @DisplayName("Verify HttpServletSseServerTransportProvider bean is instantiated")
+        @DisplayName("Verify HttpServletStreamableServerTransportProvider bean is instantiated")
         void transport_isNotNull() {
             assertThat(transport).isNotNull();
         }
@@ -567,6 +567,61 @@ class McpServerTest {
                         assertThat(statusCode).isNotEqualTo(401);
                         assertThat(statusCode).isNotEqualTo(403);
                     });
+        }
+
+        @Test
+        @DisplayName("Security: unauthenticated POST /mcp/sse returns 401 Unauthorized")
+        void mcpSsePost_unauthenticated_returnsUnauthorized() throws Exception {
+            mockMvc.perform(post("/mcp/sse")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"jsonrpc\":\"2.0\",\"method\":\"ping\",\"id\":1}"))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @DisplayName("Security: authenticated POST /mcp/sse is authorized")
+        void mcpSsePost_authenticated_isAuthorized() throws Exception {
+            mockMvc.perform(post("/mcp/sse")
+                            .with(JwtMockFactory.user())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"jsonrpc\":\"2.0\",\"method\":\"ping\",\"id\":1}"))
+                    .andExpect(result -> {
+                        int statusCode = result.getResponse().getStatus();
+                        assertThat(statusCode).isNotEqualTo(401);
+                        assertThat(statusCode).isNotEqualTo(403);
+                    });
+        }
+
+        @Test
+        @DisplayName("Streamable HTTP: initialize handshake over POST /mcp/sse succeeds with session ID")
+        void mcpStreamable_initializeHandshake_succeeds() throws Exception {
+            org.springframework.mock.web.MockHttpServletRequest request =
+                    new org.springframework.mock.web.MockHttpServletRequest("POST", "/mcp/sse");
+            request.addHeader("Accept", "application/json, text/event-stream");
+            request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            request.setContent("""
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "init-1",
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {},
+                            "clientInfo": {
+                                "name": "test-client",
+                                "version": "1.0.0"
+                            }
+                        }
+                    }
+                    """.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+            org.springframework.mock.web.MockHttpServletResponse response =
+                    new org.springframework.mock.web.MockHttpServletResponse();
+            transport.service(request, response);
+
+            assertThat(response.getStatus()).isEqualTo(200);
+            assertThat(response.getHeader("mcp-session-id")).isNotBlank();
+            assertThat(response.getContentAsString()).contains("polaris-mcp");
         }
 
         @Test

@@ -44,7 +44,7 @@ public class UserContext {
      */
     public String resolveBearerToken() {
         SecurityContext context = SecurityContextHolder.getContext();
-        if (context != null && context.getAuthentication() != null) {
+        if (context.getAuthentication() != null) {
             Authentication auth = context.getAuthentication();
             if (auth instanceof JwtAuthenticationToken jwtAuth) {
                 return jwtAuth.getToken().getTokenValue();
@@ -73,9 +73,8 @@ public class UserContext {
      * @return optional containing the user identifier (JWT subject or principal name)
      */
     public Optional<String> getCurrentUserId() {
-        SecurityContext context = SecurityContextHolder.getContext();
-        if (context != null && context.getAuthentication() != null) {
-            Authentication auth = context.getAuthentication();
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null) {
             if (auth instanceof JwtAuthenticationToken jwtAuth) {
                 return Optional.ofNullable(jwtAuth.getToken().getSubject());
             } else if (auth.getPrincipal() instanceof Jwt jwt) {

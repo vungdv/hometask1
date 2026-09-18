@@ -192,10 +192,8 @@ public class OrderMcpTools {
     }
 
     public McpSchema.Tool getOrderStatusTool(McpJsonMapper jsonMapper) {
-        return McpSchema.Tool.builder()
-                .name(TOOL_GET_ORDER_STATUS)
+        return McpSchema.Tool.builder(TOOL_GET_ORDER_STATUS, jsonMapper, GET_ORDER_STATUS_SCHEMA)
                 .description("Retrieve live order fulfillment status, customer details, line items, and total amount by order number")
-                .inputSchema(jsonMapper, GET_ORDER_STATUS_SCHEMA)
                 .build();
     }
 
@@ -204,10 +202,8 @@ public class OrderMcpTools {
     }
 
     public McpSchema.Tool getOrderDetailsTool(McpJsonMapper jsonMapper) {
-        return McpSchema.Tool.builder()
-                .name(TOOL_GET_ORDER_DETAILS)
+        return McpSchema.Tool.builder(TOOL_GET_ORDER_DETAILS, jsonMapper, GET_ORDER_DETAILS_SCHEMA)
                 .description("Retrieve full order details, line items, pricing, and fulfillment status by order number")
-                .inputSchema(jsonMapper, GET_ORDER_DETAILS_SCHEMA)
                 .build();
     }
 
@@ -216,11 +212,9 @@ public class OrderMcpTools {
     }
 
     public McpSchema.Tool getPlaceOrderTool(McpJsonMapper jsonMapper) {
-        return McpSchema.Tool.builder()
-                .name(TOOL_PLACE_ORDER)
+        return McpSchema.Tool.builder(TOOL_PLACE_ORDER, jsonMapper, PLACE_ORDER_SCHEMA)
                 .description("Place a new multi-item order for a customer. Accepts customer_id or customer_name (fuzzy match). "
                         + "Returns a disambiguation candidate list if multiple name matches are found.")
-                .inputSchema(jsonMapper, PLACE_ORDER_SCHEMA)
                 .build();
     }
 
@@ -229,10 +223,8 @@ public class OrderMcpTools {
     }
 
     public McpSchema.Tool getListCustomerOrdersTool(McpJsonMapper jsonMapper) {
-        return McpSchema.Tool.builder()
-                .name(TOOL_LIST_CUSTOMER_ORDERS)
+        return McpSchema.Tool.builder(TOOL_LIST_CUSTOMER_ORDERS, jsonMapper, LIST_CUSTOMER_ORDERS_SCHEMA)
                 .description("Search and list order history for a customer with optional status filter and pagination")
-                .inputSchema(jsonMapper, LIST_CUSTOMER_ORDERS_SCHEMA)
                 .build();
     }
 
@@ -241,10 +233,8 @@ public class OrderMcpTools {
     }
 
     public McpSchema.Tool getCancelOrderTool(McpJsonMapper jsonMapper) {
-        return McpSchema.Tool.builder()
-                .name(TOOL_CANCEL_ORDER)
+        return McpSchema.Tool.builder(TOOL_CANCEL_ORDER, jsonMapper, CANCEL_ORDER_SCHEMA)
                 .description("Cancel an order in PLACED or CONFIRMED status by order number, restoring inventory stock")
-                .inputSchema(jsonMapper, CANCEL_ORDER_SCHEMA)
                 .build();
     }
 
@@ -253,11 +243,9 @@ public class OrderMcpTools {
     }
 
     public McpSchema.Tool getSearchCustomersByNameTool(McpJsonMapper jsonMapper) {
-        return McpSchema.Tool.builder()
-                .name(TOOL_SEARCH_CUSTOMERS_BY_NAME)
+        return McpSchema.Tool.builder(TOOL_SEARCH_CUSTOMERS_BY_NAME, jsonMapper, SEARCH_CUSTOMERS_BY_NAME_SCHEMA)
                 .description("Search for customers by partial or fuzzy name match. Returns ranked candidates with id, name, "
                         + "and email for order placement disambiguation.")
-                .inputSchema(jsonMapper, SEARCH_CUSTOMERS_BY_NAME_SCHEMA)
                 .build();
     }
 

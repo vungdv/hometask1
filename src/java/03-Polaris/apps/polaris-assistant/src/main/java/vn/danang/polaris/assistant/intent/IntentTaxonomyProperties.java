@@ -3,9 +3,11 @@ package vn.danang.polaris.assistant.intent;
 import java.util.ArrayList;
 import java.util.List;
 
+import lombok.Getter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+@Getter
 @Component
 @ConfigurationProperties(prefix = "polaris.assistant.intent")
 public class IntentTaxonomyProperties {
@@ -14,10 +16,6 @@ public class IntentTaxonomyProperties {
 
     public IntentTaxonomyProperties() {
         this.intents = createDefaultIntents();
-    }
-
-    public List<IntentDefinition> getIntents() {
-        return intents;
     }
 
     public void setIntents(List<IntentDefinition> intents) {

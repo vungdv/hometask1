@@ -21,6 +21,14 @@ import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import vn.danang.polaris.assistant.entity.AssistantMessage;
+import vn.danang.polaris.assistant.entity.MessageRole;
+import vn.danang.polaris.assistant.intent.IntentToolRegistry;
+import vn.danang.polaris.assistant.intent.PolicyDecision;
+import vn.danang.polaris.assistant.intent.PolicyEngine;
+import vn.danang.polaris.assistant.model.ToolCall;
+import vn.danang.polaris.assistant.observability.AgentDecisionRecorder;
 
 @ExtendWith(MockitoExtension.class)
 class ExternalMcpHubTest {
@@ -208,5 +216,117 @@ class ExternalMcpHubTest {
         verify(span, times(1)).tag("error", "true");
         verify(spanInScope, times(1)).close();
         verify(span, times(1)).end();
+    }
+
+    @Test
+    void testHandleToolCalls_validTool_executesToolAndReturnsMessages() {
+        CallToolResult toolResult = new CallToolResult(
+                List.of(new TextContent("Product found: Charger")),
+                false,
+                null,
+                Map.of()
+        );
+        when(polarisMcpClient.callTool(eq("search_available_products"), any())).thenReturn(toolResult);
+
+        Tool tool = Tool.builder("search_available_products").build();
+        ToolExecutionContext context = new ToolExecutionContext(
+                "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(tool), null
+        );
+        List<ToolCall> toolCalls = List.of(new ToolCall("search_available_products", Map.of("query", "charger"), "sig-123"));
+
+        ToolExecutionResult result = mcpHub.handleToolCalls(toolCalls, context);
+
+        assertFalse(result.policyDenied());
+        assertNull(result.denialReason());
+        assertEquals(2, result.messages().size());
+
+        AssistantMessage modelMsg = result.messages().get(0);
+        assertEquals(MessageRole.ASSISTANT, modelMsg.getRole());
+        assertEquals("search_available_products", modelMsg.getToolCallId());
+        assertEquals("sig-123", modelMsg.getThoughtSignature());
+
+        AssistantMessage toolMsg = result.messages().get(1);
+        assertEquals(MessageRole.TOOL, toolMsg.getRole());
+        assertEquals("search_available_products", toolMsg.getToolCallId());
+        assertEquals("Product found: Charger", toolMsg.getContent());
+
+        verify(polarisMcpClient, times(1)).callTool(eq("search_available_products"), any());
+    }
+
+    @Test
+    void testHandleToolCalls_unpermittedTool_returnsCorrectiveMessageWithoutExecuting() {
+        Tool allowedTool = Tool.builder("search_available_products").build();
+        ToolExecutionContext context = new ToolExecutionContext(
+                "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(allowedTool), null
+        );
+        List<ToolCall> toolCalls = List.of(new ToolCall("cancel_order", Map.of("order_id", "123")));
+
+        ToolExecutionResult result = mcpHub.handleToolCalls(toolCalls, context);
+
+        assertFalse(result.policyDenied());
+        assertEquals(2, result.messages().size());
+        assertEquals(MessageRole.TOOL, result.messages().get(1).getRole());
+        assertTrue(result.messages().get(1).getContent().contains("not permitted for intent 'catalog.product.search'"));
+
+        verify(polarisMcpClient, never()).callTool(anyString(), any());
+    }
+
+    @Test
+    void testHandleToolCalls_policyDenied_stopsExecutionAndReturnsDenial() {
+        PolicyEngine mockPolicy = mock(PolicyEngine.class);
+        when(mockPolicy.authorize(anyString(), eq("order.write")))
+                .thenReturn(PolicyDecision.deny("Missing scope order.write"));
+
+        ExternalMcpHub hubWithPolicy = new ExternalMcpHub(
+                polarisMcpClient, null, new ObjectMapper(), null, new IntentToolRegistry(), mockPolicy
+        );
+
+        Tool tool = Tool.builder("place_order").build();
+        ToolExecutionContext context = new ToolExecutionContext(
+                "sess-1", "user-1", 1, "commerce.order.place", 0.95, true, List.of(tool), null
+        );
+        List<ToolCall> toolCalls = List.of(new ToolCall("place_order", Map.of("sku", "PROD-1")));
+
+        ToolExecutionResult result = hubWithPolicy.handleToolCalls(toolCalls, context);
+
+        assertTrue(result.policyDenied());
+        assertEquals("Missing scope order.write", result.denialReason());
+        verify(polarisMcpClient, never()).callTool(anyString(), any());
+    }
+
+    @Test
+    void testHandleToolCalls_parallelToolCalls_groupsModelTurnsBeforeToolTurns() {
+        CallToolResult res1 = new CallToolResult(List.of(new TextContent("Charger")), false, null, Map.of());
+        CallToolResult res2 = new CallToolResult(List.of(new TextContent("10% off")), false, null, Map.of());
+        when(polarisMcpClient.callTool(eq("search_available_products"), any())).thenReturn(res1);
+        when(polarisMcpClient.callTool(eq("search_promotions"), any())).thenReturn(res2);
+
+        Tool t1 = Tool.builder("search_available_products").build();
+        Tool t2 = Tool.builder("search_promotions").build();
+        ToolExecutionContext context = new ToolExecutionContext(
+                "sess-1", "user-1", 1, "general.conversation", 0.95, false, List.of(t1, t2), null
+        );
+        List<ToolCall> toolCalls = List.of(
+                new ToolCall("search_available_products", Map.of("query", "charger"), "sig-1"),
+                new ToolCall("search_promotions", Map.of("category", "all"), "sig-2")
+        );
+
+        ToolExecutionResult result = mcpHub.handleToolCalls(toolCalls, context);
+
+        assertEquals(4, result.messages().size());
+        assertEquals(MessageRole.ASSISTANT, result.messages().get(0).getRole());
+        assertEquals("search_available_products", result.messages().get(0).getToolCallId());
+        assertEquals(MessageRole.ASSISTANT, result.messages().get(1).getRole());
+        assertEquals("search_promotions", result.messages().get(1).getToolCallId());
+        assertEquals(MessageRole.TOOL, result.messages().get(2).getRole());
+        assertEquals("search_available_products", result.messages().get(2).getToolCallId());
+        assertEquals(MessageRole.TOOL, result.messages().get(3).getRole());
+        assertEquals("search_promotions", result.messages().get(3).getToolCallId());
+    }
+
+    @Test
+    void testHandleToolCalls_nullOrEmpty_returnsEmptyResult() {
+        assertTrue(mcpHub.handleToolCalls(null, null).messages().isEmpty());
+        assertTrue(mcpHub.handleToolCalls(List.of(), null).messages().isEmpty());
     }
 }

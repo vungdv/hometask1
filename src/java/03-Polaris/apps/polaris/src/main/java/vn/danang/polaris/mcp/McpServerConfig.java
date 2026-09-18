@@ -10,19 +10,20 @@ import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpStatelessSyncServer;
 import io.modelcontextprotocol.server.McpSyncServer;
-import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
 import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
+import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 
 /**
  * Spring configuration wiring the native Model Context Protocol (MCP) server,
- * HTTP SSE transport servlet, and tool facades into the Polaris runtime.
+ * HTTP Streamable and Stateless transport servlets, and tool facades into the Polaris runtime.
  */
 @Configuration
 public class McpServerConfig {
 
     public static final String MESSAGE_ENDPOINT = "/mcp/message";
     public static final String SSE_ENDPOINT = "/mcp/sse";
+    public static final String STREAMABLE_ENDPOINT = "/mcp/sse";
     public static final String STATELESS_ENDPOINT = "/mcp";
 
     @Bean
@@ -36,27 +37,26 @@ public class McpServerConfig {
     }
 
     @Bean
-    public HttpServletSseServerTransportProvider httpServletSseServerTransportProvider(JacksonMcpJsonMapper jsonMapper) {
-        return HttpServletSseServerTransportProvider.builder()
+    public HttpServletStreamableServerTransportProvider httpServletStreamableServerTransportProvider(JacksonMcpJsonMapper jsonMapper) {
+        return HttpServletStreamableServerTransportProvider.builder()
                 .jsonMapper(jsonMapper)
-                .messageEndpoint(MESSAGE_ENDPOINT)
-                .sseEndpoint(SSE_ENDPOINT)
+                .mcpEndpoint(STREAMABLE_ENDPOINT)
                 .build();
     }
 
     @Bean
-    public ServletRegistrationBean<HttpServletSseServerTransportProvider> mcpServletRegistrationBean(
-            HttpServletSseServerTransportProvider transport) {
-        ServletRegistrationBean<HttpServletSseServerTransportProvider> registration =
-                new ServletRegistrationBean<>(transport, SSE_ENDPOINT, MESSAGE_ENDPOINT);
+    public ServletRegistrationBean<HttpServletStreamableServerTransportProvider> mcpServletRegistrationBean(
+            HttpServletStreamableServerTransportProvider transport) {
+        ServletRegistrationBean<HttpServletStreamableServerTransportProvider> registration =
+                new ServletRegistrationBean<>(transport, STREAMABLE_ENDPOINT);
         registration.setAsyncSupported(true);
-        registration.setName("mcpSseServlet");
+        registration.setName("mcpStreamableServlet");
         return registration;
     }
 
     @Bean
     public McpSyncServer mcpSyncServer(
-            HttpServletSseServerTransportProvider transport,
+            HttpServletStreamableServerTransportProvider transport,
             ProductMcpTools productMcpTools,
             OrderMcpTools orderMcpTools,
             JacksonMcpJsonMapper jsonMapper) {

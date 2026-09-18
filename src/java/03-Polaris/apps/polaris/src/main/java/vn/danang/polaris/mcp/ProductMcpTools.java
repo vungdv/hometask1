@@ -105,10 +105,8 @@ public class ProductMcpTools {
     }
 
     public McpSchema.Tool getSearchProductsTool(McpJsonMapper jsonMapper) {
-        return McpSchema.Tool.builder()
-                .name(TOOL_SEARCH_AVAILABLE_PRODUCTS)
+        return McpSchema.Tool.builder(TOOL_SEARCH_AVAILABLE_PRODUCTS, jsonMapper, SEARCH_PRODUCTS_SCHEMA)
                 .description("Search catalog for available products matching query, category, and price filters with pagination")
-                .inputSchema(jsonMapper, SEARCH_PRODUCTS_SCHEMA)
                 .build();
     }
 
@@ -117,10 +115,8 @@ public class ProductMcpTools {
     }
 
     public McpSchema.Tool getProductBySkuTool(McpJsonMapper jsonMapper) {
-        return McpSchema.Tool.builder()
-                .name(TOOL_GET_PRODUCT_BY_SKU)
+        return McpSchema.Tool.builder(TOOL_GET_PRODUCT_BY_SKU, jsonMapper, GET_PRODUCT_BY_SKU_SCHEMA)
                 .description("Retrieve detailed product specifications and live inventory by SKU code")
-                .inputSchema(jsonMapper, GET_PRODUCT_BY_SKU_SCHEMA)
                 .build();
     }
 

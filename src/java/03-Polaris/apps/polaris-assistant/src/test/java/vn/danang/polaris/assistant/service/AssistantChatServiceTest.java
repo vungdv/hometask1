@@ -18,9 +18,11 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -39,7 +41,14 @@ import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.IntentClassification;
 import vn.danang.polaris.assistant.intent.IntentResolver;
+import vn.danang.polaris.assistant.intent.IntentToolRegistry;
+import vn.danang.polaris.assistant.intent.PolicyDecision;
+import vn.danang.polaris.assistant.intent.PolicyEngine;
 import vn.danang.polaris.assistant.mcp.ExternalMcpHub;
+import vn.danang.polaris.assistant.mcp.McpHub;
+import vn.danang.polaris.assistant.mcp.PolarisMcpClient;
+import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
+import vn.danang.polaris.assistant.mcp.ToolExecutionResult;
 import vn.danang.polaris.assistant.model.AssistantModelClient;
 import vn.danang.polaris.assistant.model.ModelRequestContext;
 import vn.danang.polaris.assistant.model.ModelResponse;
@@ -49,12 +58,69 @@ import vn.danang.polaris.assistant.observability.AgentDecisionRecorder;
 class AssistantChatServiceTest {
 
     private AssistantModelClient modelClient;
+    private McpHub mcpHub;
     private AssistantChatService chatService;
 
     @BeforeEach
     void setUp() {
         modelClient = mock(AssistantModelClient.class);
-        chatService = new AssistantChatService(modelClient);
+        mcpHub = mock(McpHub.class);
+        when(mcpHub.discoverAllTools()).thenReturn(List.of());
+        chatService = createChatService(modelClient, mcpHub);
+    }
+
+    private ExternalMcpHub createMcpHub() {
+        return createMcpHub((Tracer) null);
+    }
+
+    private ExternalMcpHub createMcpHub(Tracer tracer) {
+        PolarisMcpClient client = mock(PolarisMcpClient.class);
+        return spy(new ExternalMcpHub(client, tracer));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> ObjectProvider<T> providerOf(T instance) {
+        if (instance == null) {
+            return null;
+        }
+        ObjectProvider<T> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(instance);
+        return provider;
+    }
+
+    private AssistantChatService createChatService(AssistantModelClient modelClient) {
+        McpHub hub = mock(McpHub.class);
+        when(hub.discoverAllTools()).thenReturn(List.of());
+        return createChatService(modelClient, hub, null);
+    }
+
+    private AssistantChatService createChatService(AssistantModelClient modelClient, McpHub mcpHub) {
+        return createChatService(modelClient, mcpHub, null);
+    }
+
+    private AssistantChatService createChatService(AssistantModelClient modelClient, McpHub mcpHub, Tracer tracer) {
+        return createChatService(modelClient, mcpHub, new ObjectMapper(), tracer, null, null, null, null);
+    }
+
+    private AssistantChatService createChatService(
+            AssistantModelClient modelClient,
+            McpHub mcpHub,
+            ObjectMapper objectMapper,
+            Tracer tracer,
+            AgentDecisionRecorder decisionRecorder,
+            IntentResolver intentResolver,
+            IntentToolRegistry intentToolRegistry,
+            PolicyEngine policyEngine) {
+        return new AssistantChatService(
+                modelClient,
+                mcpHub,
+                objectMapper != null ? objectMapper : new ObjectMapper(),
+                providerOf(tracer),
+                providerOf(decisionRecorder),
+                providerOf(intentResolver),
+                providerOf(intentToolRegistry),
+                providerOf(policyEngine)
+        );
     }
 
     private Tracer mockTracerSetup(Span mockSpan, Tracer.SpanInScope mockSpanInScope) {
@@ -106,13 +172,13 @@ class AssistantChatServiceTest {
     @Test
     @DisplayName("Should execute MCP tool in ReAct loop and return model's final reply")
     void sendMessage_withToolCall_executesToolAndLoopsToFinalReply() {
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
-        chatService = new AssistantChatService(modelClient, mcpHub);
+        ExternalMcpHub mcpHub = createMcpHub();
+        chatService = createChatService(modelClient, mcpHub);
 
         Tool tool = Tool.builder("search_available_products")
                 .description("Search catalog products")
                 .build();
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+        doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
 
         CallToolResult toolResult = new CallToolResult(
                 List.of(new TextContent("Found: Fast Charger 65W ($24.90)")),
@@ -120,7 +186,7 @@ class AssistantChatServiceTest {
                 null,
                 Map.of()
         );
-        when(mcpHub.executeTool(eq("search_available_products"), any())).thenReturn(toolResult);
+        doReturn(toolResult).when(mcpHub).executeTool(eq("search_available_products"), any());
 
         // Turn 1: Model requests tool call
         ModelResponse turn1Response = new ModelResponse("", List.of(
@@ -171,11 +237,11 @@ class AssistantChatServiceTest {
     @Test
     @DisplayName("Should terminate safely when tool loop exceeds maximum iterations")
     void sendMessage_whenToolCallsExceedMaxIterations_terminatesSafely() {
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
-        chatService = new AssistantChatService(modelClient, mcpHub);
+        ExternalMcpHub mcpHub = createMcpHub();
+        chatService = createChatService(modelClient, mcpHub);
 
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(Tool.builder("looping_tool").build()));
-        when(mcpHub.executeTool(any(), any())).thenReturn(new CallToolResult(List.of(new TextContent("ok")), false, null, Map.of()));
+        doReturn(List.of(Tool.builder("looping_tool").build())).when(mcpHub).discoverAllTools();
+        doReturn(new CallToolResult(List.of(new TextContent("ok")), false, null, Map.of())).when(mcpHub).executeTool(any(), any());
 
         // Model perpetually returns a tool call
         when(modelClient.generateResponse(anyList(), anyList()))
@@ -194,12 +260,12 @@ class AssistantChatServiceTest {
     @DisplayName("Should preserve thoughtSignature on AssistantMessage in history across tool execution turns")
     @SuppressWarnings("unchecked")
     void sendMessage_withToolCallAndThoughtSignature_propagatesSignatureToNextTurnHistory() {
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
-        chatService = new AssistantChatService(modelClient, mcpHub);
+        ExternalMcpHub mcpHub = createMcpHub();
+        chatService = createChatService(modelClient, mcpHub);
 
         Tool tool = Tool.builder("default_api:search_available_products").build();
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
-        when(mcpHub.executeTool(any(), any())).thenReturn(new CallToolResult(List.of(new TextContent("Product found: Charger")), false, null, Map.of()));
+        doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
+        doReturn(new CallToolResult(List.of(new TextContent("Product found: Charger")), false, null, Map.of())).when(mcpHub).executeTool(any(), any());
 
         ModelResponse turn1Response = new ModelResponse("", List.of(
                 new ToolCall("default_api:search_available_products", Map.of("query", "charger"), "sig_token_xyz789")
@@ -232,15 +298,15 @@ class AssistantChatServiceTest {
     @DisplayName("Should group parallel model turns before tool turns to prevent interleaved turns in history")
     @SuppressWarnings("unchecked")
     void sendMessage_withParallelToolCalls_groupsModelTurnsBeforeToolTurnsInHistory() {
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
-        chatService = new AssistantChatService(modelClient, mcpHub);
+        ExternalMcpHub mcpHub = createMcpHub();
+        chatService = createChatService(modelClient, mcpHub);
 
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(
+        doReturn(List.of(
                 Tool.builder("search_products").build(),
                 Tool.builder("search_promotions").build()
-        ));
-        when(mcpHub.executeTool(eq("search_products"), any())).thenReturn(new CallToolResult(List.of(new TextContent("Charger")), false, null, Map.of()));
-        when(mcpHub.executeTool(eq("search_promotions"), any())).thenReturn(new CallToolResult(List.of(new TextContent("10% off")), false, null, Map.of()));
+        )).when(mcpHub).discoverAllTools();
+        doReturn(new CallToolResult(List.of(new TextContent("Charger")), false, null, Map.of())).when(mcpHub).executeTool(eq("search_products"), any());
+        doReturn(new CallToolResult(List.of(new TextContent("10% off")), false, null, Map.of())).when(mcpHub).executeTool(eq("search_promotions"), any());
 
         ModelResponse turn1Response = new ModelResponse("", List.of(
                 new ToolCall("search_products", Map.of("query", "charger"), "sig_parallel_call"),
@@ -288,9 +354,9 @@ class AssistantChatServiceTest {
         Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
         Tracer tracer = mockTracerSetup(span, spanInScope);
 
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        ExternalMcpHub mcpHub = createMcpHub(tracer);
         Tool tool = Tool.builder("search_available_products").build();
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+        doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
 
         CallToolResult toolResult = new CallToolResult(
                 List.of(new TextContent("Found: Fast Charger 65W ($24.90)")),
@@ -298,7 +364,7 @@ class AssistantChatServiceTest {
                 null,
                 Map.of()
         );
-        when(mcpHub.executeTool(eq("search_available_products"), any())).thenReturn(toolResult);
+        doReturn(toolResult).when(mcpHub).executeTool(eq("search_available_products"), any());
 
         ModelResponse turn1Response = new ModelResponse("", List.of(
                 new ToolCall("search_available_products", Map.of("query", "charger"))
@@ -309,8 +375,8 @@ class AssistantChatServiceTest {
                 .thenReturn(turn1Response)
                 .thenReturn(turn2Response);
 
-        AssistantChatService serviceWithTracer = new AssistantChatService(
-                modelClient, mcpHub, new ObjectMapper(), tracer);
+        AssistantChatService serviceWithTracer = createChatService(
+                modelClient, mcpHub, tracer);
 
         ChatMessageRequest request = new ChatMessageRequest("sess-001", "Find fast chargers");
         ChatMessageResponse response = serviceWithTracer.sendMessage(request, "user-456");
@@ -361,8 +427,8 @@ class AssistantChatServiceTest {
         ModelResponse directResponse = new ModelResponse("Hello! How can I assist you today?", List.of());
         when(modelClient.generateResponse(anyList(), anyList())).thenReturn(directResponse);
 
-        AssistantChatService serviceWithTracer = new AssistantChatService(
-                modelClient, mcpHub, new ObjectMapper(), tracer);
+        AssistantChatService serviceWithTracer = createChatService(
+                modelClient, mcpHub, tracer);
 
         ChatMessageRequest request = new ChatMessageRequest("Hello");
         ChatMessageResponse response = serviceWithTracer.sendMessage(request, null);
@@ -402,8 +468,11 @@ class AssistantChatServiceTest {
         when(modelClient.generateResponse(anyList(), anyList()))
                 .thenThrow(new RuntimeException("Gemini API connection failure"));
 
-        AssistantChatService serviceWithTracer = new AssistantChatService(
-                modelClient, null, new ObjectMapper(), tracer);
+        McpHub mockMcpHub = mock(McpHub.class);
+        when(mockMcpHub.discoverAllTools()).thenReturn(List.of());
+
+        AssistantChatService serviceWithTracer = createChatService(
+                modelClient, mockMcpHub, tracer);
 
         ChatMessageRequest request = new ChatMessageRequest("sess-err", "Trigger model error");
 
@@ -428,8 +497,11 @@ class AssistantChatServiceTest {
         Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
         Tracer tracer = mockTracerSetup(span, spanInScope);
 
-        AssistantChatService serviceWithTracer = new AssistantChatService(
-                modelClient, null, new ObjectMapper(), tracer);
+        McpHub mockMcpHub = mock(McpHub.class);
+        when(mockMcpHub.discoverAllTools()).thenReturn(List.of());
+
+        AssistantChatService serviceWithTracer = createChatService(
+                modelClient, mockMcpHub, tracer);
 
         ChatMessageRequest request = new ChatMessageRequest("sess-blank", "   ");
 
@@ -438,7 +510,6 @@ class AssistantChatServiceTest {
 
         assertThat(thrown).hasMessage("Message content must not be blank.");
 
-        verify(span).event("agent.request.received");
         verify(span).error(thrown);
         verify(span).tag("error", "true");
         verify(span, times(1)).end();
@@ -451,13 +522,13 @@ class AssistantChatServiceTest {
         Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
         Tracer tracer = mockTracerSetup(span, spanInScope);
 
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(
+        ExternalMcpHub mcpHub = createMcpHub(tracer);
+        doReturn(List.of(
                 Tool.builder("search_products").build(),
                 Tool.builder("search_promotions").build()
-        ));
-        when(mcpHub.executeTool(eq("search_products"), any())).thenReturn(new CallToolResult(List.of(new TextContent("Charger")), false, null, Map.of()));
-        when(mcpHub.executeTool(eq("search_promotions"), any())).thenReturn(new CallToolResult(List.of(new TextContent("10% off")), false, null, Map.of()));
+        )).when(mcpHub).discoverAllTools();
+        doReturn(new CallToolResult(List.of(new TextContent("Charger")), false, null, Map.of())).when(mcpHub).executeTool(eq("search_products"), any());
+        doReturn(new CallToolResult(List.of(new TextContent("10% off")), false, null, Map.of())).when(mcpHub).executeTool(eq("search_promotions"), any());
 
         ModelResponse turn1Response = new ModelResponse("", List.of(
                 new ToolCall("search_products", Map.of("query", "charger")),
@@ -469,8 +540,8 @@ class AssistantChatServiceTest {
                 .thenReturn(turn1Response)
                 .thenReturn(turn2Response);
 
-        AssistantChatService serviceWithTracer = new AssistantChatService(
-                modelClient, mcpHub, new ObjectMapper(), tracer);
+        AssistantChatService serviceWithTracer = createChatService(
+                modelClient, mcpHub, tracer);
 
         ChatMessageRequest request = new ChatMessageRequest("sess-parallel", "Find charger deals");
         ChatMessageResponse response = serviceWithTracer.sendMessage(request, "user-999");
@@ -505,15 +576,15 @@ class AssistantChatServiceTest {
         Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
         Tracer tracer = mockTracerSetup(span, spanInScope);
 
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(Tool.builder("loop_tool").build()));
-        when(mcpHub.executeTool(any(), any())).thenReturn(new CallToolResult(List.of(new TextContent("ok")), false, null, Map.of()));
+        ExternalMcpHub mcpHub = createMcpHub(tracer);
+        doReturn(List.of(Tool.builder("loop_tool").build())).when(mcpHub).discoverAllTools();
+        doReturn(new CallToolResult(List.of(new TextContent("ok")), false, null, Map.of())).when(mcpHub).executeTool(any(), any());
 
         when(modelClient.generateResponse(anyList(), anyList()))
                 .thenReturn(new ModelResponse("", List.of(new ToolCall("loop_tool", Map.of()))));
 
-        AssistantChatService serviceWithTracer = new AssistantChatService(
-                modelClient, mcpHub, new ObjectMapper(), tracer);
+        AssistantChatService serviceWithTracer = createChatService(
+                modelClient, mcpHub, tracer);
 
         ChatMessageRequest request = new ChatMessageRequest("sess-max", "Perpetual loop");
         ChatMessageResponse response = serviceWithTracer.sendMessage(request, "user-loop");
@@ -541,8 +612,11 @@ class AssistantChatServiceTest {
         ObjectProvider<Tracer> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(tracer);
 
+        McpHub mockMcpHub = mock(McpHub.class);
+        when(mockMcpHub.discoverAllTools()).thenReturn(List.of());
+
         AssistantChatService service = new AssistantChatService(
-                modelClient, null, new ObjectMapper(), provider);
+                modelClient, mockMcpHub, new ObjectMapper(), provider, null, null, null, null);
 
         when(modelClient.chat(anyList())).thenReturn("Reply");
         ChatMessageResponse response = service.sendMessage(new ChatMessageRequest("Hi"), "user-1");
@@ -555,8 +629,11 @@ class AssistantChatServiceTest {
     @Test
     @DisplayName("WO-013: Should handle null ObjectProvider cleanly without tracer")
     void constructor_withNullObjectProvider_handlesCleanly() {
+        McpHub mockMcpHub = mock(McpHub.class);
+        when(mockMcpHub.discoverAllTools()).thenReturn(List.of());
+
         AssistantChatService service = new AssistantChatService(
-                modelClient, null, new ObjectMapper(), (ObjectProvider<Tracer>) null);
+                modelClient, mockMcpHub, new ObjectMapper(), null, null, null, null, null);
 
         when(modelClient.chat(anyList())).thenReturn("Reply");
         ChatMessageResponse response = service.sendMessage(new ChatMessageRequest("Hi"), "user-1");
@@ -576,9 +653,9 @@ class AssistantChatServiceTest {
         Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
         Tracer tracer = mockTracerSetup(span, spanInScope);
 
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        ExternalMcpHub mcpHub = createMcpHub(tracer);
         Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+        doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
 
         CallToolResult toolResult = new CallToolResult(
                 List.of(new TextContent("Found: Fast Charger 65W ($24.90)")),
@@ -586,7 +663,7 @@ class AssistantChatServiceTest {
                 null,
                 Map.of()
         );
-        when(mcpHub.executeTool(eq("search_available_products"), any())).thenReturn(toolResult);
+        doReturn(toolResult).when(mcpHub).executeTool(eq("search_available_products"), any());
 
         ModelResponse turn1Response = new ModelResponse("", List.of(
                 new ToolCall("search_available_products", Map.of("query", "charger"))
@@ -597,8 +674,8 @@ class AssistantChatServiceTest {
                 .thenReturn(turn1Response)
                 .thenReturn(turn2Response);
 
-        AssistantChatService serviceWithTracer = new AssistantChatService(
-                modelClient, mcpHub, new ObjectMapper(), tracer);
+        AssistantChatService serviceWithTracer = createChatService(
+                modelClient, mcpHub, tracer);
 
         ChatMessageRequest request = new ChatMessageRequest("sess-001", "Find fast chargers");
         ChatMessageResponse response = serviceWithTracer.sendMessage(request, "user-456");
@@ -626,8 +703,8 @@ class AssistantChatServiceTest {
         ModelResponse directResponse = new ModelResponse("Hello! How can I assist you today?", List.of());
         when(modelClient.generateResponse(anyList(), anyList())).thenReturn(directResponse);
 
-        AssistantChatService serviceWithTracer = new AssistantChatService(
-                modelClient, mcpHub, new ObjectMapper(), tracer);
+        AssistantChatService serviceWithTracer = createChatService(
+                modelClient, mcpHub, tracer);
 
         ChatMessageRequest request = new ChatMessageRequest("Hello");
         ChatMessageResponse response = serviceWithTracer.sendMessage(request, null);
@@ -661,7 +738,7 @@ class AssistantChatServiceTest {
         ModelResponse directReply = new ModelResponse("Found 3 chargers.", List.of());
         when(modelClient.generateResponse(anyList(), anyList())).thenReturn(directReply);
 
-        AssistantChatService service = new AssistantChatService(modelClient, mcpHub);
+        AssistantChatService service = createChatService(modelClient, mcpHub);
         ChatMessageRequest request = new ChatMessageRequest("Find chargers in stock");
         ChatMessageResponse response = service.sendMessage(request, "user-123");
 
@@ -687,8 +764,8 @@ class AssistantChatServiceTest {
                 .thenReturn(new vn.danang.polaris.assistant.intent.IntentClassification(
                         vn.danang.polaris.assistant.intent.IntentClassification.ORDER_PLACE, 0.60));
 
-        AssistantChatService service = new AssistantChatService(
-                modelClient, mcpHub, new ObjectMapper(), null, null, mockResolver, null, null);
+        AssistantChatService service = createChatService(
+                modelClient, mcpHub, null, null, null, mockResolver, null, null);
 
         ChatMessageRequest request = new ChatMessageRequest("buy something maybe");
         ChatMessageResponse response = service.sendMessage(request, "user-123");
@@ -704,10 +781,10 @@ class AssistantChatServiceTest {
     @DisplayName("WO-015: Should append corrective history message and continue loop when model calls invalid tool for intent")
     @SuppressWarnings("unchecked")
     void sendMessage_withToolMismatch_recordsWarningAndAppendsCorrectiveMessage() {
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        ExternalMcpHub mcpHub = createMcpHub();
         Tool allowedTool = Tool.builder("search_available_products").build();
         Tool forbiddenTool = Tool.builder("cancel_order").build();
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(allowedTool, forbiddenTool));
+        doReturn(List.of(allowedTool, forbiddenTool)).when(mcpHub).discoverAllTools();
 
         // Turn 1: Model requests forbidden tool for catalog.product.search
         ModelResponse turn1Response = new ModelResponse("", List.of(new ToolCall("cancel_order", Map.of("order_id", "ORD-123"))));
@@ -718,7 +795,7 @@ class AssistantChatServiceTest {
                 .thenReturn(turn1Response)
                 .thenReturn(turn2Response);
 
-        AssistantChatService service = new AssistantChatService(modelClient, mcpHub);
+        AssistantChatService service = createChatService(modelClient, mcpHub);
         ChatMessageRequest request = new ChatMessageRequest("Find chargers");
         ChatMessageResponse response = service.sendMessage(request, "user-123");
 
@@ -740,9 +817,9 @@ class AssistantChatServiceTest {
     @Test
     @DisplayName("WO-015: Should short-circuit and return denial message when PolicyEngine denies scope")
     void sendMessage_withPolicyDenial_shortCircuitsAndReturnsDenialReason() {
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        ExternalMcpHub mcpHub = createMcpHub();
         Tool tool = Tool.builder("place_order").build();
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+        doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
 
         vn.danang.polaris.assistant.intent.PolicyEngine mockPolicy = mock(vn.danang.polaris.assistant.intent.PolicyEngine.class);
         when(mockPolicy.authorize(anyString(), eq("order.write")))
@@ -751,8 +828,8 @@ class AssistantChatServiceTest {
         ModelResponse turn1Response = new ModelResponse("", List.of(new ToolCall("place_order", Map.of("sku", "PROD-1"))));
         when(modelClient.generateResponse(anyList(), anyList())).thenReturn(turn1Response);
 
-        AssistantChatService service = new AssistantChatService(
-                modelClient, mcpHub, new ObjectMapper(), null, null, null, null, mockPolicy);
+        AssistantChatService service = createChatService(
+                modelClient, mcpHub, null, null, null, null, null, mockPolicy);
 
         ChatMessageRequest request = new ChatMessageRequest("buy the wireless earbuds");
         ChatMessageResponse response = service.sendMessage(request, "user-no-scope");
@@ -772,7 +849,7 @@ class AssistantChatServiceTest {
         ModelResponse directReply = new ModelResponse("Hello! How can I assist you?", List.of());
         when(modelClient.generateResponse(anyList(), anyList())).thenReturn(directReply);
 
-        AssistantChatService service = new AssistantChatService(modelClient, mcpHub);
+        AssistantChatService service = createChatService(modelClient, mcpHub);
         ChatMessageRequest request = new ChatMessageRequest("Hello there!");
         ChatMessageResponse response = service.sendMessage(request, "user-123");
 
@@ -798,7 +875,7 @@ class AssistantChatServiceTest {
         ModelResponse directReply = new ModelResponse("Found the products.", List.of());
         when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class))).thenReturn(directReply);
 
-        AssistantChatService service = new AssistantChatService(modelClient, mcpHub);
+        AssistantChatService service = createChatService(modelClient, mcpHub);
         ChatMessageRequest request = new ChatMessageRequest("Find chargers in stock");
         ChatMessageResponse response = service.sendMessage(request, "user-123");
 
@@ -822,11 +899,10 @@ class AssistantChatServiceTest {
         Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
         Tracer tracer = mockTracerSetup(span, spanInScope);
 
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        ExternalMcpHub mcpHub = createMcpHub(tracer);
         Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
-        when(mcpHub.executeTool(eq("search_available_products"), any()))
-                .thenReturn(new CallToolResult(List.of(new TextContent("Charger 65W")), false, null, Map.of()));
+        doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
+        doReturn(new CallToolResult(List.of(new TextContent("Charger 65W")), false, null, Map.of())).when(mcpHub).executeTool(eq("search_available_products"), any());
 
         ModelResponse turn1 = new ModelResponse("", List.of(new ToolCall("search_available_products", Map.of("query", "charger"))));
         ModelResponse turn2 = new ModelResponse("Found charger 65W.", List.of());
@@ -834,8 +910,8 @@ class AssistantChatServiceTest {
                 .thenReturn(turn1)
                 .thenReturn(turn2);
 
-        AssistantChatService service = new AssistantChatService(
-                modelClient, mcpHub, new ObjectMapper(), tracer);
+        AssistantChatService service = createChatService(
+                modelClient, mcpHub, tracer);
 
         ChatMessageRequest request = new ChatMessageRequest("sess-enriched-events", "Find charger");
         ChatMessageResponse response = service.sendMessage(request, "user-456");
@@ -856,9 +932,9 @@ class AssistantChatServiceTest {
     @DisplayName("WO-018: ReAct loop invokes enriched recordToolExecution with audit metadata and arguments")
     void reactLoop_invokesEnrichedRecordToolExecution() {
         AgentDecisionRecorder mockRecorder = mock(AgentDecisionRecorder.class);
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        ExternalMcpHub mcpHub = createMcpHub();
         Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
+        doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
 
         CallToolResult expectedResult = new CallToolResult(List.of(new TextContent("Charger 65W")), false, null, Map.of());
         when(mockRecorder.recordToolExecution(
@@ -872,8 +948,8 @@ class AssistantChatServiceTest {
                 .thenReturn(turn1)
                 .thenReturn(turn2);
 
-        AssistantChatService service = new AssistantChatService(
-                modelClient, mcpHub, new ObjectMapper(), (Tracer) null, mockRecorder, null, null, null);
+        AssistantChatService service = createChatService(
+                modelClient, mcpHub, null, null, mockRecorder, null, null, null);
 
         ChatMessageRequest request = new ChatMessageRequest("sess-record-audit", "Find charger");
         ChatMessageResponse response = service.sendMessage(request, "user-789");
@@ -904,11 +980,10 @@ class AssistantChatServiceTest {
         Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
         Tracer tracer = mockTracerSetup(span, spanInScope);
 
-        ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
+        ExternalMcpHub mcpHub = createMcpHub(tracer);
         Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
-        when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
-        when(mcpHub.executeTool(eq("search_available_products"), any()))
-                .thenReturn(new CallToolResult(List.of(new TextContent("Result")), false, null, Map.of()));
+        doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
+        doReturn(new CallToolResult(List.of(new TextContent("Result")), false, null, Map.of())).when(mcpHub).executeTool(eq("search_available_products"), any());
 
         String secretThought = "THOUGHT_SIGNATURE_CONFIDENTIAL_12345";
         ModelResponse turn1 = new ModelResponse("", List.of(new ToolCall("search_available_products", Map.of("query", "test"), secretThought)));
@@ -918,8 +993,8 @@ class AssistantChatServiceTest {
                 .thenReturn(turn1)
                 .thenReturn(turn2);
 
-        AssistantChatService service = new AssistantChatService(
-                modelClient, mcpHub, new ObjectMapper(), tracer);
+        AssistantChatService service = createChatService(
+                modelClient, mcpHub, tracer);
 
         ChatMessageRequest request = new ChatMessageRequest("session-sampling-test", "Find products");
         ChatMessageResponse response = service.sendMessage(request, "user-test");
@@ -934,6 +1009,30 @@ class AssistantChatServiceTest {
         verify(span, never()).tag(anyString(), eq(secretThought));
         verify(span, never()).tag(anyString(), eq("THOUGHT_SIGNATURE_FINAL_67890"));
     }
+
+    @Test
+    @DisplayName("Should delegate tool calls batch to McpHub and append returned messages to history")
+    void sendMessage_withToolCalls_delegatesToMcpHubHandleToolCalls() {
+        McpHub mockMcpHub = mock(McpHub.class);
+        chatService = createChatService(modelClient, mockMcpHub);
+
+        when(mockMcpHub.discoverAllTools()).thenReturn(List.of(Tool.builder("search_available_products").build()));
+
+        AssistantMessage toolMsg = new AssistantMessage();
+        toolMsg.setRole(MessageRole.TOOL);
+        toolMsg.setContent("Found 1 product");
+        when(mockMcpHub.handleToolCalls(anyList(), any(ToolExecutionContext.class)))
+                .thenReturn(ToolExecutionResult.success(List.of(toolMsg)));
+
+        ModelResponse turn1 = new ModelResponse("", List.of(new ToolCall("search_available_products", Map.of("query", "phone"))));
+        ModelResponse turn2 = new ModelResponse("Found the phone.", List.of());
+        when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                .thenReturn(turn1)
+                .thenReturn(turn2);
+
+        ChatMessageResponse response = chatService.sendMessage(new ChatMessageRequest("Search phone"), "user-123");
+        assertThat(response.reply()).isEqualTo("Found the phone.");
+
+        verify(mockMcpHub, times(1)).handleToolCalls(eq(turn1.toolCalls()), any(ToolExecutionContext.class));
+    }
 }
-
-

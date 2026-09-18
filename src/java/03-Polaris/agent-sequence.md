@@ -2,7 +2,7 @@
 
 This document illustrates the main communication flow between [`AssistantChatService`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/service/AssistantChatService.java), [`IntentResolver`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/intent/IntentResolver.java), [`IntentToolRegistry`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/intent/IntentToolRegistry.java), [`PolicyEngine`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/intent/PolicyEngine.java), [`AssistantModelClient`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/model/AssistantModelClient.java), and [`ExternalMcpHub`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java).
 
-Intent resolution runs **once per user turn**, before the ReAct loop starts, and narrows the tool set the model is offered. Registry validation and policy authorization then run **per proposed tool call**, as a guard directly in front of `ExternalMcpHub.executeTool(...)`, so the model is checked both proactively (smaller tool surface) and defensively (every actual call re-validated against the resolved intent).
+Intent resolution runs **once per user turn**, before the ReAct loop starts, and narrows the tool set the model is offered. When the model proposes tool calls, `AssistantChatService` delegates the tool execution loop to [`ExternalMcpHub.handleToolCalls(...)`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java). Within `ExternalMcpHub`, registry validation and policy authorization run **per proposed tool call** as a guard directly before tool dispatching, so the model is checked both proactively (smaller tool surface) and defensively (every actual call re-validated against the resolved intent).
 
 ```mermaid
 sequenceDiagram
@@ -10,9 +10,9 @@ sequenceDiagram
     actor User
     participant ChatService as AssistantChatService
     participant IntentSvc as IntentResolver
-    participant McpHub as ExternalMcpHub
     participant Registry as IntentToolRegistry
     participant ModelClient as AssistantModelClient
+    participant McpHub as ExternalMcpHub
     participant Policy as PolicyEngine
 
     User->>ChatService: sendMessage(request, userId)
@@ -45,28 +45,33 @@ sequenceDiagram
         deactivate ModelClient
 
         alt Model proposes Tool Call(s)
-            ChatService->>Registry: isValid(intentId, toolName)
-            activate Registry
-            Registry-->>ChatService: VALID / INVALID
-            deactivate Registry
+            ChatService->>+McpHub: handleToolCalls(toolCalls, context)
+            loop For each ToolCall
+                McpHub->>Registry: isValid(intentId, toolName)
+                activate Registry
+                Registry-->>McpHub: VALID / INVALID
+                deactivate Registry
 
-            alt tool not valid for intent
-                Note over ChatService: emit DecisionEvent[FAILED, outcome=INTENT_TOOL_MISMATCH]<br/>append corrective message to history and repeat loop
-            else tool valid
-                ChatService->>Policy: authorize(userId, requiredScope(toolName))
-                activate Policy
-                Policy-->>ChatService: ALLOW / DENY
-                deactivate Policy
+                alt tool not valid for intent
+                    Note over McpHub: emit DecisionEvent[FAILED, outcome=INTENT_TOOL_MISMATCH]<br/>record corrective turn
+                else tool valid
+                    McpHub->>Policy: authorize(userId, requiredScope(toolName))
+                    activate Policy
+                    Policy-->>McpHub: ALLOW / DENY
+                    deactivate Policy
 
-                alt policy denies
-                    Note over ChatService: emit DecisionEvent[FAILED, outcome=POLICY_DENIED]<br/>return denial reason to user
-                else policy allows
-                    ChatService->>McpHub: executeTool(toolName, arguments)
-                    activate McpHub
-                    McpHub-->>ChatService: CallToolResult
-                    deactivate McpHub
-                    Note over ChatService: emit DecisionEvent[COMPLETED]<br/>append tool result to history and repeat loop
+                    alt policy denies
+                        Note over McpHub: emit DecisionEvent[FAILED, outcome=POLICY_DENIED]<br/>mark policyDenied in result
+                    else policy allows
+                        McpHub->>McpHub: executeTool(toolName, arguments)
+                        Note over McpHub: emit DecisionEvent[COMPLETED]<br/>record tool result turn
+                    end
                 end
+            end
+            McpHub-->>-ChatService: ToolExecutionResult (turns, policyDenied)
+            ChatService->>ChatService: Append turns to history
+            alt policyDenied
+                Note over ChatService: return denial reason to user<br/>and break loop
             end
         else Model returns final answer
             Note over ChatService: Set final reply<br/>and break loop
@@ -90,11 +95,14 @@ sequenceDiagram
      - `AssistantChatService` calls `IntentToolRegistry.allowedTools(intentId, availableTools)` to offer only permissible tools to the model. For `general.conversation`, the filtered list is empty, allowing the model to answer directly.
 4. **ReAct Loop Execution**:
    - `AssistantChatService` invokes `AssistantModelClient.generateResponse(...)` with the message history and the filtered tool set.
-   - If the model returns a tool invocation, `AssistantChatService` first calls `IntentToolRegistry.isValid(intentId, toolName)` to defensively confirm the proposed tool is actually permitted for the resolved intent — catching cases where the model strays outside the offered set.
-   - If tool is not valid: `AssistantChatService` emits a decision event with `decision.action="registry.validate"` and `decision.outcome.status="TOOL_MISMATCH"`, appends a corrective warning to conversation history, and continues the loop so the model can recover.
-   - If tool is valid: `AssistantChatService` emits a decision event with `decision.action="registry.validate"` and `decision.outcome.status="VALID"`, then calls `PolicyEngine.authorize(userId, requiredScope)` to confirm the caller's OAuth2/OIDC scopes permit the action (e.g. `order.read` vs `order.write`).
-   - If policy denies: `AssistantChatService` emits a decision event with `decision.action="policy.authorize"`, `decision.policy=requiredScope`, and `decision.outcome.status="DENY"`, breaks the loop, and returns the denial reason to the user.
-   - If policy allows: `AssistantChatService` emits a decision event with `decision.action="policy.authorize"` and `decision.outcome.status="ALLOW"`, calls `ExternalMcpHub.executeTool(...)` (recorded via `AgentDecisionRecorder`), appends the tool result to conversation history, and continues the loop.
+   - If the model returns a tool invocation, `AssistantChatService` delegates the batch to `ExternalMcpHub.handleToolCalls(toolCalls, toolContext)`.
+   - For each tool call in the batch, `ExternalMcpHub`:
+     - Calls `IntentToolRegistry.isValid(intentId, toolName)` to defensively confirm the proposed tool is actually permitted for the resolved intent — catching cases where the model strays outside the offered set.
+     - If tool is not valid: `ExternalMcpHub` emits a decision event with `decision.action="registry.validate"` and `decision.outcome.status="TOOL_MISMATCH"`, and records a corrective message turn so the model can recover.
+     - If tool is valid: `ExternalMcpHub` emits a decision event with `decision.action="registry.validate"` and `decision.outcome.status="VALID"`, then calls `PolicyEngine.authorize(userId, requiredScope)` to confirm the caller's OAuth2/OIDC scopes permit the action (e.g. `order.read` vs `order.write`).
+     - If policy denies: `ExternalMcpHub` emits a decision event with `decision.action="policy.authorize"`, `decision.policy=requiredScope`, and `decision.outcome.status="DENY"`, and returns a `ToolExecutionResult` indicating policy denial. `AssistantChatService` breaks the loop and returns the denial reason to the user.
+     - If policy allows: `ExternalMcpHub` emits a decision event with `decision.action="policy.authorize"` and `decision.outcome.status="ALLOW"`, calls `executeTool(...)` (recorded via `AgentDecisionRecorder`), and records the tool result turn.
+   - `AssistantChatService` appends all returned model and tool turns to conversation history and continues the loop.
    - Once the model produces a final direct answer (or the iteration limit is reached), the loop terminates.
 5. **Response Generation**: `AssistantChatService` stores the assistant's reply and returns `ChatMessageResponse` to the client.
 
