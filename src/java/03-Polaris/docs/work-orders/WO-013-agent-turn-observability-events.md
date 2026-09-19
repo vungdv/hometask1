@@ -65,7 +65,7 @@ Instrument `AssistantChatService` in `apps/polaris-assistant` with an enclosing 
    - If `this.tracer != null`:
      - Create span:
        ```java
-       Span span = this.tracer.nextSpan().name("agent.turn");
+       Span span = this.tracer.customNextSpan().name("agent.turn");
        span.tag("agent.name", "assistant-chat");
        span.tag("agent.framework", "polaris-assistant");
        if (sessionId != null) {
@@ -102,7 +102,7 @@ Add unit tests verifying:
 1. `sendMessage_withToolCall_emitsFullLifecycleSpanEventsInOrder`:
    - Mock `Tracer`, `Span`, `SpanInScope`.
    - Execute turn with 1 tool call that loops to final reply.
-   - Verify `tracer.nextSpan()` and `span.name("agent.turn")`.
+   - Verify `tracer.customNextSpan()` and `span.name("agent.turn")`.
    - Verify `span.tag("agent.name", "assistant-chat")`, `span.tag("agent.session_id", ...)` etc.
    - Verify events in exact order:
      - `agent.request.received`

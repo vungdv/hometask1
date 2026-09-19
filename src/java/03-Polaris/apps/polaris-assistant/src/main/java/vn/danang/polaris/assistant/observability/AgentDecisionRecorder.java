@@ -80,6 +80,14 @@ public class AgentDecisionRecorder {
             String sessionId,
             String intent,
             double confidence,
+            List<Tool> availableTools) {
+        return recordDirectResponseDecision(sessionId, intent, confidence, availableTools, (Span) null);
+    }
+
+    public DecisionEvent recordDirectResponseDecision(
+            String sessionId,
+            String intent,
+            double confidence,
             List<Tool> availableTools,
             @Nullable Span span) {
         long startTime = System.currentTimeMillis();
@@ -106,6 +114,19 @@ public class AgentDecisionRecorder {
         logDecision("COMPLETED", event);
         event.recordOn(targetSpan);
         return event;
+    }
+
+    /**
+     * Records intent resolution decision event and span tags using the ambient active span.
+     */
+    public DecisionEvent recordIntentResolution(
+            String sessionId,
+            String userMessage,
+            String intentId,
+            double confidence,
+            double threshold,
+            boolean resolved) {
+        return recordIntentResolution(sessionId, userMessage, intentId, confidence, threshold, resolved, (Span) null);
     }
 
     /**

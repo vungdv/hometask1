@@ -48,4 +48,18 @@ public record ToolExecutionContext(
             @Nullable Span span) {
         this(sessionId, userId, iteration, intentId, confidence, meetsThreshold, filteredTools, span, null, null, null);
     }
+
+    public ToolExecutionContext(
+            String sessionId,
+            String userId,
+            int iteration,
+            String intentId,
+            double confidence,
+            boolean meetsThreshold,
+            List<Tool> filteredTools,
+            @Nullable PolicyEngine policyEngine,
+            @Nullable IntentToolRegistry intentToolRegistry,
+            @Nullable AgentDecisionRecorder decisionRecorder) {
+        this(sessionId, userId, iteration, intentId, confidence, meetsThreshold, filteredTools, null, policyEngine, intentToolRegistry, decisionRecorder);
+    }
 }

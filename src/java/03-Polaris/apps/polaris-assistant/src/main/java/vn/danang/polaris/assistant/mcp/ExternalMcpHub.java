@@ -190,7 +190,9 @@ public class ExternalMcpHub implements McpHub {
         double confidence = context != null ? context.confidence() : 1.0;
         boolean meetsThreshold = context != null && context.meetsThreshold();
         List<Tool> filteredTools = context != null && context.filteredTools() != null ? context.filteredTools() : List.of();
-        Span span = context != null ? context.span() : null;
+        Span span = (context != null && context.span() != null)
+                ? context.span()
+                : Optional.ofNullable(tracer).map(Tracer::currentSpan).orElse(null);
 
         PolicyEngine effectivePolicyEngine = (context != null && context.policyEngine() != null)
                 ? context.policyEngine()
@@ -292,8 +294,9 @@ public class ExternalMcpHub implements McpHub {
     }
 
     private void recordEvent(@Nullable Span span, String eventName) {
-        if (span != null) {
-            span.event(eventName);
+        Span targetSpan = span != null ? span : Optional.ofNullable(tracer).map(Tracer::currentSpan).orElse(null);
+        if (targetSpan != null) {
+            targetSpan.event(eventName);
         }
     }
 
@@ -322,14 +325,15 @@ public class ExternalMcpHub implements McpHub {
             return;
         }
 
+        Span activeSpan = span != null ? span : Optional.ofNullable(tracer).map(Tracer::currentSpan).orElse(null);
         String traceId = "00000000000000000000000000000000";
         String spanId = "0000000000000000";
-        if (span != null && span.context() != null) {
-            if (span.context().traceId() != null) {
-                traceId = span.context().traceId();
+        if (activeSpan != null && activeSpan.context() != null) {
+            if (activeSpan.context().traceId() != null) {
+                traceId = activeSpan.context().traceId();
             }
-            if (span.context().spanId() != null) {
-                spanId = span.context().spanId();
+            if (activeSpan.context().spanId() != null) {
+                spanId = activeSpan.context().spanId();
             }
         }
 

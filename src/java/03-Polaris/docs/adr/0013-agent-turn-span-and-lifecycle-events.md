@@ -111,7 +111,7 @@ public AssistantChatService(
 In `AssistantChatService.sendMessage(ChatMessageRequest request, String userId)`:
 - If `this.tracer == null`, execute existing logic cleanly.
 - If `this.tracer != null`:
-  - Create span: `Span span = this.tracer.nextSpan().name("agent.turn");`
+  - Create span: `Span span = this.tracer.customNextSpan().name("agent.turn");`
   - Tag initial attributes:
     - `agent.name`: `"assistant-chat"`
     - `agent.framework`: `"polaris-assistant"`

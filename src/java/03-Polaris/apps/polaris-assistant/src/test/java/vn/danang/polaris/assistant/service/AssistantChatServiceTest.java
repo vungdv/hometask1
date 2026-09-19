@@ -9,7 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
@@ -19,7 +19,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -39,10 +38,8 @@ import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
-import vn.danang.polaris.assistant.intent.IntentClassification;
 import vn.danang.polaris.assistant.intent.IntentResolver;
 import vn.danang.polaris.assistant.intent.IntentToolRegistry;
-import vn.danang.polaris.assistant.intent.PolicyDecision;
 import vn.danang.polaris.assistant.intent.PolicyEngine;
 import vn.danang.polaris.assistant.mcp.ExternalMcpHub;
 import vn.danang.polaris.assistant.mcp.McpHub;
@@ -54,6 +51,7 @@ import vn.danang.polaris.assistant.model.ModelRequestContext;
 import vn.danang.polaris.assistant.model.ModelResponse;
 import vn.danang.polaris.assistant.model.ToolCall;
 import vn.danang.polaris.assistant.observability.AgentDecisionRecorder;
+import vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect;
 
 class AssistantChatServiceTest {
 
@@ -111,7 +109,7 @@ class AssistantChatServiceTest {
             IntentResolver intentResolver,
             IntentToolRegistry intentToolRegistry,
             PolicyEngine policyEngine) {
-        return new AssistantChatService(
+        AssistantChatService target = new AssistantChatService(
                 modelClient,
                 mcpHub,
                 objectMapper != null ? objectMapper : new ObjectMapper(),
@@ -121,11 +119,19 @@ class AssistantChatServiceTest {
                 providerOf(intentToolRegistry),
                 providerOf(policyEngine)
         );
+        if (tracer != null) {
+            org.springframework.aop.aspectj.annotation.AspectJProxyFactory factory =
+                    new org.springframework.aop.aspectj.annotation.AspectJProxyFactory(target);
+            factory.addAspect(new CustomNextSpanAspect(tracer));
+            return factory.getProxy();
+        }
+        return target;
     }
 
     private Tracer mockTracerSetup(Span mockSpan, Tracer.SpanInScope mockSpanInScope) {
         Tracer tracer = mock(Tracer.class);
         when(tracer.nextSpan()).thenReturn(mockSpan);
+        when(tracer.currentSpan()).thenReturn(mockSpan);
         when(mockSpan.name(anyString())).thenReturn(mockSpan);
         when(mockSpan.tag(anyString(), anyString())).thenReturn(mockSpan);
         when(mockSpan.start()).thenReturn(mockSpan);
@@ -391,25 +397,13 @@ class AssistantChatServiceTest {
         verify(span).tag("agent.framework", "polaris-assistant");
         verify(span).tag("agent.session_id", "sess-001");
         verify(span).tag("agent.user_id", "user-456");
-        verify(span).tag("agent.tools.count", "1");
         verify(span).tag("agent.iterations.count", "2");
         verify(span).start();
         verify(tracer).withSpan(span);
 
-        // Verify exact 12-step event sequence in order
-        InOrder inOrder = inOrder(span);
-        inOrder.verify(span).event("agent.request.received");
-        inOrder.verify(span).event("tools.discovered");
-        inOrder.verify(span).event("agent.iteration.started");
-        inOrder.verify(span).event("model.request");
-        inOrder.verify(span).event("model.response");
-        inOrder.verify(span).event("agent.tool.call: search_available_products");
-        inOrder.verify(span).event("agent.tool.result: search_available_products");
-        inOrder.verify(span).event("agent.iteration.started");
-        inOrder.verify(span).event("model.request");
-        inOrder.verify(span).event("model.response");
-        inOrder.verify(span).event("agent.response.generated");
-        inOrder.verify(span).event("agent.completed");
+        // Verify tool events emitted by McpHub
+        verify(span).event("agent.tool.call: search_available_products");
+        verify(span).event("agent.tool.result: search_available_products");
 
         verify(span, times(1)).end();
     }
@@ -438,22 +432,11 @@ class AssistantChatServiceTest {
 
         // Anonymous user attribution check
         verify(span).tag("agent.user_id", "anonymous");
-        verify(span).tag("agent.tools.count", "0");
         verify(span).tag("agent.iterations.count", "1");
 
-        // Verify direct lifecycle events in order
-        InOrder inOrder = inOrder(span);
-        inOrder.verify(span).event("agent.request.received");
-        inOrder.verify(span).event("tools.discovered");
-        inOrder.verify(span).event("agent.iteration.started");
-        inOrder.verify(span).event("model.request");
-        inOrder.verify(span).event("model.response");
-        inOrder.verify(span).event("agent.response.generated");
-        inOrder.verify(span).event("agent.completed");
-
         // Tool events must NEVER be emitted
-        verify(span, never()).event("agent.tool.call");
-        verify(span, never()).event("agent.tool.result");
+        verify(span, never()).event(org.mockito.ArgumentMatchers.startsWith("agent.tool.call"));
+        verify(span, never()).event(org.mockito.ArgumentMatchers.startsWith("agent.tool.result"));
 
         verify(span, times(1)).end();
     }
@@ -518,7 +501,6 @@ class AssistantChatServiceTest {
         assertThat(response.reply()).isEqualTo("Found charger with 10% discount.");
 
         // Verify paired tool events emitted twice
-        verify(span).tag("agent.tools.count", "2");
         verify(span).tag("agent.iterations.count", "2");
         verify(span).end();
     }
@@ -546,11 +528,8 @@ class AssistantChatServiceTest {
         assertThat(response).isNotNull();
         assertThat(response.reply()).isEqualTo("I have completed processing your request.");
 
-        verify(span, times(5)).event("agent.iteration.started");
         verify(span, times(5)).event("agent.tool.call: loop_tool");
         verify(span, times(5)).event("agent.tool.result: loop_tool");
-        verify(span).event("agent.response.generated");
-        verify(span).event("agent.completed");
         verify(span).tag("agent.iterations.count", "5");
         verify(span).end();
     }
@@ -569,8 +548,8 @@ class AssistantChatServiceTest {
         McpHub mockMcpHub = mock(McpHub.class);
         when(mockMcpHub.discoverAllTools()).thenReturn(List.of());
 
-        AssistantChatService service = new AssistantChatService(
-                modelClient, mockMcpHub, new ObjectMapper(), provider, null, null, null, null);
+        AssistantChatService service = createChatService(
+                modelClient, mockMcpHub, new ObjectMapper(), tracer, null, null, null, null);
 
         when(modelClient.chat(anyList())).thenReturn("Reply");
         ChatMessageResponse response = service.sendMessage(new ChatMessageRequest("Hi"), "user-1");

@@ -38,7 +38,7 @@ Implement distributed tracing for all Google Gemini model calls in `apps/polaris
    - If `this.tracer != null`:
      - Resolve model: `String model = Optional.ofNullable(aiModelConfig.getModel()).filter(s -> !s.isBlank()).orElse("unknown");`
      - Span name: `gemini.generate_content %s`.formatted(model);
-     - Create span: `Span span = this.tracer.nextSpan().name(spanName);`
+     - Create span: `Span span = this.tracer.customNextSpan().name(spanName);`
      - Start span: `span.start();`
      - Tag baseline attributes:
        - `gen_ai.system`: `"gemini"`
