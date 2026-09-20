@@ -2,15 +2,17 @@ package vn.danang.polaris.assistant.observability;
 
 import java.lang.reflect.Method;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -24,6 +26,7 @@ import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
+@DisplayName("Feature: CustomNextSpanAspect Distributed Trace Propagation & SpEL Tagging")
 class CustomNextSpanAspectTest {
 
     private Tracer tracer;
@@ -59,141 +62,153 @@ class CustomNextSpanAspectTest {
         when(methodSignature.getMethod()).thenReturn(method);
     }
 
-    @Test
-    @DisplayName("Should create span with custom name, static tags, and dynamic SpEL argument tags")
-    void traceNextSpan_withStaticAndSpELTags_appliesAllTags() throws Throwable {
-        setupMethod("annotatedMethod", DummyOrder.class, String.class);
-        CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+    // =========================================================================
+    // 1. Happy path — span creation and tag binding
+    // =========================================================================
+    @Nested
+    @DisplayName("1. Happy path")
+    class HappyPath {
 
-        DummyOrder order = new DummyOrder("ORD-999", 150.0);
-        when(joinPoint.getArgs()).thenReturn(new Object[]{order, "vip-user"});
-        when(joinPoint.proceed()).thenReturn("processed");
+        @Test
+        @DisplayName("Given annotated method, when executed, then creates span with custom name, static tags, and SpEL dynamic tags")
+        void applies_static_and_dynamic_spel_tags_to_span() throws Throwable {
+            setupMethod("annotatedMethod", DummyOrder.class, String.class);
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
 
-        Object result = aspect.traceNextSpan(joinPoint);
+            DummyOrder order = new DummyOrder("ORD-999", 150.0);
+            when(joinPoint.getArgs()).thenReturn(new Object[]{order, "vip-user"});
+            when(joinPoint.proceed()).thenReturn("processed");
 
-        assertThat(result).isEqualTo("processed");
+            Object result = aspect.traceNextSpan(joinPoint);
 
-        verify(tracer).nextSpan();
-        verify(span).name("order.process");
-        // Static tag
-        verify(span).tag("service.name", "billing");
-        // SpEL bound from #order.id
-        verify(span).tag("order.id", "ORD-999");
-        // SpEL bound from #order.amount
-        verify(span).tag("order.amount", "150.0");
-        // SpEL ternary with fallback
-        verify(span).tag("user.tier", "vip-user");
+            assertThat(result).isEqualTo("processed");
+            verify(tracer).nextSpan();
+            verify(span).name("order.process");
+            verify(span).tag("service.name", "billing");
+            verify(span).tag("order.id", "ORD-999");
+            verify(span).tag("order.amount", "150.0");
+            verify(span).tag("user.tier", "vip-user");
+            verify(span).start();
+            verify(tracer).withSpan(span);
+            verify(span, times(1)).end();
+        }
 
-        verify(span).start();
-        verify(tracer).withSpan(span);
-        verify(span, times(1)).end();
+        @Test
+        @DisplayName("Given method with parameter-level @SpanTag, when executed, then binds parameter values to span tags")
+        void extracts_tags_from_parameter_level_span_tag_annotations() throws Throwable {
+            setupMethod("parameterAnnotatedMethod", String.class, DummyOrder.class);
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+
+            DummyOrder order = new DummyOrder("ORD-456", 75.0);
+            when(joinPoint.getArgs()).thenReturn(new Object[]{"client-1", order});
+            when(joinPoint.proceed()).thenReturn("done");
+
+            aspect.traceNextSpan(joinPoint);
+
+            verify(span).name("client.order");
+            verify(span).tag("client.id", "client-1");
+            verify(span).tag("target.order.id", "ORD-456");
+        }
+
+        @Test
+        @DisplayName("Given @CustomNextSpan without custom name, when executed, then falls back to ClassName.methodName")
+        void falls_back_to_method_name_when_span_name_omitted() throws Throwable {
+            setupMethod("unnamedSpanMethod");
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+
+            when(joinPoint.getArgs()).thenReturn(new Object[]{});
+            when(joinPoint.proceed()).thenReturn("ok");
+
+            aspect.traceNextSpan(joinPoint);
+
+            verify(span).name("DummySampleService.unnamedSpanMethod");
+        }
     }
 
-    @Test
-    @DisplayName("Should evaluate SpEL expressions with null-safe navigation and fallback")
-    void traceNextSpan_withNullArgs_handlesGracefullyWithoutThrowing() throws Throwable {
-        setupMethod("annotatedMethod", DummyOrder.class, String.class);
-        CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+    // =========================================================================
+    // 2. Invalid input & failure handling
+    // =========================================================================
+    @Nested
+    @DisplayName("2. Invalid input & failure handling")
+    class InvalidInput {
 
-        // Null order and null userId
-        when(joinPoint.getArgs()).thenReturn(new Object[]{null, null});
-        when(joinPoint.proceed()).thenReturn("processed-null");
+        @Test
+        @DisplayName("Given target method throws exception, when executed, then records error and exception on span and rethrows")
+        void tags_error_and_records_exception_on_span_when_target_method_throws() throws Throwable {
+            setupMethod("unnamedSpanMethod");
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
 
-        Object result = aspect.traceNextSpan(joinPoint);
+            when(joinPoint.getArgs()).thenReturn(new Object[]{});
+            RuntimeException ex = new RuntimeException("Database timeout");
+            when(joinPoint.proceed()).thenThrow(ex);
 
-        assertThat(result).isEqualTo("processed-null");
+            assertThatThrownBy(() -> aspect.traceNextSpan(joinPoint))
+                    .isSameAs(ex);
 
-        verify(span).name("order.process");
-        verify(span).tag("service.name", "billing");
-        // Null order should not be tagged for order.id
-        verify(span, never()).tag(org.mockito.ArgumentMatchers.eq("order.id"), any());
-        // Fallback expression evaluated
-        verify(span).tag("user.tier", "standard");
-        verify(span).end();
+            verify(span).error(ex);
+            verify(span).tag("error", "true");
+            verify(span, times(1)).end();
+        }
     }
 
-    @Test
-    @DisplayName("Should extract tags from parameter-level @SpanTag annotations")
-    void traceNextSpan_withParameterSpanTags_bindsParameterValues() throws Throwable {
-        setupMethod("parameterAnnotatedMethod", String.class, DummyOrder.class);
-        CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+    // =========================================================================
+    // 3. Edge cases — null arguments, absent tracer, ObjectProvider injection
+    // =========================================================================
+    @Nested
+    @DisplayName("3. Edge cases")
+    class EdgeCases {
 
-        DummyOrder order = new DummyOrder("ORD-456", 75.0);
-        when(joinPoint.getArgs()).thenReturn(new Object[]{"client-1", order});
-        when(joinPoint.proceed()).thenReturn("done");
+        @Test
+        @DisplayName("Given null arguments for SpEL expressions, when evaluated, then handles null-safe navigation and fallback safely")
+        void evaluates_spel_expressions_with_null_safe_navigation_and_fallback() throws Throwable {
+            setupMethod("annotatedMethod", DummyOrder.class, String.class);
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
 
-        aspect.traceNextSpan(joinPoint);
+            when(joinPoint.getArgs()).thenReturn(new Object[]{null, null});
+            when(joinPoint.proceed()).thenReturn("processed-null");
 
-        verify(span).name("client.order");
-        // Parameter with key from value()
-        verify(span).tag("client.id", "client-1");
-        // Parameter with expression on arg
-        verify(span).tag("target.order.id", "ORD-456");
-    }
+            Object result = aspect.traceNextSpan(joinPoint);
 
-    @Test
-    @DisplayName("Should fallback to ClassName.methodName when no span name is specified")
-    void traceNextSpan_withDefaultName_fallsBackToMethodName() throws Throwable {
-        setupMethod("unnamedSpanMethod");
-        CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+            assertThat(result).isEqualTo("processed-null");
+            verify(span).name("order.process");
+            verify(span).tag("service.name", "billing");
+            verify(span, never()).tag(eq("order.id"), any());
+            verify(span).tag("user.tier", "standard");
+            verify(span).end();
+        }
 
-        when(joinPoint.getArgs()).thenReturn(new Object[]{});
-        when(joinPoint.proceed()).thenReturn("ok");
+        @Test
+        @DisplayName("Given null tracer, when aspect executes, then proceeds directly without throwing exception")
+        void proceeds_directly_without_exceptions_when_tracer_is_absent() throws Throwable {
+            setupMethod("unnamedSpanMethod");
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect((Tracer) null);
 
-        aspect.traceNextSpan(joinPoint);
+            when(joinPoint.getArgs()).thenReturn(new Object[]{});
+            when(joinPoint.proceed()).thenReturn("no-tracer");
 
-        verify(span).name("DummySampleService.unnamedSpanMethod");
-    }
+            Object result = aspect.traceNextSpan(joinPoint);
 
-    @Test
-    @DisplayName("Should tag error and record exception on span when target method throws")
-    void traceNextSpan_whenTargetThrows_recordsErrorAndEndsSpan() throws Throwable {
-        setupMethod("unnamedSpanMethod");
-        CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+            assertThat(result).isEqualTo("no-tracer");
+            verify(tracer, never()).nextSpan();
+        }
 
-        when(joinPoint.getArgs()).thenReturn(new Object[]{});
-        RuntimeException ex = new RuntimeException("Database timeout");
-        when(joinPoint.proceed()).thenThrow(ex);
+        @Test
+        @DisplayName("Given ObjectProvider constructor, when instantiated, then extracts Tracer bean")
+        @SuppressWarnings("unchecked")
+        void extracts_tracer_from_object_provider_in_constructor() throws Throwable {
+            setupMethod("unnamedSpanMethod");
+            ObjectProvider<Tracer> provider = mock(ObjectProvider.class);
+            when(provider.getIfAvailable()).thenReturn(tracer);
 
-        RuntimeException thrown = assertThrows(RuntimeException.class, () -> aspect.traceNextSpan(joinPoint));
-        assertThat(thrown).isSameAs(ex);
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(provider);
 
-        verify(span).error(ex);
-        verify(span).tag("error", "true");
-        verify(span, times(1)).end();
-    }
+            when(joinPoint.getArgs()).thenReturn(new Object[]{});
+            when(joinPoint.proceed()).thenReturn("ok");
 
-    @Test
-    @DisplayName("Should proceed directly when tracer is absent")
-    void traceNextSpan_withoutTracer_proceedsDirectly() throws Throwable {
-        setupMethod("unnamedSpanMethod");
-        CustomNextSpanAspect aspect = new CustomNextSpanAspect((Tracer) null);
+            aspect.traceNextSpan(joinPoint);
 
-        when(joinPoint.getArgs()).thenReturn(new Object[]{});
-        when(joinPoint.proceed()).thenReturn("no-tracer");
-
-        Object result = aspect.traceNextSpan(joinPoint);
-
-        assertThat(result).isEqualTo("no-tracer");
-        verify(tracer, never()).nextSpan();
-    }
-
-    @Test
-    @DisplayName("Should inject tracer from ObjectProvider in constructor")
-    @SuppressWarnings("unchecked")
-    void constructor_withObjectProvider_extractsTracer() throws Throwable {
-        setupMethod("unnamedSpanMethod");
-        ObjectProvider<Tracer> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(tracer);
-
-        CustomNextSpanAspect aspect = new CustomNextSpanAspect(provider);
-
-        when(joinPoint.getArgs()).thenReturn(new Object[]{});
-        when(joinPoint.proceed()).thenReturn("ok");
-
-        aspect.traceNextSpan(joinPoint);
-
-        verify(tracer).nextSpan();
+            verify(tracer).nextSpan();
+        }
     }
 
     // =========================================================================

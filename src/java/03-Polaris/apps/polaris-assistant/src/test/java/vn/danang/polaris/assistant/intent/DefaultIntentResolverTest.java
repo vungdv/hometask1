@@ -5,8 +5,13 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
+@DisplayName("Feature: DefaultIntentResolver Natural Language Query Classification")
 class DefaultIntentResolverTest {
 
     private DefaultIntentResolver resolver;
@@ -17,131 +22,202 @@ class DefaultIntentResolverTest {
         resolver = new DefaultIntentResolver(properties);
     }
 
-    @Test
-    @DisplayName("Should resolve catalog search intent for product queries")
-    void resolve_catalogSearchQueries() {
-        IntentClassification res1 = resolver.resolve("show me running shoes under $100", List.of());
-        assertThat(res1.intentId()).isEqualTo(IntentClassification.CATALOG_SEARCH);
-        assertThat(res1.confidence()).isGreaterThanOrEqualTo(0.80);
+    // =========================================================================
+    // 1. Happy path — main successful flows
+    // =========================================================================
+    @Nested
+    @DisplayName("1. Happy path")
+    class HappyPath {
 
-        IntentClassification res2 = resolver.resolve("find chargers in stock", List.of());
-        assertThat(res2.intentId()).isEqualTo(IntentClassification.CATALOG_SEARCH);
-        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.80);
+        @ParameterizedTest(name = "Query \"{0}\" resolves to CATALOG_SEARCH")
+        @ValueSource(strings = {
+                "show me running shoes under $100",
+                "find chargers in stock",
+                "browse electronics catalog",
+                "search for wireless headphones"
+        })
+        @DisplayName("Given catalog search queries, when resolved, then classifies as CATALOG_SEARCH with high confidence")
+        void resolves_catalog_search_for_product_search_queries(String query) {
+            IntentClassification result = resolver.resolve(query, List.of());
+
+            assertThat(result.intentId()).isEqualTo(IntentClassification.CATALOG_SEARCH);
+            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.80);
+        }
+
+        @ParameterizedTest(name = "Query \"{0}\" resolves to CATALOG_LOOKUP")
+        @ValueSource(strings = {
+                "tell me more about SM-PH-001",
+                "is SKU NG-CHARGER-02 in stock",
+                "product details for AP-MACBOOK-16"
+        })
+        @DisplayName("Given specific SKU mentions, when resolved, then classifies as CATALOG_LOOKUP with high confidence")
+        void resolves_catalog_lookup_for_sku_queries(String query) {
+            IntentClassification result = resolver.resolve(query, List.of());
+
+            assertThat(result.intentId()).isEqualTo(IntentClassification.CATALOG_LOOKUP);
+            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.85);
+        }
+
+        @ParameterizedTest(name = "Query \"{0}\" resolves to ORDER_STATUS")
+        @ValueSource(strings = {
+                "where is my order ORD-1001",
+                "status of order 1234",
+                "track order ORD-5555"
+        })
+        @DisplayName("Given order tracking queries, when resolved, then classifies as ORDER_STATUS")
+        void resolves_order_status_for_tracking_queries(String query) {
+            IntentClassification result = resolver.resolve(query, List.of());
+
+            assertThat(result.intentId()).isEqualTo(IntentClassification.ORDER_STATUS);
+            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.85);
+        }
+
+        @ParameterizedTest(name = "Query \"{0}\" resolves to ORDER_DETAILS")
+        @ValueSource(strings = {
+                "what did I order in ORD-1001",
+                "show me the full details of my last order",
+                "order contents for ORD-1001"
+        })
+        @DisplayName("Given order breakdown queries, when resolved, then classifies as ORDER_DETAILS")
+        void resolves_order_details_for_item_breakdown_queries(String query) {
+            IntentClassification result = resolver.resolve(query, List.of());
+
+            assertThat(result.intentId()).isEqualTo(IntentClassification.ORDER_DETAILS);
+            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.85);
+        }
+
+        @ParameterizedTest(name = "Query \"{0}\" resolves to ORDER_HISTORY")
+        @ValueSource(strings = {
+                "show my order history",
+                "list my cancelled orders",
+                "previous purchases"
+        })
+        @DisplayName("Given order history queries, when resolved, then classifies as ORDER_HISTORY")
+        void resolves_order_history_for_past_purchase_queries(String query) {
+            IntentClassification result = resolver.resolve(query, List.of());
+
+            assertThat(result.intentId()).isEqualTo(IntentClassification.ORDER_HISTORY);
+            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.80);
+        }
+
+        @ParameterizedTest(name = "Query \"{0}\" resolves to ORDER_PLACE")
+        @ValueSource(strings = {
+                "order 2 of NG-EARBUD-01",
+                "buy the wireless earbuds",
+                "place order for Alice Tran",
+                "order 2 of NG-EARBUD-01 for Alice"
+        })
+        @DisplayName("Given purchasing queries, when resolved, then classifies as ORDER_PLACE")
+        void resolves_order_place_for_purchase_queries(String query) {
+            IntentClassification result = resolver.resolve(query, List.of());
+
+            assertThat(result.intentId()).isEqualTo(IntentClassification.ORDER_PLACE);
+            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.92);
+        }
+
+        @ParameterizedTest(name = "Query \"{0}\" resolves to ORDER_CANCEL")
+        @ValueSource(strings = {
+                "cancel my order ORD-1001",
+                "I want to cancel that last order",
+                "abort order ORD-999"
+        })
+        @DisplayName("Given cancellation queries, when resolved, then classifies as ORDER_CANCEL")
+        void resolves_order_cancel_for_cancellation_requests(String query) {
+            IntentClassification result = resolver.resolve(query, List.of());
+
+            assertThat(result.intentId()).isEqualTo(IntentClassification.ORDER_CANCEL);
+            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.92);
+        }
+
+        @ParameterizedTest(name = "Query \"{0}\" resolves to CUSTOMER_LOOKUP")
+        @ValueSource(strings = {
+                "find customer Alice",
+                "who is customer Chi",
+                "my name is Alice Tran"
+        })
+        @DisplayName("Given customer identification queries, when resolved, then classifies as CUSTOMER_LOOKUP")
+        void resolves_customer_lookup_for_customer_queries(String query) {
+            IntentClassification result = resolver.resolve(query, List.of());
+
+            assertThat(result.intentId()).isEqualTo(IntentClassification.CUSTOMER_LOOKUP);
+            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.85);
+        }
+
+        @ParameterizedTest(name = "Query \"{0}\" resolves to GENERAL_CONVERSATION")
+        @ValueSource(strings = {
+                "hello",
+                "hi there",
+                "who are you?",
+                "what can you do"
+        })
+        @DisplayName("Given conversational greetings and help queries, when resolved, then classifies as GENERAL_CONVERSATION")
+        void resolves_general_conversation_for_greetings(String query) {
+            IntentClassification result = resolver.resolve(query, List.of());
+
+            assertThat(result.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
+            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.90);
+        }
     }
 
-    @Test
-    @DisplayName("Should resolve product lookup intent for specific SKU mentions")
-    void resolve_catalogLookupQueries() {
-        IntentClassification res = resolver.resolve("tell me more about SM-PH-001", List.of());
-        assertThat(res.intentId()).isEqualTo(IntentClassification.CATALOG_LOOKUP);
-        assertThat(res.confidence()).isGreaterThanOrEqualTo(0.85);
+    // =========================================================================
+    // 2. Invalid input — common validation and boundary cases
+    // =========================================================================
+    @Nested
+    @DisplayName("2. Invalid input")
+    class InvalidInput {
 
-        IntentClassification res2 = resolver.resolve("is SKU NG-CHARGER-02 in stock", List.of());
-        assertThat(res2.intentId()).isEqualTo(IntentClassification.CATALOG_LOOKUP);
-        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.85);
+        @ParameterizedTest(name = "Blank query \"{0}\" resolves to GENERAL_CONVERSATION")
+        @NullAndEmptySource
+        @ValueSource(strings = {" ", "   ", "\t", "\n"})
+        @DisplayName("Given null, empty, or whitespace-only queries, when resolved, then returns GENERAL_CONVERSATION with full confidence")
+        void resolves_null_empty_or_whitespace_as_general_conversation(String blankQuery) {
+            IntentClassification result = resolver.resolve(blankQuery, List.of());
+
+            assertThat(result.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
+            assertThat(result.confidence()).isEqualTo(1.0);
+        }
     }
 
-    @Test
-    @DisplayName("Should resolve order status intent for status checks")
-    void resolve_orderStatusQueries() {
-        IntentClassification res = resolver.resolve("where is my order ORD-1001", List.of());
-        assertThat(res.intentId()).isEqualTo(IntentClassification.ORDER_STATUS);
-        assertThat(res.confidence()).isGreaterThanOrEqualTo(0.85);
+    // =========================================================================
+    // 3. Edge cases — boundaries, order vs SKU disambiguation, unknown queries
+    // =========================================================================
+    @Nested
+    @DisplayName("3. Edge cases")
+    class EdgeCases {
 
-        IntentClassification res2 = resolver.resolve("status of order 1234", List.of());
-        assertThat(res2.intentId()).isEqualTo(IntentClassification.ORDER_STATUS);
-        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.85);
-    }
+        @Test
+        @DisplayName("Given order identifier ORD-1001, when resolving inquiry, then does not classify as CATALOG_LOOKUP")
+        void does_not_treat_order_number_as_catalog_lookup() {
+            IntentClassification result = resolver.resolve("sku ORD-1001", List.of());
 
-    @Test
-    @DisplayName("Should resolve order details intent for item and breakdown queries")
-    void resolve_orderDetailsQueries() {
-        IntentClassification res = resolver.resolve("what did I order in ORD-1001", List.of());
-        assertThat(res.intentId()).isEqualTo(IntentClassification.ORDER_DETAILS);
-        assertThat(res.confidence()).isGreaterThanOrEqualTo(0.85);
+            assertThat(result.intentId()).isNotEqualTo(IntentClassification.CATALOG_LOOKUP);
+        }
 
-        IntentClassification res2 = resolver.resolve("show me the full details of my last order", List.of());
-        assertThat(res2.intentId()).isEqualTo(IntentClassification.ORDER_DETAILS);
-        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.85);
-    }
+        @Test
+        @DisplayName("Given completely unknown query, when resolved, then falls back to GENERAL_CONVERSATION with low confidence")
+        void falls_back_to_general_conversation_with_low_confidence_for_unknown_input() {
+            IntentClassification result = resolver.resolve("xyzzy qwerty foobar 98765", List.of());
 
-    @Test
-    @DisplayName("Should resolve order history intent for past purchase listings")
-    void resolve_orderHistoryQueries() {
-        IntentClassification res = resolver.resolve("show my order history", List.of());
-        assertThat(res.intentId()).isEqualTo(IntentClassification.ORDER_HISTORY);
-        assertThat(res.confidence()).isGreaterThanOrEqualTo(0.80);
+            assertThat(result.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
+            assertThat(result.confidence()).isLessThan(0.50);
+        }
 
-        IntentClassification res2 = resolver.resolve("list my cancelled orders", List.of());
-        assertThat(res2.intentId()).isEqualTo(IntentClassification.ORDER_HISTORY);
-        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.80);
-    }
+        @Test
+        @DisplayName("Given mixed case greeting query, when resolved, then correctly classifies as GENERAL_CONVERSATION")
+        void handles_case_insensitive_greetings() {
+            IntentClassification result = resolver.resolve("hElLo ThErE", List.of());
 
-    @Test
-    @DisplayName("Should resolve place order intent for purchasing queries")
-    void resolve_orderPlaceQueries() {
-        IntentClassification res = resolver.resolve("order 2 of NG-EARBUD-01", List.of());
-        assertThat(res.intentId()).isEqualTo(IntentClassification.ORDER_PLACE);
-        assertThat(res.confidence()).isGreaterThanOrEqualTo(0.92);
+            assertThat(result.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
+            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.90);
+        }
 
-        IntentClassification res2 = resolver.resolve("buy the wireless earbuds", List.of());
-        assertThat(res2.intentId()).isEqualTo(IntentClassification.ORDER_PLACE);
-        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.92);
-    }
+        @Test
+        @DisplayName("Given default constructor without explicit properties, when instantiated, then resolves intents correctly")
+        void operates_correctly_with_default_constructor() {
+            DefaultIntentResolver defaultResolver = new DefaultIntentResolver();
+            IntentClassification result = defaultResolver.resolve("hello", List.of());
 
-    @Test
-    @DisplayName("Should resolve cancel order intent for cancellation requests")
-    void resolve_orderCancelQueries() {
-        IntentClassification res = resolver.resolve("cancel my order ORD-1001", List.of());
-        assertThat(res.intentId()).isEqualTo(IntentClassification.ORDER_CANCEL);
-        assertThat(res.confidence()).isGreaterThanOrEqualTo(0.92);
-
-        IntentClassification res2 = resolver.resolve("I want to cancel that last order", List.of());
-        assertThat(res2.intentId()).isEqualTo(IntentClassification.ORDER_CANCEL);
-        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.92);
-    }
-
-    @Test
-    @DisplayName("Should resolve general conversation intent for greetings and help")
-    void resolve_generalConversationQueries() {
-        IntentClassification res = resolver.resolve("hello", List.of());
-        assertThat(res.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
-        assertThat(res.confidence()).isGreaterThanOrEqualTo(0.90);
-
-        IntentClassification res2 = resolver.resolve("who are you?", List.of());
-        assertThat(res2.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
-        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.90);
-
-        IntentClassification res3 = resolver.resolve("", List.of());
-        assertThat(res3.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
-        assertThat(res3.confidence()).isEqualTo(1.0);
-    }
-
-    @Test
-    @DisplayName("Should resolve customer lookup intent for customer name search queries")
-    void resolve_customerLookupQueries() {
-        IntentClassification res = resolver.resolve("find customer Alice", List.of());
-        assertThat(res.intentId()).isEqualTo(IntentClassification.CUSTOMER_LOOKUP);
-        assertThat(res.confidence()).isGreaterThanOrEqualTo(0.85);
-
-        IntentClassification res2 = resolver.resolve("who is customer Chi", List.of());
-        assertThat(res2.intentId()).isEqualTo(IntentClassification.CUSTOMER_LOOKUP);
-        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.85);
-
-        IntentClassification res3 = resolver.resolve("my name is Alice Tran", List.of());
-        assertThat(res3.intentId()).isEqualTo(IntentClassification.CUSTOMER_LOOKUP);
-        assertThat(res3.confidence()).isGreaterThanOrEqualTo(0.85);
-    }
-
-    @Test
-    @DisplayName("Should resolve place order intent when user specifies customer name in purchase request")
-    void resolve_orderPlaceWithCustomerName() {
-        IntentClassification res = resolver.resolve("order 2 of NG-EARBUD-01 for Alice", List.of());
-        assertThat(res.intentId()).isEqualTo(IntentClassification.ORDER_PLACE);
-        assertThat(res.confidence()).isGreaterThanOrEqualTo(0.92);
-
-        IntentClassification res2 = resolver.resolve("place order for Alice Tran", List.of());
-        assertThat(res2.intentId()).isEqualTo(IntentClassification.ORDER_PLACE);
-        assertThat(res2.confidence()).isGreaterThanOrEqualTo(0.92);
+            assertThat(result.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
+        }
     }
 }

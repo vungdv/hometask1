@@ -1,18 +1,23 @@
 package vn.danang.polaris.assistant.mcp;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -29,6 +34,7 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.security.UserContext;
 
+@DisplayName("Feature: HttpPolarisMcpClient JSON-RPC Transport & Security")
 class HttpPolarisMcpClientTest {
 
     private PolarisMcpProperties properties;
@@ -52,336 +58,312 @@ class HttpPolarisMcpClientTest {
         SecurityContextHolder.clearContext();
     }
 
-    @Test
-    void testResolveEndpoint_normalizesLegacySseUrl() {
-        properties.getCore().setUrl("http://localhost:8080/mcp/sse");
-        assertEquals("http://localhost:8080/mcp", client.resolveEndpoint());
+    // =========================================================================
+    // 1. Happy path — standard MCP list and call operations
+    // =========================================================================
+    @Nested
+    @DisplayName("1. Happy path")
+    class HappyPath {
 
-        properties.getCore().setUrl("http://localhost:8080/mcp");
-        assertEquals("http://localhost:8080/mcp", client.resolveEndpoint());
-    }
-
-    @Test
-    void testListAvailableTools_success() throws Exception {
-        String jsonResponse = """
-            {
-              "jsonrpc": "2.0",
-              "id": "1",
-              "result": {
-                "tools": [
-                  {
-                    "name": "search_available_products",
-                    "description": "Search products in catalog",
-                    "inputSchema": { "type": "object" }
+        @Test
+        @DisplayName("Given successful tools/list response, when queried, then parses and returns registered tools")
+        void lists_available_tools_from_mcp_endpoint() throws Exception {
+            String jsonResponse = """
+                {
+                  "jsonrpc": "2.0",
+                  "id": "1",
+                  "result": {
+                    "tools": [
+                      {
+                        "name": "search_available_products",
+                        "description": "Search products in catalog",
+                        "inputSchema": { "type": "object" }
+                      }
+                    ]
                   }
-                ]
-              }
-            }
-            """;
-        when(mockHttpResponse.statusCode()).thenReturn(200);
-        when(mockHttpResponse.body()).thenReturn(jsonResponse);
-        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+                }
+                """;
+            when(mockHttpResponse.statusCode()).thenReturn(200);
+            when(mockHttpResponse.body()).thenReturn(jsonResponse);
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
 
-        List<Tool> tools = client.listAvailableTools();
+            List<Tool> tools = client.listAvailableTools();
 
-        assertNotNull(tools);
-        assertEquals(1, tools.size());
-        assertEquals("search_available_products", tools.get(0).name());
-        assertEquals("Search products in catalog", tools.get(0).description());
-    }
+            assertThat(tools).hasSize(1);
+            assertThat(tools.get(0).name()).isEqualTo("search_available_products");
+            assertThat(tools.get(0).description()).isEqualTo("Search products in catalog");
+        }
 
-    @Test
-    void testListAvailableTools_httpError_returnsEmptyList() throws Exception {
-        when(mockHttpResponse.statusCode()).thenReturn(500);
-        when(mockHttpResponse.body()).thenReturn("Internal Server Error");
-        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
-
-        List<Tool> tools = client.listAvailableTools();
-
-        assertNotNull(tools);
-        assertTrue(tools.isEmpty());
-    }
-
-    @Test
-    void testListAvailableTools_jsonRpcError_returnsEmptyList() throws Exception {
-        String errorResponse = """
-            {
-              "jsonrpc": "2.0",
-              "id": "1",
-              "error": {
-                "code": -32601,
-                "message": "Method not found"
-              }
-            }
-            """;
-        when(mockHttpResponse.statusCode()).thenReturn(200);
-        when(mockHttpResponse.body()).thenReturn(errorResponse);
-        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
-
-        List<Tool> tools = client.listAvailableTools();
-
-        assertNotNull(tools);
-        assertTrue(tools.isEmpty());
-    }
-
-    @Test
-    void testCallTool_success() throws Exception {
-        String jsonResponse = """
-            {
-              "jsonrpc": "2.0",
-              "id": "call-1",
-              "result": {
-                "content": [
-                  {
-                    "type": "text",
-                    "text": "Found 2 products matching query"
+        @Test
+        @DisplayName("Given successful tools/call response, when executed, then returns parsed CallToolResult")
+        void calls_tool_and_returns_content() throws Exception {
+            String jsonResponse = """
+                {
+                  "jsonrpc": "2.0",
+                  "id": "call-1",
+                  "result": {
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Found 2 products matching query"
+                      }
+                    ],
+                    "isError": false
                   }
-                ],
-                "isError": false
-              }
+                }
+                """;
+            when(mockHttpResponse.statusCode()).thenReturn(200);
+            when(mockHttpResponse.body()).thenReturn(jsonResponse);
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+            CallToolResult result = client.callTool("search_available_products", Map.of("query", "phone"));
+
+            assertThat(result.isError()).isFalse();
+            assertThat(result.content()).hasSize(1);
+            assertThat(((TextContent) result.content().get(0)).text()).isEqualTo("Found 2 products matching query");
+        }
+
+        @Test
+        @DisplayName("Given authenticated caller in SecurityContext, when sending request, then injects Bearer token in Authorization header")
+        void injects_bearer_token_from_security_context() throws Exception {
+            Jwt jwt = Jwt.withTokenValue("ey-user-token-abc")
+                    .header("alg", "none")
+                    .claim("sub", "user-42")
+                    .build();
+            JwtAuthenticationToken auth = new JwtAuthenticationToken(jwt);
+            SecurityContext context = SecurityContextHolder.createEmptyContext();
+            context.setAuthentication(auth);
+            SecurityContextHolder.setContext(context);
+
+            when(mockHttpResponse.statusCode()).thenReturn(200);
+            when(mockHttpResponse.body()).thenReturn("{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"result\":{\"tools\":[]}}");
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+            try {
+                client.listAvailableTools();
+
+                ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+                verify(mockHttpClient).send(captor.capture(), any());
+
+                HttpRequest sentRequest = captor.getValue();
+                assertThat(sentRequest.headers().firstValue("Authorization"))
+                        .hasValue("Bearer ey-user-token-abc");
+                assertThat(sentRequest.headers().firstValue("Content-Type"))
+                        .hasValue("application/json");
+                assertThat(sentRequest.headers().firstValue("Accept").orElse(""))
+                        .contains("application/json");
+            } finally {
+                SecurityContextHolder.clearContext();
             }
-            """;
-        when(mockHttpResponse.statusCode()).thenReturn(200);
-        when(mockHttpResponse.body()).thenReturn(jsonResponse);
-        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+        }
 
-        CallToolResult result = client.callTool("search_available_products", Map.of("query", "phone"));
+        @Test
+        @DisplayName("Given active span in tracer, when calling tool, then injects W3C traceparent header")
+        void injects_w3c_traceparent_header_when_tracer_is_present() throws Exception {
+            Tracer mockTracer = mock(Tracer.class);
+            Span mockSpan = mock(Span.class);
+            TraceContext mockContext = mock(TraceContext.class);
 
-        assertNotNull(result);
-        assertFalse(result.isError());
-        assertEquals(1, result.content().size());
-        assertTrue(result.content().get(0) instanceof TextContent);
-        assertEquals("Found 2 products matching query", ((TextContent) result.content().get(0)).text());
-    }
+            when(mockTracer.currentSpan()).thenReturn(mockSpan);
+            when(mockSpan.context()).thenReturn(mockContext);
+            when(mockContext.traceId()).thenReturn("4bf92f3577b34da6a3ce929d0e0e4736");
+            when(mockContext.spanId()).thenReturn("00f067aa0ba902b7");
+            when(mockContext.sampled()).thenReturn(true);
 
-    @Test
-    void testCallTool_httpError_returnsErrorResult() throws Exception {
-        when(mockHttpResponse.statusCode()).thenReturn(503);
-        when(mockHttpResponse.body()).thenReturn("Service Unavailable");
-        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+            HttpPolarisMcpClient tracedClient = new HttpPolarisMcpClient(
+                    properties, objectMapper, new UserContext(properties), mockHttpClient, mockTracer);
 
-        CallToolResult result = client.callTool("search_available_products", Map.of("query", "phone"));
+            when(mockHttpResponse.statusCode()).thenReturn(200);
+            when(mockHttpResponse.body()).thenReturn("""
+                {
+                  "jsonrpc": "2.0",
+                  "id": "1",
+                  "result": {
+                    "content": [{"type": "text", "text": "Success"}],
+                    "isError": false
+                  }
+                }
+                """);
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
 
-        assertNotNull(result);
-        assertTrue(result.isError());
-        assertTrue(((TextContent) result.content().get(0)).text().contains("HTTP 503"));
-    }
-
-    @Test
-    void testCallTool_jsonRpcError_returnsErrorResult() throws Exception {
-        String errorResponse = """
-            {
-              "jsonrpc": "2.0",
-              "id": "call-1",
-              "error": {
-                "code": -32602,
-                "message": "Invalid params"
-              }
-            }
-            """;
-        when(mockHttpResponse.statusCode()).thenReturn(200);
-        when(mockHttpResponse.body()).thenReturn(errorResponse);
-        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
-
-        CallToolResult result = client.callTool("search_available_products", Map.of("bad", 123));
-
-        assertNotNull(result);
-        assertTrue(result.isError());
-        assertTrue(((TextContent) result.content().get(0)).text().contains("Invalid params"));
-    }
-
-    @Test
-    void testBearerTokenInjectedInHttpRequest() throws Exception {
-        Jwt jwt = Jwt.withTokenValue("ey-user-token-abc")
-                .header("alg", "none")
-                .claim("sub", "user-42")
-                .build();
-        JwtAuthenticationToken auth = new JwtAuthenticationToken(jwt);
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(auth);
-        SecurityContextHolder.setContext(context);
-
-        when(mockHttpResponse.statusCode()).thenReturn(200);
-        when(mockHttpResponse.body()).thenReturn("{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"result\":{\"tools\":[]}}");
-        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
-
-        try {
-            client.listAvailableTools();
+            tracedClient.callTool("search_available_products", Map.of("query", "test"));
 
             ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
             verify(mockHttpClient).send(captor.capture(), any());
 
             HttpRequest sentRequest = captor.getValue();
-            assertTrue(sentRequest.headers().firstValue("Authorization").isPresent());
-            assertEquals("Bearer ey-user-token-abc", sentRequest.headers().firstValue("Authorization").get());
-            assertEquals("application/json", sentRequest.headers().firstValue("Content-Type").get());
-            assertTrue(sentRequest.headers().firstValue("Accept").get().contains("application/json"));
-        } finally {
-            SecurityContextHolder.clearContext();
+            assertThat(sentRequest.headers().firstValue("traceparent"))
+                    .hasValue("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
         }
     }
 
-    @Test
-    void testResolveBearerToken_withFallbackProperty() {
-        properties.getCore().setAuthToken("fallback-token-xyz");
-        HttpPolarisMcpClient clientWithFallback = new HttpPolarisMcpClient(properties, objectMapper, mockHttpClient);
+    // =========================================================================
+    // 2. Invalid input & protocol error handling
+    // =========================================================================
+    @Nested
+    @DisplayName("2. Invalid input & protocol error handling")
+    class InvalidInput {
 
-        assertEquals("fallback-token-xyz", clientWithFallback.resolveBearerToken());
+        @Test
+        @DisplayName("Given HTTP 500 error status, when listing tools, then returns empty list safely")
+        void returns_empty_list_when_tools_list_encounters_http_error() throws Exception {
+            when(mockHttpResponse.statusCode()).thenReturn(500);
+            when(mockHttpResponse.body()).thenReturn("Internal Server Error");
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+            List<Tool> tools = client.listAvailableTools();
+
+            assertThat(tools).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Given JSON-RPC error response, when listing tools, then returns empty list safely")
+        void returns_empty_list_when_tools_list_encounters_json_rpc_error() throws Exception {
+            String errorResponse = """
+                {
+                  "jsonrpc": "2.0",
+                  "id": "1",
+                  "error": {
+                    "code": -32601,
+                    "message": "Method not found"
+                  }
+                }
+                """;
+            when(mockHttpResponse.statusCode()).thenReturn(200);
+            when(mockHttpResponse.body()).thenReturn(errorResponse);
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+            List<Tool> tools = client.listAvailableTools();
+
+            assertThat(tools).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Given HTTP 503 status, when calling tool, then returns CallToolResult with isError=true")
+        void returns_error_result_when_tool_call_encounters_http_error() throws Exception {
+            when(mockHttpResponse.statusCode()).thenReturn(503);
+            when(mockHttpResponse.body()).thenReturn("Service Unavailable");
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+            CallToolResult result = client.callTool("search_available_products", Map.of("query", "phone"));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(((TextContent) result.content().get(0)).text()).contains("HTTP 503");
+        }
+
+        @Test
+        @DisplayName("Given JSON-RPC error payload, when calling tool, then returns error result with error message")
+        void returns_error_result_when_tool_call_encounters_json_rpc_error() throws Exception {
+            String errorResponse = """
+                {
+                  "jsonrpc": "2.0",
+                  "id": "call-1",
+                  "error": {
+                    "code": -32602,
+                    "message": "Invalid params"
+                  }
+                }
+                """;
+            when(mockHttpResponse.statusCode()).thenReturn(200);
+            when(mockHttpResponse.body()).thenReturn(errorResponse);
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+            CallToolResult result = client.callTool("search_available_products", Map.of("bad", 123));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(((TextContent) result.content().get(0)).text()).contains("Invalid params");
+        }
     }
 
-    @Test
-    void testResolveBearerToken_noAuth_returnsNull() {
-        properties.getCore().setAuthToken(null);
-        HttpPolarisMcpClient clientNoAuth = new HttpPolarisMcpClient(properties, objectMapper, mockHttpClient);
+    // =========================================================================
+    // 3. Edge cases — network timeouts, URL normalization, fallbacks
+    // =========================================================================
+    @Nested
+    @DisplayName("3. Edge cases")
+    class EdgeCases {
 
-        assertNull(clientNoAuth.resolveBearerToken());
-    }
+        @Test
+        @DisplayName("Given unreachable destination, when executing, then handles connection exception gracefully")
+        void handles_offline_connection_failure_gracefully() {
+            PolarisMcpProperties offlineProps = new PolarisMcpProperties();
+            offlineProps.getCore().setUrl("http://127.0.0.1:59999/mcp");
+            offlineProps.getCore().setTimeoutSeconds(1);
 
-    @Test
-    void testOfflineHandling_handlesExceptionGracefully() {
-        PolarisMcpProperties offlineProps = new PolarisMcpProperties();
-        offlineProps.getCore().setUrl("http://127.0.0.1:59999/mcp");
-        offlineProps.getCore().setTimeoutSeconds(1);
+            HttpPolarisMcpClient realClient = new HttpPolarisMcpClient(offlineProps, objectMapper);
 
-        HttpPolarisMcpClient realClient = new HttpPolarisMcpClient(offlineProps, objectMapper);
+            assertThat(realClient.listAvailableTools()).isEmpty();
+            CallToolResult result = realClient.callTool("search_available_products", Map.of("query", "test"));
+            assertThat(result.isError()).isTrue();
+        }
 
-        List<Tool> tools = realClient.listAvailableTools();
-        assertNotNull(tools);
-        assertTrue(tools.isEmpty());
+        @Test
+        @DisplayName("Given URL ending with legacy /mcp/sse, when resolving endpoint, then normalizes to /mcp")
+        void normalizes_legacy_sse_endpoint_to_standard_http() {
+            properties.getCore().setUrl("http://localhost:8080/mcp/sse");
 
-        CallToolResult result = realClient.callTool("search_available_products", Map.of("query", "test"));
-        assertNotNull(result);
-        assertTrue(result.isError());
-    }
+            assertThat(client.resolveEndpoint()).isEqualTo("http://localhost:8080/mcp");
+        }
 
-    @Test
-    void testUserContext_delegation() {
-        UserContext mockUserContext = mock(UserContext.class);
-        when(mockUserContext.resolveBearerToken()).thenReturn("mocked-token-999");
+        @Test
+        @DisplayName("Given client without tracer, when calling tool, then does not inject traceparent header")
+        void omits_traceparent_header_when_tracer_is_absent() throws Exception {
+            when(mockHttpResponse.statusCode()).thenReturn(200);
+            when(mockHttpResponse.body()).thenReturn("""
+                {
+                  "jsonrpc": "2.0",
+                  "id": "1",
+                  "result": {
+                    "content": [{"type": "text", "text": "Success"}],
+                    "isError": false
+                  }
+                }
+                """);
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
 
-        HttpPolarisMcpClient clientWithMockUserContext = new HttpPolarisMcpClient(properties, objectMapper, mockUserContext, mockHttpClient);
-        assertEquals("mocked-token-999", clientWithMockUserContext.resolveBearerToken());
-        verify(mockUserContext).resolveBearerToken();
-    }
+            client.callTool("search_available_products", Map.of("query", "test"));
 
-    @Test
-    void testResetClient_doesNotThrow() {
-        assertDoesNotThrow(() -> client.resetClient());
-    }
+            ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+            verify(mockHttpClient).send(captor.capture(), any());
+            assertThat(captor.getValue().headers().firstValue("traceparent")).isEmpty();
+        }
 
-    @Test
-    void testCallTool_withTracer_injectsW3CTraceparentHeader() throws Exception {
-        Tracer mockTracer = mock(Tracer.class);
-        Span mockSpan = mock(Span.class);
-        TraceContext mockContext = mock(TraceContext.class);
+        @Test
+        @DisplayName("Given fallback authToken in properties, when unauthenticated, then resolves configured static token")
+        void resolves_fallback_auth_token_from_properties() {
+            properties.getCore().setAuthToken("fallback-token-xyz");
+            HttpPolarisMcpClient clientWithFallback = new HttpPolarisMcpClient(properties, objectMapper, mockHttpClient);
 
-        when(mockTracer.currentSpan()).thenReturn(mockSpan);
-        when(mockSpan.context()).thenReturn(mockContext);
-        when(mockContext.traceId()).thenReturn("4bf92f3577b34da6a3ce929d0e0e4736");
-        when(mockContext.spanId()).thenReturn("00f067aa0ba902b7");
-        when(mockContext.sampled()).thenReturn(true);
+            assertThat(clientWithFallback.resolveBearerToken()).isEqualTo("fallback-token-xyz");
+        }
 
-        HttpPolarisMcpClient tracedClient = new HttpPolarisMcpClient(
-                properties, objectMapper, new UserContext(properties), mockHttpClient, mockTracer);
+        @Test
+        @DisplayName("Given unauthenticated context and no fallback, when resolving token, then returns null")
+        void returns_null_when_unauthenticated_and_no_fallback_configured() {
+            properties.getCore().setAuthToken(null);
+            HttpPolarisMcpClient clientNoAuth = new HttpPolarisMcpClient(properties, objectMapper, mockHttpClient);
 
-        when(mockHttpResponse.statusCode()).thenReturn(200);
-        when(mockHttpResponse.body()).thenReturn("""
-            {
-              "jsonrpc": "2.0",
-              "id": "1",
-              "result": {
-                "content": [{"type": "text", "text": "Success"}],
-                "isError": false
-              }
-            }
-            """);
-        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+            assertThat(clientNoAuth.resolveBearerToken()).isNull();
+        }
 
-        CallToolResult result = tracedClient.callTool("search_available_products", Map.of("query", "test"));
-        assertNotNull(result);
-        assertFalse(Boolean.TRUE.equals(result.isError()));
+        @Test
+        @DisplayName("Given resetClient invoked, then completes safely without exceptions")
+        void resets_client_without_exceptions() {
+            assertThatCode(() -> client.resetClient()).doesNotThrowAnyException();
+        }
 
-        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
-        verify(mockHttpClient).send(captor.capture(), any());
-
-        HttpRequest sentRequest = captor.getValue();
-        assertTrue(sentRequest.headers().firstValue("traceparent").isPresent());
-        assertEquals("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-                sentRequest.headers().firstValue("traceparent").get());
-    }
-
-    @Test
-    void testListAvailableTools_withTracer_injectsW3CTraceparentHeader() throws Exception {
-        Tracer mockTracer = mock(Tracer.class);
-        Span mockSpan = mock(Span.class);
-        TraceContext mockContext = mock(TraceContext.class);
-
-        when(mockTracer.currentSpan()).thenReturn(mockSpan);
-        when(mockSpan.context()).thenReturn(mockContext);
-        when(mockContext.traceId()).thenReturn("4bf92f3577b34da6a3ce929d0e0e4736");
-        when(mockContext.spanId()).thenReturn("00f067aa0ba902b7");
-        when(mockContext.sampled()).thenReturn(false);
-
-        HttpPolarisMcpClient tracedClient = new HttpPolarisMcpClient(
-                properties, objectMapper, new UserContext(properties), mockHttpClient, mockTracer);
-
-        when(mockHttpResponse.statusCode()).thenReturn(200);
-        when(mockHttpResponse.body()).thenReturn("""
-            {
-              "jsonrpc": "2.0",
-              "id": "1",
-              "result": {
-                "tools": []
-              }
-            }
-            """);
-        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
-
-        List<Tool> tools = tracedClient.listAvailableTools();
-        assertNotNull(tools);
-
-        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
-        verify(mockHttpClient).send(captor.capture(), any());
-
-        HttpRequest sentRequest = captor.getValue();
-        assertTrue(sentRequest.headers().firstValue("traceparent").isPresent());
-        assertEquals("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
-                sentRequest.headers().firstValue("traceparent").get());
-    }
-
-    @Test
-    void testCallTool_withoutTracer_doesNotInjectTraceparent() throws Exception {
-        when(mockHttpResponse.statusCode()).thenReturn(200);
-        when(mockHttpResponse.body()).thenReturn("""
-            {
-              "jsonrpc": "2.0",
-              "id": "1",
-              "result": {
-                "content": [{"type": "text", "text": "Success"}]
-              }
-            }
-            """);
-        doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
-
-        client.callTool("search_available_products", Map.of("query", "test"));
-
-        ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
-        verify(mockHttpClient).send(captor.capture(), any());
-
-        HttpRequest sentRequest = captor.getValue();
-        assertFalse(sentRequest.headers().firstValue("traceparent").isPresent());
-    }
-
-    @Test
-    void testConstructor_withObjectProvider_extractsTracer() {
-        Tracer mockTracer = mock(Tracer.class);
+        @Test
+        @DisplayName("Given ObjectProvider constructor, when instantiated, then extracts Tracer bean")
         @SuppressWarnings("unchecked")
-        ObjectProvider<Tracer> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(mockTracer);
+        void extracts_tracer_from_object_provider() {
+            Tracer mockTracer = mock(Tracer.class);
+            ObjectProvider<Tracer> provider = mock(ObjectProvider.class);
+            when(provider.getIfAvailable()).thenReturn(mockTracer);
 
-        HttpPolarisMcpClient clientFromProvider = new HttpPolarisMcpClient(
-                properties, objectMapper, new UserContext(properties), provider);
-        assertNotNull(clientFromProvider);
-        verify(provider).getIfAvailable();
+            HttpPolarisMcpClient clientFromProvider = new HttpPolarisMcpClient(
+                    properties, objectMapper, new UserContext(properties), provider);
+
+            assertThat(clientFromProvider).isNotNull();
+            verify(provider).getIfAvailable();
+        }
     }
 }

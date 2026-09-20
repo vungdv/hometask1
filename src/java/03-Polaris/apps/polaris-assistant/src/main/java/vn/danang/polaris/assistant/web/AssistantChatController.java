@@ -48,6 +48,9 @@ public class AssistantChatController {
     public ResponseEntity<ChatMessageResponse> chat(
             @Valid @NotNull @RequestBody ChatMessageRequest request,
             Principal principal) {
+        if (request == null) {
+            throw new IllegalArgumentException("Message content must not be blank.");
+        }
         String userId = (principal != null) ? principal.getName() : "anonymous";
         ChatMessageResponse response = chatService.sendMessage(request, userId);
         return ResponseEntity.ok(response);

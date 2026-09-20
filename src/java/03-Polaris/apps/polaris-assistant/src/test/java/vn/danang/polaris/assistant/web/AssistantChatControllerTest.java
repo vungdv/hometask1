@@ -35,7 +35,7 @@ import vn.danang.polaris.web.exception.GlobalExceptionHandler;
 
 @WebMvcTest(AssistantChatController.class)
 @Import({SecurityConfig.class, GlobalExceptionHandler.class})
-@DisplayName("AssistantChatController API Contract & Validation Tests")
+@DisplayName("Feature: AssistantChatController API Contract & Validation")
 class AssistantChatControllerTest {
 
     @Autowired
@@ -52,12 +52,12 @@ class AssistantChatControllerTest {
     class DirectUnitTests {
 
         @Nested
-        @DisplayName("Main / Successful Test Paths")
-        class MainSuccessPaths {
+        @DisplayName("1. Happy path")
+        class HappyPath {
 
             @Test
-            @DisplayName("Should invoke service and return 200 OK when request is valid")
-            void chat_withValidRequest_returnsOkResponse() {
+            @DisplayName("Given valid request, when chat is invoked, then delegates to service and returns 200 OK")
+            void invokes_service_and_returns_ok_when_request_is_valid() {
                 AssistantChatService mockService = mock(AssistantChatService.class);
                 AssistantChatController controller = new AssistantChatController(mockService);
 
@@ -80,8 +80,8 @@ class AssistantChatControllerTest {
             }
 
             @Test
-            @DisplayName("Should use anonymous userId when principal is null")
-            void chat_withNullPrincipal_usesAnonymousUserId() {
+            @DisplayName("Given null principal, when chat is invoked, then defaults to 'anonymous' user ID")
+            void uses_anonymous_user_id_when_principal_is_null() {
                 AssistantChatService mockService = mock(AssistantChatService.class);
                 AssistantChatController controller = new AssistantChatController(mockService);
 
@@ -102,8 +102,8 @@ class AssistantChatControllerTest {
             }
 
             @Test
-            @DisplayName("Should pass authenticated principal name as userId")
-            void chat_withAuthenticatedPrincipal_usesPrincipalName() {
+            @DisplayName("Given authenticated principal, when chat is invoked, then forwards principal name as user ID")
+            void uses_principal_name_when_authenticated() {
                 AssistantChatService mockService = mock(AssistantChatService.class);
                 AssistantChatController controller = new AssistantChatController(mockService);
 
@@ -127,12 +127,12 @@ class AssistantChatControllerTest {
         }
 
         @Nested
-        @DisplayName("Common Invalid & Edge Cases")
-        class InvalidAndEdgeCases {
+        @DisplayName("2. Invalid input")
+        class InvalidInput {
 
             @Test
-            @DisplayName("Should throw IllegalArgumentException when request is null")
-            void chat_withNullRequest_throwsIllegalArgumentException() {
+            @DisplayName("Given null request, when chat is invoked directly, then throws IllegalArgumentException")
+            void rejects_null_request_with_illegal_argument_exception() {
                 AssistantChatService mockService = mock(AssistantChatService.class);
                 AssistantChatController controller = new AssistantChatController(mockService);
 
@@ -155,12 +155,12 @@ class AssistantChatControllerTest {
     class WebLayerApiContractTests {
 
         @Nested
-        @DisplayName("Main / Successful Test Paths (HTTP 200)")
-        class SuccessfulPaths {
+        @DisplayName("1. Happy path (HTTP 200)")
+        class HappyPath {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat returns 200 OK with application/json for valid payload")
-            void chat_withValidPayload_returns200AndJson() throws Exception {
+            void returns_200_and_json_for_valid_payload() throws Exception {
                 Instant now = Instant.parse("2026-09-20T10:00:00Z");
                 ChatMessageResponse mockResponse = new ChatMessageResponse(
                         "session-123",
@@ -192,7 +192,7 @@ class AssistantChatControllerTest {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat succeeds when sessionId is omitted")
-            void chat_withOmittedSessionId_returns200() throws Exception {
+            void generates_session_and_returns_200_when_session_id_omitted() throws Exception {
                 ChatMessageResponse mockResponse = new ChatMessageResponse(
                         "auto-generated-session",
                         "ASSISTANT",
@@ -221,7 +221,7 @@ class AssistantChatControllerTest {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat forwards authenticated principal name to service")
-            void chat_withAuthenticatedUser_forwardsUserId() throws Exception {
+            void forwards_authenticated_user_id_from_jwt() throws Exception {
                 ChatMessageResponse mockResponse = new ChatMessageResponse(
                         "session-auth",
                         "ASSISTANT",
@@ -253,12 +253,12 @@ class AssistantChatControllerTest {
         }
 
         @Nested
-        @DisplayName("Common Invalid Requests - Problem Details (HTTP 400)")
-        class CommonInvalidProblemDetails {
+        @DisplayName("2. Invalid input - RFC 7807 Problem Details (HTTP 400)")
+        class InvalidInput {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when message is empty string")
-            void chat_withEmptyStringMessage_returns400ProblemDetail() throws Exception {
+            void returns_400_problem_detail_when_message_is_empty_string() throws Exception {
                 String json = """
                         {
                             "sessionId": "session-123",
@@ -282,7 +282,7 @@ class AssistantChatControllerTest {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when message is whitespace-only")
-            void chat_withWhitespaceOnlyMessage_returns400ProblemDetail() throws Exception {
+            void returns_400_problem_detail_when_message_is_whitespace_only() throws Exception {
                 String json = """
                         {
                             "sessionId": "session-123",
@@ -306,7 +306,7 @@ class AssistantChatControllerTest {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when message field is null")
-            void chat_withNullMessage_returns400ProblemDetail() throws Exception {
+            void returns_400_problem_detail_when_message_field_is_null() throws Exception {
                 String json = """
                         {
                             "sessionId": "session-123",
@@ -330,7 +330,7 @@ class AssistantChatControllerTest {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when message field is completely missing")
-            void chat_withMissingMessageField_returns400ProblemDetail() throws Exception {
+            void returns_400_problem_detail_when_message_field_is_missing() throws Exception {
                 String json = """
                         {
                             "sessionId": "session-123"
@@ -353,7 +353,7 @@ class AssistantChatControllerTest {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when request body is empty")
-            void chat_withEmptyBody_returns400ProblemDetail() throws Exception {
+            void returns_400_problem_detail_when_request_body_is_empty() throws Exception {
                 mockMvc.perform(post("/api/v1/assistant/chat")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(""))
@@ -370,7 +370,7 @@ class AssistantChatControllerTest {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when payload is malformed JSON")
-            void chat_withMalformedJson_returns400ProblemDetail() throws Exception {
+            void returns_400_problem_detail_when_payload_is_malformed_json() throws Exception {
                 String malformedJson = "{ \"message\": ";
 
                 mockMvc.perform(post("/api/v1/assistant/chat")
@@ -389,13 +389,12 @@ class AssistantChatControllerTest {
         }
 
         @Nested
-        @DisplayName("Edge Cases & Protocol Exceptions (HTTP 400 / 415 / 500)")
-        class EdgeCasesAndProtocolContracts {
+        @DisplayName("3. Edge cases & Protocol Exceptions (HTTP 400 / 415 / 409 / 500)")
+        class EdgeCases {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when message contains only Unicode zero-width or control characters")
-            void chat_withInvisibleUnicodeCharactersOnly_returns400ProblemDetail() throws Exception {
-                // \u200B is ZERO WIDTH SPACE, \u200C is ZERO WIDTH NON-JOINER
+            void returns_400_problem_detail_when_message_contains_only_invisible_unicode() throws Exception {
                 String json = """
                         {
                             "sessionId": "session-unicode",
@@ -419,7 +418,7 @@ class AssistantChatControllerTest {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat returns 415 ProblemDetail when Content-Type is unsupported")
-            void chat_withUnsupportedMediaType_returns415ProblemDetail() throws Exception {
+            void returns_415_problem_detail_when_content_type_is_unsupported() throws Exception {
                 mockMvc.perform(post("/api/v1/assistant/chat")
                                 .contentType(MediaType.TEXT_PLAIN)
                                 .content("Hello AI"))
@@ -435,7 +434,7 @@ class AssistantChatControllerTest {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat returns 409 ProblemDetail when domain state conflict occurs")
-            void chat_whenDomainConflictOccurs_returns409ProblemDetail() throws Exception {
+            void returns_409_problem_detail_when_domain_conflict_occurs() throws Exception {
                 when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
                         .thenThrow(new IllegalStateException("AI model provider connection refused"));
 
@@ -458,7 +457,7 @@ class AssistantChatControllerTest {
 
             @Test
             @DisplayName("POST /api/v1/assistant/chat returns 500 ProblemDetail on unexpected internal exception")
-            void chat_whenUnexpectedException_returns500ProblemDetail() throws Exception {
+            void returns_500_problem_detail_on_unexpected_internal_exception() throws Exception {
                 when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
                         .thenThrow(new RuntimeException("Unexpected runtime error"));
 

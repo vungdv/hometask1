@@ -53,11 +53,11 @@ public final class AssistantMessage {
     }
 
     public static AssistantMessage of(String message, MessageRole messageRole, String thoughtSignature) {
-        var userMsg = new AssistantMessage();
-        userMsg.setContent(message);
-        userMsg.setRole(MessageRole.USER);
-        userMsg.setThoughtSignature(thoughtSignature);
-        userMsg.setCreatedAt(Instant.now());
-        return userMsg;
+        var msg = new AssistantMessage();
+        msg.setContent(message);
+        msg.setRole(messageRole != null ? messageRole : MessageRole.USER);
+        msg.setThoughtSignature(thoughtSignature);
+        msg.setCreatedAt(Instant.now());
+        return msg;
     }
 }
