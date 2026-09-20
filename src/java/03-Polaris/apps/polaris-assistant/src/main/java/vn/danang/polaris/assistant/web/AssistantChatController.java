@@ -48,7 +48,6 @@ public class AssistantChatController {
     public ResponseEntity<ChatMessageResponse> chat(
             @Valid @NotNull @RequestBody ChatMessageRequest request,
             Principal principal) {
-        ChatMessageRequest.validate(request);
         String userId = (principal != null) ? principal.getName() : "anonymous";
         ChatMessageResponse response = chatService.sendMessage(request, userId);
         return ResponseEntity.ok(response);

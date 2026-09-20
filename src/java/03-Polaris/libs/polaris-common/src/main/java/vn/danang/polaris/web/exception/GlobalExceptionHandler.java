@@ -168,6 +168,32 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ProblemDetail handleHttpMessageNotReadableException(org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        Throwable rootCause = ex.getMostSpecificCause();
+        if (rootCause instanceof IllegalArgumentException iae) {
+            return handleIllegalArgumentException(iae, null);
+        }
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST,
+                "Required request body is missing or malformed."
+        );
+        problem.setTitle("Malformed Request Payload");
+        problem.setType(URI.create("https://polaris.local/errors/bad-request"));
+        return problem;
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotSupportedException.class)
+    public ProblemDetail handleHttpMediaTypeNotSupportedException(org.springframework.web.HttpMediaTypeNotSupportedException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                ex.getMessage()
+        );
+        problem.setTitle("Unsupported Media Type");
+        problem.setType(URI.create("https://polaris.local/errors/unsupported-media-type"));
+        return problem;
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleIllegalArgumentException(IllegalArgumentException ex, HttpServletRequest request) {
         String msg = ex.getMessage();
@@ -252,6 +278,17 @@ public class GlobalExceptionHandler {
         problem.setType(URI.create("https://polaris.local/errors/forbidden"));
         problem.setProperty("remedy", "You do not have permission to access this resource.");
         problem.setProperty("actions", java.util.List.of(java.util.Map.of("label", "My Orders", "action", "view_my_orders")));
+        return problem;
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ProblemDetail handleUnhandledException(Exception ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Internal server error during processing."
+        );
+        problem.setTitle("Internal Server Error");
+        problem.setType(URI.create("https://polaris.local/errors/internal-error"));
         return problem;
     }
 

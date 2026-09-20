@@ -1,6 +1,7 @@
 package vn.danang.polaris.assistant.dto;
 
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
@@ -23,35 +24,27 @@ public record ChatMessageRequest(
 
 ) {
 
+    // Strips invisible/format & control Unicode characters (e.g. zero-width space U+200B)
+    // that could otherwise slip past isBlank() checks while looking empty.
+    private static final Pattern INVISIBLE_OR_CONTROL = Pattern.compile("[\\p{Cf}\\p{Cc}]");
+
     public ChatMessageRequest(String message) {
         this(null, message);
     }
 
     public ChatMessageRequest {
-        // Generate the session ID once during construction.
-        sessionId = sessionId == null || sessionId.isBlank()
+        if (message == null) {
+            throw new IllegalArgumentException("Message content must not be blank.");
+        }
+
+        message = INVISIBLE_OR_CONTROL.matcher(message).replaceAll("").trim();
+
+        if (message.isEmpty()) {
+            throw new IllegalArgumentException("Message content must not be blank.");
+        }
+
+        sessionId = (sessionId == null || sessionId.isBlank())
                 ? UUID.randomUUID().toString()
                 : sessionId;
-    }
-
-    public static void validate(ChatMessageRequest request) {
-        if (request == null) {
-            throw new IllegalArgumentException("Message content must not be blank.");
-        }
-        String rawMessage = request.message();
-        if (rawMessage == null || rawMessage.isBlank()) {
-            throw new IllegalArgumentException("Message content must not be blank.");
-        }
-    }
-
-    public void validate() {
-        validate(this);
-    }
-
-    public String resolvedMessage() {
-        if (message != null && !message.isBlank()) {
-            return message.trim();
-        }
-        return "";
     }
 }

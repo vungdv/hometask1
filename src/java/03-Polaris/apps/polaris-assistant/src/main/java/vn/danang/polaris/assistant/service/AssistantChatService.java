@@ -101,8 +101,7 @@ public class AssistantChatService {
             }
     )
     public ChatMessageResponse sendMessage(ChatMessageRequest request, String userId) {
-        ChatMessageRequest.validate(request);
-        String messageText = request.resolvedMessage();
+        String messageText = request.message();
         String sessionId = request.sessionId();
 
         // 1. Load conversation history for this session

@@ -164,15 +164,12 @@ class AssistantChatServiceTest {
     }
 
     @Test
-    @DisplayName("Should throw IllegalArgumentException when message is blank")
-    void sendMessage_withBlankMessage_throwsIllegalArgumentException() {
-        ChatMessageRequest request = new ChatMessageRequest("   ");
-
+    @DisplayName("Should throw IllegalArgumentException when constructing request with blank message")
+    void constructor_withBlankMessage_throwsIllegalArgumentException() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> chatService.sendMessage(request, "user-123"));
+                () -> new ChatMessageRequest("   "));
 
         assertThat(exception).hasMessage("Message content must not be blank.");
-        verify(modelClient, never()).chat(anyList());
     }
 
     @Test
@@ -442,8 +439,8 @@ class AssistantChatServiceTest {
     }
 
     @Test
-    @DisplayName("WO-013: Should record request received, tag error, and end span on blank message validation failure")
-    void sendMessage_whenBlankMessageWithTracer_recordsEventAndErrorOnSpan() {
+    @DisplayName("WO-013: Should record request received, tag error, and end span on turn failure")
+    void sendMessage_whenTurnFailsWithTracer_recordsEventAndErrorOnSpan() {
         Span span = mock(Span.class);
         Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
         Tracer tracer = mockTracerSetup(span, spanInScope);
@@ -454,12 +451,15 @@ class AssistantChatServiceTest {
         AssistantChatService serviceWithTracer = createChatService(
                 modelClient, mockMcpHub, tracer);
 
-        ChatMessageRequest request = new ChatMessageRequest("sess-blank", "   ");
+        when(modelClient.generateResponse(anyList(), anyList()))
+                .thenThrow(new RuntimeException("Gemini model failure"));
 
-        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-                () -> serviceWithTracer.sendMessage(request, "user-blank"));
+        ChatMessageRequest request = new ChatMessageRequest("sess-err", "Find fast chargers");
 
-        assertThat(thrown).hasMessage("Message content must not be blank.");
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> serviceWithTracer.sendMessage(request, "user-err"));
+
+        assertThat(thrown).hasMessage("Gemini model failure");
 
         verify(span).error(thrown);
         verify(span).tag("error", "true");
