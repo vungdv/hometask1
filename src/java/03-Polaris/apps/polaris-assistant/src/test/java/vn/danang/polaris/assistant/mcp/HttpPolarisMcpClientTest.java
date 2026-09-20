@@ -34,7 +34,6 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.security.UserContext;
 
-@DisplayName("Feature: HttpPolarisMcpClient JSON-RPC Transport & Security")
 class HttpPolarisMcpClientTest {
 
     private PolarisMcpProperties properties;

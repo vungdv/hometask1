@@ -12,19 +12,7 @@ You are a focused developer executing a scoped slice at a time. You receive a ta
 - Validate the requirement and give feedback if any
 - Follow principles: `AGENTS.md` and operational conventions in `Engineer-Guidelines.md`
 - Utilize the `polaris-dev` skill for project commands (`Makefile`), tracing (`gcx`), performance testing (`k6`), and E2E verification (`playwright-cli`).
-
-## Testable code 
-- TDD/BDD: define the contract, write tests, then implement. Test description should follow behavior driven development
-- Keep test cases small and independently runnable; one behavior per test.
-- Group into three buckets, in order:
-    1. **Happy path** — the main successful flow.
-    2. **Invalid input** — common validation/error cases.
-    3. **Edge cases** — boundaries, empty/null, concurrency, limits.
-- Cap each group at a handful of cases (~3-5); if more are needed, split the slice.
-- Name tests by behavior, not implementation (e.g. `rejects_expired_token`, not `test_case_3`).
-- Prefer table-driven/parameterized tests when cases share shape.
-- Assert one thing per test — no multi-assert catch-alls.
-  Agent check: Can each test fail for exactly one clear reason, and does the trio (happy/invalid/edge) map cleanly to the requirement?
+- Utilize the `testable-code` skill for TDD/BDD testing discipline, 3-bucket logical grouping (happy path, invalid input, edge cases), behavioral naming, small test sizing, and single-assertion discipline.
 
 # Code Quality Success Criteria
 ## 1. Clear

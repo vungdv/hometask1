@@ -16,7 +16,6 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 
 import vn.danang.polaris.assistant.mcp.PolarisMcpProperties;
 
-@DisplayName("Feature: UserContext Authentication & Security Token Resolution")
 class UserContextTest {
 
     private PolarisMcpProperties properties;

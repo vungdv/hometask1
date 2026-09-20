@@ -26,7 +26,6 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 
-@DisplayName("Feature: AgentDecisionRecorder Structured Decision Logging & Audit Telemetry")
 class AgentDecisionRecorderTest {
 
     private ObjectMapper objectMapper;

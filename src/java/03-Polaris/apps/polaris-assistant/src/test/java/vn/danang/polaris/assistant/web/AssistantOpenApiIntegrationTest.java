@@ -11,6 +11,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -20,7 +21,6 @@ import vn.danang.polaris.assistant.model.AssistantModelClient;
 
 @SpringBootTest(classes = PolarisAssistantApp.class)
 @AutoConfigureMockMvc
-@DisplayName("Feature: Assistant OpenAPI Contract & Specification")
 class AssistantOpenApiIntegrationTest {
 
     @Autowired
@@ -51,10 +51,25 @@ class AssistantOpenApiIntegrationTest {
     }
 
     // =========================================================================
-    // 2. Edge cases & Security/RFC 7807 contracts
+    // 2. Invalid input — unsupported methods & error handling
     // =========================================================================
     @Nested
-    @DisplayName("2. Edge cases & Security Contracts")
+    @DisplayName("2. Invalid input")
+    class InvalidInput {
+
+        @Test
+        @DisplayName("POST /v3/api-docs mutation attempt without CSRF is rejected with 403 Forbidden")
+        void rejects_unauthorized_mutation_attempt_on_api_docs() throws Exception {
+            mockMvc.perform(post("/v3/api-docs"))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    // =========================================================================
+    // 3. Edge cases & Security/RFC 7807 contracts
+    // =========================================================================
+    @Nested
+    @DisplayName("3. Edge cases")
     class EdgeCases {
 
         @Test

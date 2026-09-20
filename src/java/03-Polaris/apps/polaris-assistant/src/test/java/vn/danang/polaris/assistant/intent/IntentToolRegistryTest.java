@@ -12,7 +12,6 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 
-@DisplayName("Feature: IntentToolRegistry Intent Taxonomy & Tool Capabilities")
 class IntentToolRegistryTest {
 
     private IntentToolRegistry registry;

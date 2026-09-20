@@ -19,7 +19,6 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 
 import vn.danang.polaris.assistant.security.UserContext;
 
-@DisplayName("Feature: DefaultPolicyEngine Security Authorization & Scopes")
 class DefaultPolicyEngineTest {
 
     private DefaultPolicyEngine policyEngine;

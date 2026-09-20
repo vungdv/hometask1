@@ -37,7 +37,6 @@ import vn.danang.polaris.assistant.intent.PolicyEngine;
 import vn.danang.polaris.assistant.model.ToolCall;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("Feature: ExternalMcpHub Model Context Protocol Gateway & Routing")
 class ExternalMcpHubTest {
 
     @Mock

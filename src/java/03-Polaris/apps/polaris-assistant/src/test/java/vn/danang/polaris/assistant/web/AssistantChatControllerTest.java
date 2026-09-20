@@ -8,6 +8,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -20,6 +22,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -35,7 +38,6 @@ import vn.danang.polaris.web.exception.GlobalExceptionHandler;
 
 @WebMvcTest(AssistantChatController.class)
 @Import({SecurityConfig.class, GlobalExceptionHandler.class})
-@DisplayName("Feature: AssistantChatController API Contract & Validation")
 class AssistantChatControllerTest {
 
     @Autowired
@@ -45,440 +47,289 @@ class AssistantChatControllerTest {
     private AssistantChatService chatService;
 
     // =========================================================================
-    // 1. Direct Unit Tests (Pure Controller Isolation)
+    // 1. Happy path — standard conversation and authentication flows
     // =========================================================================
     @Nested
-    @DisplayName("1. Direct Unit Tests (Controller Isolation)")
-    class DirectUnitTests {
+    @DisplayName("1. Happy path")
+    class HappyPath {
 
-        @Nested
-        @DisplayName("1. Happy path")
-        class HappyPath {
+        @Test
+        @DisplayName("Given valid payload, when chat invoked, returns 200 OK with application/json")
+        void returns_200_and_json_for_valid_payload() throws Exception {
+            Instant now = Instant.parse("2026-09-20T10:00:00Z");
+            ChatMessageResponse mockResponse = new ChatMessageResponse(
+                    "session-123",
+                    "ASSISTANT",
+                    "Polaris is an ecommerce platform.",
+                    now
+            );
 
-            @Test
-            @DisplayName("Given valid request, when chat is invoked, then delegates to service and returns 200 OK")
-            void invokes_service_and_returns_ok_when_request_is_valid() {
-                AssistantChatService mockService = mock(AssistantChatService.class);
-                AssistantChatController controller = new AssistantChatController(mockService);
+            when(chatService.sendMessage(any(ChatMessageRequest.class), eq("anonymous")))
+                    .thenReturn(mockResponse);
 
-                ChatMessageRequest request = new ChatMessageRequest("Hello AI");
-                Principal principal = () -> "test-user";
-                ChatMessageResponse expectedResponse = new ChatMessageResponse(
-                        request.sessionId(),
-                        "ASSISTANT",
-                        "Hello, how can I help you?",
-                        Instant.now()
-                );
+            String json = """
+                    {
+                        "sessionId": "session-123",
+                        "message": "What is Polaris?"
+                    }
+                    """;
 
-                when(mockService.sendMessage(eq(request), eq("test-user"))).thenReturn(expectedResponse);
-
-                ResponseEntity<ChatMessageResponse> response = controller.chat(request, principal);
-
-                assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-                assertThat(response.getBody()).isEqualTo(expectedResponse);
-                verify(mockService).sendMessage(eq(request), eq("test-user"));
-            }
-
-            @Test
-            @DisplayName("Given null principal, when chat is invoked, then defaults to 'anonymous' user ID")
-            void uses_anonymous_user_id_when_principal_is_null() {
-                AssistantChatService mockService = mock(AssistantChatService.class);
-                AssistantChatController controller = new AssistantChatController(mockService);
-
-                ChatMessageRequest request = new ChatMessageRequest("Hello AI");
-                ChatMessageResponse expectedResponse = new ChatMessageResponse(
-                        request.sessionId(),
-                        "ASSISTANT",
-                        "Hello!",
-                        Instant.now()
-                );
-
-                when(mockService.sendMessage(eq(request), eq("anonymous"))).thenReturn(expectedResponse);
-
-                ResponseEntity<ChatMessageResponse> response = controller.chat(request, null);
-
-                assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-                verify(mockService).sendMessage(eq(request), eq("anonymous"));
-            }
-
-            @Test
-            @DisplayName("Given authenticated principal, when chat is invoked, then forwards principal name as user ID")
-            void uses_principal_name_when_authenticated() {
-                AssistantChatService mockService = mock(AssistantChatService.class);
-                AssistantChatController controller = new AssistantChatController(mockService);
-
-                ChatMessageRequest request = new ChatMessageRequest("sess-1", "What is my order status?");
-                Principal principal = () -> "user-alice";
-                ChatMessageResponse expectedResponse = new ChatMessageResponse(
-                        "sess-1",
-                        "ASSISTANT",
-                        "Your order is confirmed.",
-                        Instant.now()
-                );
-
-                when(mockService.sendMessage(eq(request), eq("user-alice"))).thenReturn(expectedResponse);
-
-                ResponseEntity<ChatMessageResponse> response = controller.chat(request, principal);
-
-                assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-                assertThat(response.getBody()).isEqualTo(expectedResponse);
-                verify(mockService).sendMessage(eq(request), eq("user-alice"));
-            }
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json))
+                    .andExpect(status().isOk())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                    .andExpect(jsonPath("$.sessionId").value("session-123"))
+                    .andExpect(jsonPath("$.role").value("ASSISTANT"))
+                    .andExpect(jsonPath("$.reply").value("Polaris is an ecommerce platform."))
+                    .andExpect(jsonPath("$.createdAt").value("2026-09-20T10:00:00Z"));
         }
 
-        @Nested
-        @DisplayName("2. Invalid input")
-        class InvalidInput {
+        @Test
+        @DisplayName("Given payload without sessionId, when chat invoked, generates session and returns 200 OK")
+        void generates_session_and_returns_200_when_session_id_omitted() throws Exception {
+            ChatMessageResponse mockResponse = new ChatMessageResponse(
+                    "auto-generated-session",
+                    "ASSISTANT",
+                    "Hello there!",
+                    Instant.now()
+            );
 
-            @Test
-            @DisplayName("Given null request, when chat is invoked directly, then throws IllegalArgumentException")
-            void rejects_null_request_with_illegal_argument_exception() {
-                AssistantChatService mockService = mock(AssistantChatService.class);
-                AssistantChatController controller = new AssistantChatController(mockService);
+            when(chatService.sendMessage(any(ChatMessageRequest.class), eq("anonymous")))
+                    .thenReturn(mockResponse);
 
-                Principal principal = () -> "test-user";
+            String json = """
+                    {
+                        "message": "Hello!"
+                    }
+                    """;
 
-                assertThatThrownBy(() -> controller.chat(null, principal))
-                        .isInstanceOf(IllegalArgumentException.class)
-                        .hasMessage("Message content must not be blank.");
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json))
+                    .andExpect(status().isOk())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                    .andExpect(jsonPath("$.sessionId").value("auto-generated-session"))
+                    .andExpect(jsonPath("$.role").value("ASSISTANT"))
+                    .andExpect(jsonPath("$.reply").value("Hello there!"));
+        }
 
-                verifyNoInteractions(mockService);
-            }
+        @Test
+        @DisplayName("Given authenticated JWT, when chat invoked, forwards username to chatService")
+        void forwards_authenticated_user_id_from_jwt() throws Exception {
+            ChatMessageResponse mockResponse = new ChatMessageResponse(
+                    "session-auth",
+                    "ASSISTANT",
+                    "Welcome back Alice!",
+                    Instant.now()
+            );
+
+            when(chatService.sendMessage(any(ChatMessageRequest.class), eq("user-alice")))
+                    .thenReturn(mockResponse);
+
+            String json = """
+                    {
+                        "sessionId": "session-auth",
+                        "message": "Show my past orders"
+                    }
+                    """;
+
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                    .jwt(jwt -> jwt.subject("user-alice")))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.sessionId").value("session-auth"))
+                    .andExpect(jsonPath("$.reply").value("Welcome back Alice!"));
+
+            verify(chatService).sendMessage(any(ChatMessageRequest.class), eq("user-alice"));
+        }
+
+        @Test
+        @DisplayName("Given null principal in direct call, when chat invoked, defaults to 'anonymous' user ID")
+        void defaults_to_anonymous_user_when_principal_is_null() {
+            AssistantChatService mockService = mock(AssistantChatService.class);
+            AssistantChatController controller = new AssistantChatController(mockService);
+
+            ChatMessageRequest request = new ChatMessageRequest("Hello AI");
+            ChatMessageResponse expectedResponse = new ChatMessageResponse(
+                    request.sessionId(),
+                    "ASSISTANT",
+                    "Hello!",
+                    Instant.now()
+            );
+
+            when(mockService.sendMessage(eq(request), eq("anonymous"))).thenReturn(expectedResponse);
+
+            ResponseEntity<ChatMessageResponse> response = controller.chat(request, null);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(response.getBody()).isEqualTo(expectedResponse);
+            verify(mockService).sendMessage(eq(request), eq("anonymous"));
         }
     }
 
     // =========================================================================
-    // 2. MockMvc Web Layer API Contract Tests
+    // 2. Invalid input — validation errors and RFC 7807 problem details
     // =========================================================================
     @Nested
-    @DisplayName("2. MockMvc Web Layer API Contract Tests")
-    class WebLayerApiContractTests {
+    @DisplayName("2. Invalid input")
+    class InvalidInput {
 
-        @Nested
-        @DisplayName("1. Happy path (HTTP 200)")
-        class HappyPath {
+        @ParameterizedTest(name = "Payload \"{0}\" rejected with 400 Bad Request")
+        @ValueSource(strings = {
+                "{\"sessionId\": \"session-123\", \"message\": \"\"}",
+                "{\"sessionId\": \"session-123\", \"message\": \"     \"}",
+                "{\"sessionId\": \"session-123\", \"message\": null}",
+                "{\"sessionId\": \"session-123\"}"
+        })
+        @DisplayName("Given empty, whitespace, null, or missing message, returns 400 ProblemDetail")
+        void rejects_blank_or_missing_message_with_400_problem_detail(String jsonPayload) throws Exception {
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(jsonPayload))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
+                    .andExpect(jsonPath("$.title").value("Bad Request"))
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.detail").value("Message content must not be blank."))
+                    .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
 
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat returns 200 OK with application/json for valid payload")
-            void returns_200_and_json_for_valid_payload() throws Exception {
-                Instant now = Instant.parse("2026-09-20T10:00:00Z");
-                ChatMessageResponse mockResponse = new ChatMessageResponse(
-                        "session-123",
-                        "ASSISTANT",
-                        "Polaris is an ecommerce platform.",
-                        now
-                );
-
-                when(chatService.sendMessage(any(ChatMessageRequest.class), eq("anonymous")))
-                        .thenReturn(mockResponse);
-
-                String json = """
-                        {
-                            "sessionId": "session-123",
-                            "message": "What is Polaris?"
-                        }
-                        """;
-
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(json))
-                        .andExpect(status().isOk())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                        .andExpect(jsonPath("$.sessionId").value("session-123"))
-                        .andExpect(jsonPath("$.role").value("ASSISTANT"))
-                        .andExpect(jsonPath("$.reply").value("Polaris is an ecommerce platform."))
-                        .andExpect(jsonPath("$.createdAt").value("2026-09-20T10:00:00Z"));
-            }
-
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat succeeds when sessionId is omitted")
-            void generates_session_and_returns_200_when_session_id_omitted() throws Exception {
-                ChatMessageResponse mockResponse = new ChatMessageResponse(
-                        "auto-generated-session",
-                        "ASSISTANT",
-                        "Hello there!",
-                        Instant.now()
-                );
-
-                when(chatService.sendMessage(any(ChatMessageRequest.class), eq("anonymous")))
-                        .thenReturn(mockResponse);
-
-                String json = """
-                        {
-                            "message": "Hello!"
-                        }
-                        """;
-
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(json))
-                        .andExpect(status().isOk())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                        .andExpect(jsonPath("$.sessionId").value("auto-generated-session"))
-                        .andExpect(jsonPath("$.role").value("ASSISTANT"))
-                        .andExpect(jsonPath("$.reply").value("Hello there!"));
-            }
-
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat forwards authenticated principal name to service")
-            void forwards_authenticated_user_id_from_jwt() throws Exception {
-                ChatMessageResponse mockResponse = new ChatMessageResponse(
-                        "session-auth",
-                        "ASSISTANT",
-                        "Welcome back Alice!",
-                        Instant.now()
-                );
-
-                when(chatService.sendMessage(any(ChatMessageRequest.class), eq("user-alice")))
-                        .thenReturn(mockResponse);
-
-                String json = """
-                        {
-                            "sessionId": "session-auth",
-                            "message": "Show my past orders"
-                        }
-                        """;
-
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt()
-                                        .jwt(jwt -> jwt.subject("user-alice")))
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(json))
-                        .andExpect(status().isOk())
-                        .andExpect(jsonPath("$.sessionId").value("session-auth"))
-                        .andExpect(jsonPath("$.reply").value("Welcome back Alice!"));
-
-                verify(chatService).sendMessage(any(ChatMessageRequest.class), eq("user-alice"));
-            }
+            verifyNoInteractions(chatService);
         }
 
-        @Nested
-        @DisplayName("2. Invalid input - RFC 7807 Problem Details (HTTP 400)")
-        class InvalidInput {
+        @ParameterizedTest(name = "Malformed payload \"{0}\" rejected with 400")
+        @ValueSource(strings = {
+                "",
+                "{ \"message\": "
+        })
+        @DisplayName("Given empty or malformed JSON payload, returns 400 ProblemDetail")
+        void rejects_empty_or_malformed_json_body_with_400_problem_detail(String invalidPayload) throws Exception {
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(invalidPayload))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
+                    .andExpect(jsonPath("$.title").value("Malformed Request Payload"))
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.detail").value("Required request body is missing or malformed."))
+                    .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
 
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when message is empty string")
-            void returns_400_problem_detail_when_message_is_empty_string() throws Exception {
-                String json = """
-                        {
-                            "sessionId": "session-123",
-                            "message": ""
-                        }
-                        """;
-
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(json))
-                        .andExpect(status().isBadRequest())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                        .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
-                        .andExpect(jsonPath("$.title").value("Bad Request"))
-                        .andExpect(jsonPath("$.status").value(400))
-                        .andExpect(jsonPath("$.detail").value("Message content must not be blank."))
-                        .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
-
-                verifyNoInteractions(chatService);
-            }
-
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when message is whitespace-only")
-            void returns_400_problem_detail_when_message_is_whitespace_only() throws Exception {
-                String json = """
-                        {
-                            "sessionId": "session-123",
-                            "message": "     "
-                        }
-                        """;
-
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(json))
-                        .andExpect(status().isBadRequest())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                        .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
-                        .andExpect(jsonPath("$.title").value("Bad Request"))
-                        .andExpect(jsonPath("$.status").value(400))
-                        .andExpect(jsonPath("$.detail").value("Message content must not be blank."))
-                        .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
-
-                verifyNoInteractions(chatService);
-            }
-
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when message field is null")
-            void returns_400_problem_detail_when_message_field_is_null() throws Exception {
-                String json = """
-                        {
-                            "sessionId": "session-123",
-                            "message": null
-                        }
-                        """;
-
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(json))
-                        .andExpect(status().isBadRequest())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                        .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
-                        .andExpect(jsonPath("$.title").value("Bad Request"))
-                        .andExpect(jsonPath("$.status").value(400))
-                        .andExpect(jsonPath("$.detail").value("Message content must not be blank."))
-                        .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
-
-                verifyNoInteractions(chatService);
-            }
-
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when message field is completely missing")
-            void returns_400_problem_detail_when_message_field_is_missing() throws Exception {
-                String json = """
-                        {
-                            "sessionId": "session-123"
-                        }
-                        """;
-
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(json))
-                        .andExpect(status().isBadRequest())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                        .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
-                        .andExpect(jsonPath("$.title").value("Bad Request"))
-                        .andExpect(jsonPath("$.status").value(400))
-                        .andExpect(jsonPath("$.detail").value("Message content must not be blank."))
-                        .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
-
-                verifyNoInteractions(chatService);
-            }
-
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when request body is empty")
-            void returns_400_problem_detail_when_request_body_is_empty() throws Exception {
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(""))
-                        .andExpect(status().isBadRequest())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                        .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
-                        .andExpect(jsonPath("$.title").value("Malformed Request Payload"))
-                        .andExpect(jsonPath("$.status").value(400))
-                        .andExpect(jsonPath("$.detail").value("Required request body is missing or malformed."))
-                        .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
-
-                verifyNoInteractions(chatService);
-            }
-
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when payload is malformed JSON")
-            void returns_400_problem_detail_when_payload_is_malformed_json() throws Exception {
-                String malformedJson = "{ \"message\": ";
-
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(malformedJson))
-                        .andExpect(status().isBadRequest())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                        .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
-                        .andExpect(jsonPath("$.title").value("Malformed Request Payload"))
-                        .andExpect(jsonPath("$.status").value(400))
-                        .andExpect(jsonPath("$.detail").value("Required request body is missing or malformed."))
-                        .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
-
-                verifyNoInteractions(chatService);
-            }
+            verifyNoInteractions(chatService);
         }
 
-        @Nested
-        @DisplayName("3. Edge cases & Protocol Exceptions (HTTP 400 / 415 / 409 / 500)")
-        class EdgeCases {
+        @Test
+        @DisplayName("Given null request in direct invocation, throws IllegalArgumentException")
+        void rejects_null_request_in_direct_call_with_illegal_argument_exception() {
+            AssistantChatService mockService = mock(AssistantChatService.class);
+            AssistantChatController controller = new AssistantChatController(mockService);
 
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat returns 400 ProblemDetail when message contains only Unicode zero-width or control characters")
-            void returns_400_problem_detail_when_message_contains_only_invisible_unicode() throws Exception {
-                String json = """
-                        {
-                            "sessionId": "session-unicode",
-                            "message": "\\u200B\\u200C\\u200D"
-                        }
-                        """;
+            Principal principal = () -> "test-user";
 
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(json))
-                        .andExpect(status().isBadRequest())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                        .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
-                        .andExpect(jsonPath("$.title").value("Bad Request"))
-                        .andExpect(jsonPath("$.status").value(400))
-                        .andExpect(jsonPath("$.detail").value("Message content must not be blank."))
-                        .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
+            assertThatThrownBy(() -> controller.chat(null, principal))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Message content must not be blank.");
 
-                verifyNoInteractions(chatService);
-            }
+            verifyNoInteractions(mockService);
+        }
+    }
 
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat returns 415 ProblemDetail when Content-Type is unsupported")
-            void returns_415_problem_detail_when_content_type_is_unsupported() throws Exception {
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.TEXT_PLAIN)
-                                .content("Hello AI"))
-                        .andExpect(status().isUnsupportedMediaType())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                        .andExpect(jsonPath("$.type").value("https://polaris.local/errors/unsupported-media-type"))
-                        .andExpect(jsonPath("$.title").value("Unsupported Media Type"))
-                        .andExpect(jsonPath("$.status").value(415))
-                        .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
+    // =========================================================================
+    // 3. Edge cases — protocol boundaries and exception translations
+    // =========================================================================
+    @Nested
+    @DisplayName("3. Edge cases")
+    class EdgeCases {
 
-                verifyNoInteractions(chatService);
-            }
+        @Test
+        @DisplayName("Given message with invisible Unicode characters, returns 400 ProblemDetail")
+        void rejects_invisible_unicode_message_with_400_problem_detail() throws Exception {
+            String json = """
+                    {
+                        "sessionId": "session-unicode",
+                        "message": "\\u200B\\u200C\\u200D"
+                    }
+                    """;
 
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat returns 409 ProblemDetail when domain state conflict occurs")
-            void returns_409_problem_detail_when_domain_conflict_occurs() throws Exception {
-                when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
-                        .thenThrow(new IllegalStateException("AI model provider connection refused"));
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"))
+                    .andExpect(jsonPath("$.title").value("Bad Request"))
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.detail").value("Message content must not be blank."))
+                    .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
 
-                String json = """
-                        {
-                            "sessionId": "session-error",
-                            "message": "Find chargers in catalog"
-                        }
-                        """;
+            verifyNoInteractions(chatService);
+        }
 
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(json))
-                        .andExpect(status().isConflict())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                        .andExpect(jsonPath("$.type").value("https://polaris.local/errors/conflict"))
-                        .andExpect(jsonPath("$.title").value("Order State Conflict"))
-                        .andExpect(jsonPath("$.status").value(409));
-            }
+        @Test
+        @DisplayName("Given unsupported media type, returns 415 ProblemDetail")
+        void rejects_unsupported_content_type_with_415_problem_detail() throws Exception {
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.TEXT_PLAIN)
+                            .content("Hello AI"))
+                    .andExpect(status().isUnsupportedMediaType())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.type").value("https://polaris.local/errors/unsupported-media-type"))
+                    .andExpect(jsonPath("$.title").value("Unsupported Media Type"))
+                    .andExpect(jsonPath("$.status").value(415))
+                    .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
 
-            @Test
-            @DisplayName("POST /api/v1/assistant/chat returns 500 ProblemDetail on unexpected internal exception")
-            void returns_500_problem_detail_on_unexpected_internal_exception() throws Exception {
-                when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
-                        .thenThrow(new RuntimeException("Unexpected runtime error"));
+            verifyNoInteractions(chatService);
+        }
 
-                String json = """
-                        {
-                            "sessionId": "session-err",
-                            "message": "Tell me a joke"
-                        }
-                        """;
+        @Test
+        @DisplayName("Given domain state conflict from service, returns 409 ProblemDetail")
+        void handles_domain_state_conflict_with_409_problem_detail() throws Exception {
+            when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
+                    .thenThrow(new IllegalStateException("AI model provider connection refused"));
 
-                mockMvc.perform(post("/api/v1/assistant/chat")
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(json))
-                        .andExpect(status().isInternalServerError())
-                        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                        .andExpect(jsonPath("$.type").value("https://polaris.local/errors/internal-error"))
-                        .andExpect(jsonPath("$.title").value("Internal Server Error"))
-                        .andExpect(jsonPath("$.status").value(500))
-                        .andExpect(jsonPath("$.detail").value("Internal server error during processing."))
-                        .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
-            }
+            String json = """
+                    {
+                        "sessionId": "session-error",
+                        "message": "Find chargers in catalog"
+                    }
+                    """;
+
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json))
+                    .andExpect(status().isConflict())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.type").value("https://polaris.local/errors/conflict"))
+                    .andExpect(jsonPath("$.title").value("Order State Conflict"))
+                    .andExpect(jsonPath("$.status").value(409));
+        }
+
+        @Test
+        @DisplayName("Given unexpected runtime exception from service, returns 500 ProblemDetail")
+        void handles_unexpected_internal_exception_with_500_problem_detail() throws Exception {
+            when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
+                    .thenThrow(new RuntimeException("Unexpected runtime error"));
+
+            String json = """
+                    {
+                        "sessionId": "session-err",
+                        "message": "Tell me a joke"
+                    }
+                    """;
+
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json))
+                    .andExpect(status().isInternalServerError())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.type").value("https://polaris.local/errors/internal-error"))
+                    .andExpect(jsonPath("$.title").value("Internal Server Error"))
+                    .andExpect(jsonPath("$.status").value(500))
+                    .andExpect(jsonPath("$.detail").value("Internal server error during processing."))
+                    .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
         }
     }
 }

@@ -26,7 +26,6 @@ import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
-@DisplayName("Feature: CustomNextSpanAspect Distributed Trace Propagation & SpEL Tagging")
 class CustomNextSpanAspectTest {
 
     private Tracer tracer;

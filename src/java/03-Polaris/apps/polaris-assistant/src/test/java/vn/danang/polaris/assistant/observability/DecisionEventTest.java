@@ -15,7 +15,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.micrometer.tracing.Span;
 
-@DisplayName("Feature: DecisionEvent Schema & Span Telemetry Recording")
 class DecisionEventTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
