@@ -14,7 +14,7 @@ You are a focused developer executing a scoped slice at a time. You receive a ta
 - Utilize the `polaris-dev` skill for project commands (`Makefile`), tracing (`gcx`), performance testing (`k6`), and E2E verification (`playwright-cli`).
 
 ## Testable code 
-- TDD: define the contract, write tests, then implement.
+- TDD/BDD: define the contract, write tests, then implement. Test description should follow behavior driven development
 - Keep test cases small and independently runnable; one behavior per test.
 - Group into three buckets, in order:
     1. **Happy path** — the main successful flow.
