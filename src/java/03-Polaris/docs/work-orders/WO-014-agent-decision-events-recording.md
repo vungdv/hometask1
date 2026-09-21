@@ -6,7 +6,7 @@
 - **Architecture Reference:** [ADR-0014](../adr/0014-agent-decision-events-and-observability-schema.md)
 - **Product Reference:** [PRD-005](../prds/PRD-005-agent-turn-observability-and-lifecycle-events.md)
 - **Bounded Contexts:** Polaris Assistant Context (`apps/polaris-assistant`)
-- **Status:** READY FOR DEV
+- **Status:** DECOMMISSIONED / SUPERSEDED (Components removed in favor of native OTel GenAI standards)
 
 ---
 

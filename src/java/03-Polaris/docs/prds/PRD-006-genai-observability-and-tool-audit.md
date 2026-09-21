@@ -19,7 +19,7 @@ Prior architecture milestones established:
 - **PRD-004 / ADR-0011:** Gemini model distributed tracing spans (`gemini.generate_content`).
 - **ADR-0012:** Distributed trace context propagation across external MCP tool calls (`mcp.tool_call`).
 - **PRD-005 / ADR-0013:** Turn-level enclosing span (`agent.turn`) with lifecycle milestone span events.
-- **ADR-0014:** Structured agent decision schema (`DecisionEvent`) capturing alternative evaluation.
+- **ADR-0014:** *(Superseded)* Structured agent decision schema (`DecisionEvent`).
 - **ADR-0015:** Intent taxonomy, registry tool filtering, and OAuth2 scope policy enforcement.
 
 ### The Architectural & Governance Gap:
@@ -113,7 +113,7 @@ Despite these advances, production telemetry currently suffers from critical bli
 
 ### Scenario 4: Enriched Tool Execution Spans (`mcp.tool_call`)
 - **Given** a proposed tool execution for `search_available_products` at iteration 1.
-- **When** `ExternalMcpHub.executeTool` executes the tool under governance of `AgentDecisionRecorder.recordToolExecution`.
+- **When** `ExternalMcpHub.handleToolCalls` executes the tool via `ExternalMcpHub.executeTool`.
 - **Then** the `mcp.tool_call search_available_products` span records:
   * `gen_ai.tool.name = "search_available_products"`
   * `agent.iteration = "1"`

@@ -27,13 +27,12 @@ import vn.danang.polaris.assistant.intent.IntentToolRegistry;
 import vn.danang.polaris.assistant.intent.PolicyDecision;
 import vn.danang.polaris.assistant.intent.PolicyEngine;
 import vn.danang.polaris.assistant.model.ToolCall;
-import vn.danang.polaris.assistant.observability.AgentDecisionRecorder;
 
 /**
  * Hub and tool registry for Polaris Assistant.
  * Implements {@link McpHub} to discover tools and handle the tool call execution loop,
  * dispatching tool calls directly to Polaris Core via {@link PolarisMcpClient}
- * with distributed tracing, policy validation, and decision auditing.
+ * with distributed tracing and policy validation.
  */
 @Component
 public class ExternalMcpHub implements McpHub {
@@ -44,7 +43,6 @@ public class ExternalMcpHub implements McpHub {
     private final ObjectMapper objectMapper;
     @Nullable
     private final Tracer tracer;
-    private final AgentDecisionRecorder decisionRecorder;
     private final IntentToolRegistry intentToolRegistry;
     private final PolicyEngine policyEngine;
 
@@ -53,7 +51,6 @@ public class ExternalMcpHub implements McpHub {
             PolarisMcpClient polarisMcpClient,
             ObjectProvider<Tracer> tracerProvider,
             ObjectProvider<ObjectMapper> objectMapperProvider,
-            ObjectProvider<AgentDecisionRecorder> decisionRecorderProvider,
             ObjectProvider<IntentToolRegistry> intentToolRegistryProvider,
             ObjectProvider<PolicyEngine> policyEngineProvider) {
         this.polarisMcpClient = polarisMcpClient;
@@ -61,9 +58,6 @@ public class ExternalMcpHub implements McpHub {
         this.objectMapper = objectMapperProvider != null && objectMapperProvider.getIfAvailable() != null
                 ? objectMapperProvider.getIfAvailable()
                 : new ObjectMapper();
-        this.decisionRecorder = decisionRecorderProvider != null && decisionRecorderProvider.getIfAvailable() != null
-                ? decisionRecorderProvider.getIfAvailable()
-                : new AgentDecisionRecorder(this.objectMapper, this.tracer);
         this.intentToolRegistry = intentToolRegistryProvider != null && intentToolRegistryProvider.getIfAvailable() != null
                 ? intentToolRegistryProvider.getIfAvailable()
                 : new IntentToolRegistry();
@@ -73,7 +67,7 @@ public class ExternalMcpHub implements McpHub {
     }
 
     public ExternalMcpHub(PolarisMcpClient polarisMcpClient, ObjectProvider<Tracer> tracerProvider) {
-        this(polarisMcpClient, tracerProvider, null, null, null, null);
+        this(polarisMcpClient, tracerProvider, null, null, null);
     }
 
     public ExternalMcpHub(PolarisMcpClient polarisMcpClient) {
@@ -81,22 +75,18 @@ public class ExternalMcpHub implements McpHub {
     }
 
     public ExternalMcpHub(PolarisMcpClient polarisMcpClient, @Nullable Tracer tracer) {
-        this(polarisMcpClient, tracer, null, null, null, null);
+        this(polarisMcpClient, tracer, null, null, null);
     }
 
     public ExternalMcpHub(
             PolarisMcpClient polarisMcpClient,
             @Nullable Tracer tracer,
             @Nullable ObjectMapper objectMapper,
-            @Nullable AgentDecisionRecorder decisionRecorder,
             @Nullable IntentToolRegistry intentToolRegistry,
             @Nullable PolicyEngine policyEngine) {
         this.polarisMcpClient = polarisMcpClient;
         this.tracer = tracer;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
-        this.decisionRecorder = decisionRecorder != null
-                ? decisionRecorder
-                : new AgentDecisionRecorder(this.objectMapper, this.tracer);
         this.intentToolRegistry = intentToolRegistry != null
                 ? intentToolRegistry
                 : new IntentToolRegistry();
@@ -190,19 +180,7 @@ public class ExternalMcpHub implements McpHub {
         double confidence = context != null ? context.confidence() : 1.0;
         boolean meetsThreshold = context != null && context.meetsThreshold();
         List<Tool> filteredTools = context != null && context.filteredTools() != null ? context.filteredTools() : List.of();
-        Span span = (context != null && context.span() != null)
-                ? context.span()
-                : Optional.ofNullable(tracer).map(Tracer::currentSpan).orElse(null);
-
-        PolicyEngine effectivePolicyEngine = (context != null && context.policyEngine() != null)
-                ? context.policyEngine()
-                : this.policyEngine;
-        IntentToolRegistry effectiveRegistry = (context != null && context.intentToolRegistry() != null)
-                ? context.intentToolRegistry()
-                : this.intentToolRegistry;
-        AgentDecisionRecorder effectiveRecorder = (context != null && context.decisionRecorder() != null)
-                ? context.decisionRecorder()
-                : this.decisionRecorder;
+        Span span = Optional.ofNullable(tracer).map(Tracer::currentSpan).orElse(null);
 
         List<AssistantMessage> modelTurns = new ArrayList<>();
         List<AssistantMessage> toolTurns = new ArrayList<>();
@@ -229,10 +207,8 @@ public class ExternalMcpHub implements McpHub {
 
             // 1. Defensive tool validation against intent
             boolean isValidTool = meetsThreshold
-                    ? effectiveRegistry.isValid(intentId, toolCall.name())
+                    ? this.intentToolRegistry.isValid(intentId, toolCall.name())
                     : filteredTools.stream().anyMatch(t -> t.name().equals(toolCall.name()));
-
-            effectiveRecorder.recordRegistryValidation(sessionId, intentId, toolCall.name(), isValidTool, span);
 
             if (!isValidTool) {
                 log.warn("Tool '{}' is not permitted for intent '{}'", toolCall.name(), intentId);
@@ -246,9 +222,8 @@ public class ExternalMcpHub implements McpHub {
             }
 
             // 2. Defensive policy authorization against caller scopes
-            String requiredScope = effectiveRegistry.getRequiredScope(toolCall.name());
-            PolicyDecision policyDecision = effectivePolicyEngine.authorize(userId, requiredScope);
-            effectiveRecorder.recordPolicyAuthorization(sessionId, intentId, toolCall.name(), requiredScope, policyDecision.allowed(), policyDecision.reason(), span);
+            String requiredScope = this.intentToolRegistry.getRequiredScope(toolCall.name());
+            PolicyDecision policyDecision = this.policyEngine.authorize(userId, requiredScope);
 
             if (!policyDecision.allowed()) {
                 log.warn("Policy DENIED execution of tool '{}' for user '{}': {}", toolCall.name(), userId, policyDecision.reason());
@@ -257,23 +232,9 @@ public class ExternalMcpHub implements McpHub {
                 break;
             }
 
-            // 3. Execute tool via MCP with decision recording
+            // 3. Execute tool via MCP
             recordEvent(span, "agent.tool.call: " + toolCall.name());
-            CallToolResult toolResult = effectiveRecorder.recordToolExecution(
-                    sessionId,
-                    intentId,
-                    confidence,
-                    iteration,
-                    toolCall.name(),
-                    isValidTool,
-                    policyDecision.allowed() ? "ALLOW" : "DENY",
-                    policyDecision.reason(),
-                    requiredScope,
-                    toolCall.arguments(),
-                    filteredTools,
-                    span,
-                    () -> executeTool(toolCall.name(), toolCall.arguments())
-            );
+            CallToolResult toolResult = executeTool(toolCall.name(), toolCall.arguments());
             String resultText = extractToolResultText(toolResult);
             recordEvent(span, "agent.tool.result: " + toolCall.name());
 

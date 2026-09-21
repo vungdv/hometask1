@@ -96,6 +96,54 @@ public class IntentToolRegistry {
         return def != null ? def.getConfidenceThreshold() : 0.80;
     }
 
+    /**
+     * Resolves the intent and computes accepted tools based on confidence threshold.
+     * If confidence is below threshold, falls back to all available tools.
+     *
+     * @param classification the intent classification
+     * @param availableTools all discovered tools
+     * @return ResolvedIntent encapsulating intent ID, confidence, threshold status, and accepted tools
+     */
+    public ResolvedIntent resolveIntent(IntentClassification classification, List<Tool> availableTools) {
+        String intentId = classification != null && classification.intentId() != null && !classification.intentId().isBlank()
+                ? classification.intentId()
+                : IntentClassification.GENERAL_CONVERSATION;
+        double confidence = classification != null ? classification.confidence() : 1.0;
+        return resolveIntent(intentId, confidence, availableTools);
+    }
+
+    /**
+     * Resolves the intent and computes accepted tools based on confidence threshold.
+     * If confidence is below threshold, falls back to all available tools.
+     *
+     * @param intentId the intent ID
+     * @param confidence confidence score
+     * @param availableTools all discovered tools
+     * @return ResolvedIntent encapsulating intent ID, confidence, threshold status, and accepted tools
+     */
+    public ResolvedIntent resolveIntent(String intentId, double confidence, List<Tool> availableTools) {
+        String effectiveIntentId = (intentId != null && !intentId.isBlank())
+                ? intentId
+                : IntentClassification.GENERAL_CONVERSATION;
+        double threshold = getConfidenceThreshold(effectiveIntentId);
+        boolean meetsThreshold = confidence >= threshold;
+
+        List<Tool> tools = (availableTools != null) ? availableTools : List.of();
+        List<Tool> acceptedTools = !meetsThreshold
+                ? tools
+                : allowedTools(effectiveIntentId, tools);
+
+        return new ResolvedIntent(effectiveIntentId, confidence, meetsThreshold, acceptedTools);
+    }
+
+    public ResolvedIntent resolve(IntentClassification classification, List<Tool> availableTools) {
+        return resolveIntent(classification, availableTools);
+    }
+
+    public ResolvedIntent resolve(String intentId, double confidence, List<Tool> availableTools) {
+        return resolveIntent(intentId, confidence, availableTools);
+    }
+
     public Map<String, IntentDefinition> getAllIntents() {
         return Collections.unmodifiableMap(intentMap);
     }

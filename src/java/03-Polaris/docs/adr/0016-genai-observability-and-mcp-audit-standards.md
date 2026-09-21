@@ -29,7 +29,7 @@ How should Polaris Assistant architect model reasoning and tool execution observ
 
 * **Simplicity via Standardization ([AGENTS.md Principle 1](../../AGENTS.md)):** Align directly with OpenTelemetry GenAI Semantic Conventions v1.27+ (`gen_ai.*`), W3C Trace Context, and RFC 7807 problem details.
 * **Context Containment & Minimal Bounded Change ([AGENTS.md Principle 2](../../AGENTS.md)):** Restrict all changes strictly to `apps/polaris-assistant` without modifying Polaris Core, core database schemas, or external REST API contracts.
-* **Observability by Default & Anti-Monolith Modularity ([AGENTS.md Principle 3](../../AGENTS.md)):** Provide comprehensive tracing and correlated structured logging while separating concerns across modular components (`ArgumentSanitizer`, `ModelRequestContext`, `AgentDecisionRecorder`).
+* **Observability by Default & Anti-Monolith Modularity ([AGENTS.md Principle 3](../../AGENTS.md)):** Provide comprehensive tracing and correlated structured logging while separating concerns across modular components (`ArgumentSanitizer`, `ModelRequestContext`, `ExternalMcpHub`).
 * **Zero PII/PCI Trace Leakage:** Enforce automated redaction of sensitive keys and truncation of payloads before attaching them as trace tags.
 * **Fail-Safe Telemetry:** Telemetry operations must never cause conversational turn failures or degrade user experience.
 * **100% Backwards Compatibility:** Preserve all existing constructors, interfaces, and public methods across `apps/polaris-assistant`.
@@ -46,10 +46,10 @@ Inject inline span tags and ad-hoc log statements directly inside `AssistantChat
 Create a dedicated PostgreSQL database table (`ai_tool_audit_logs`) and persist every tool call, argument, and decision synchronously.
 * **Cons:** Introduces synchronous database I/O latency on every conversational turn; bloats the relational database; violates Polaris Assistant's decoupled, stateless microservice architecture ([ADR-0008](0008-polaris-assistant-independent-application-mcp-architecture.md)).
 
-### Option 3: Standardized OTel GenAI Model Spans, Enriched Tool Spans via `AgentDecisionRecorder` with `ArgumentSanitizer`, Sampled Thought Logging, and Enriched Span Events (Selected)
+### Option 3: Standardized OTel GenAI Model Spans, Enriched Tool Spans via `ExternalMcpHub` with `ArgumentSanitizer`, Sampled Thought Logging, and Enriched Span Events (Selected)
 - Update `GeminiAiModelClient` to record standard OTel GenAI v1.27+ attributes and accept an optional `ModelRequestContext`.
 - Implement `ArgumentSanitizer` to recursively mask sensitive PII/PCI keys and produce safe argument summaries.
-- Enhance `AgentDecisionRecorder.recordToolExecution` to attach governance audit tags (`gen_ai.tool.name`, `agent.iteration`, `agent.tool.validation_result`, `agent.policy.decision`, `agent.policy.reason`, `agent.policy.required_scope`, `agent.tool.result_size_bytes`, `mcp.tool.args_summary`) directly to the active span.
+- Enhance `ExternalMcpHub.handleToolCalls` to attach governance audit tags (`gen_ai.tool.name`, `agent.iteration`, `agent.tool.validation_result`, `agent.policy.decision`, `agent.policy.reason`, `agent.policy.required_scope`, `agent.tool.result_size_bytes`, `mcp.tool.args_summary`) directly to the active span.
 - Emit opaque thought signatures to a structured SLF4J JSON logger with 1% sampling or debug level.
 - Promote lifecycle span events on `agent.turn` to `agent.tool.call: <tool_name>` and `agent.tool.result: <tool_name>`.
 
@@ -197,7 +197,7 @@ default ModelResponse generateResponse(List<AssistantMessage> messages, List<Too
 | Criterion | Level | Justification |
 |---|---|---|
 | **B1: Boundary Enumeration** | Polaris Assistant Context | Strictly contained within `apps/polaris-assistant` across subpackages `model`, `observability`, `mcp`, and `service`. Core commerce contracts and schemas remain untouched. |
-| **B2: Stable vs Internal** | Explicitly Delineated | **Stable Contract:** OTel span attribute keys (`gen_ai.*`, `agent.*`), span event naming syntax (`agent.tool.call: <tool>`), and structured log keys. **Internal Implementation:** `ArgumentSanitizer`, `ModelRequestContext`, `AgentDecisionRecorder` helper methods. |
+| **B2: Stable vs Internal** | Explicitly Delineated | **Stable Contract:** OTel span attribute keys (`gen_ai.*`, `agent.*`), span event naming syntax (`agent.tool.call: <tool>`), and structured log keys. **Internal Implementation:** `ArgumentSanitizer`, `ModelRequestContext`, `ExternalMcpHub` helper methods. |
 | **B3: Traceability** | Established | Governed by ADR-0016; decomposed into slice work orders WO-016, WO-017, and WO-018; traceable to PRD-006. |
 | **B4: Migration & Compatibility** | 100% Additive | Non-breaking. Overloaded constructors and default interface methods ensure existing clients, tests, and callers compile and run without modification. |
 | **B5: Gate Enforcement** | TV Gate Defined | Sign-off checklist explicitly enforces: (1) unit test coverage, (2) verification that no raw prompts/thought signatures exist in span tags, and (3) live trace inspection via `./gcx.sh traces`. |
@@ -211,8 +211,7 @@ default ModelResponse generateResponse(List<AssistantMessage> messages, List<Too
 1. **Unit Verification (`apps/polaris-assistant`):**
    - `GeminiAiModelClientTest`: Validate OTel GenAI tags (`gen_ai.operation.name="chat"`, token counts, finish reason `"tool_calls"` vs `"stop"`, context tags, null tracer resilience, exclusion of raw prompts and thought signatures).
    - `ArgumentSanitizerTest`: Validate PII/PCI masking, nested maps, summary truncation, and edge cases.
-   - `AgentDecisionRecorderTest`: Validate enriched `recordToolExecution` tags (`gen_ai.tool.name`, `agent.iteration`, `agent.tool.validation_result`, `agent.policy.decision`, `agent.policy.reason`, `agent.policy.required_scope`, `mcp.tool.args_summary`, `agent.tool.result_size_bytes`).
-   - `ExternalMcpHubTest`: Validate `gen_ai.tool.name` on `mcp.tool_call` span.
+   - `ExternalMcpHubTest`: Validate `gen_ai.tool.name` on `mcp.tool_call` span, intent tool validation, and policy enforcement.
    - `AssistantChatServiceTest`: Validate end-to-end integration, enriched span events (`agent.tool.call: <tool>`), context propagation, and thought signature log sampling.
 2. **Reactor Verification:**
    - Execute `mvn clean test -pl apps/polaris-assistant`

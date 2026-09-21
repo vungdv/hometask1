@@ -1,8 +1,8 @@
 # ADR-0014: Structured Agent Decision Events and Observability Schema
 
-* **Status:** Accepted
+* **Status:** Superseded (by OpenTelemetry GenAI Semantic Conventions in ADR-0016; custom AgentDecisionRecorder decommissioned in alignment with Principle 1)
 * **Deciders:** Polaris Architecture Team, Core Platform Engineering, AI Agent Platform Lead
-* **Date:** 2026-09-16
+* **Date:** 2026-09-16 (Updated: 2026-09-20)
 * **Technical Story:** Instrumenting `apps/polaris-assistant` with a standardized, structured Decision Event schema (`DecisionEvent`), correlated SLF4J JSON logging, and Micrometer Tracing span tags on the active `agent.turn` span via `AgentDecisionRecorder` to govern AI agent decision explainability, policy compliance, and alternative evaluation.
 * **Product Reference:** [PRD-005](../prds/PRD-005-agent-turn-observability-and-lifecycle-events.md)
 * **Work Order Reference:** [WO-014](../work-orders/WO-014-agent-decision-events-recording.md)

@@ -39,6 +39,7 @@ import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.IntentClassification;
+import vn.danang.polaris.assistant.intent.IntentResolutionFacade;
 import vn.danang.polaris.assistant.intent.IntentResolver;
 import vn.danang.polaris.assistant.intent.IntentToolRegistry;
 import vn.danang.polaris.assistant.intent.PolicyDecision;
@@ -52,7 +53,6 @@ import vn.danang.polaris.assistant.model.AssistantModelClient;
 import vn.danang.polaris.assistant.model.ModelRequestContext;
 import vn.danang.polaris.assistant.model.ModelResponse;
 import vn.danang.polaris.assistant.model.ToolCall;
-import vn.danang.polaris.assistant.observability.AgentDecisionRecorder;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect;
 
 class AssistantChatServiceTest {
@@ -423,120 +423,6 @@ class AssistantChatServiceTest {
             verify(span, never()).event("agent.tool.result");
         }
 
-        @Test
-        @DisplayName("Given tool execution turn, when completed, then records decision tags on agent.turn span")
-        void records_tool_execution_decision_tags_on_span() {
-            Span span = mock(Span.class);
-            Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
-            Tracer tracer = mockTracerSetup(span, spanInScope);
-
-            ExternalMcpHub mcpHub = createMcpHub(tracer);
-            Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
-            doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
-
-            CallToolResult toolResult = new CallToolResult(
-                    List.of(new TextContent("Found: Fast Charger 65W ($24.90)")),
-                    false,
-                    null,
-                    Map.of()
-            );
-            doReturn(toolResult).when(mcpHub).executeTool(eq("search_available_products"), any());
-
-            ModelResponse turn1Response = new ModelResponse("", List.of(
-                    new ToolCall("search_available_products", Map.of("query", "charger"))
-            ));
-            ModelResponse turn2Response = new ModelResponse("I found the Fast Charger 65W for $24.90.", List.of());
-
-            when(modelClient.generateResponse(anyList(), anyList()))
-                    .thenReturn(turn1Response)
-                    .thenReturn(turn2Response);
-
-            AssistantChatService serviceWithTracer = createChatService(
-                    modelClient, mcpHub, tracer);
-
-            ChatMessageRequest request = new ChatMessageRequest("sess-001", "Find fast chargers");
-            ChatMessageResponse response = serviceWithTracer.sendMessage(request, "user-456");
-
-            assertThat(response).isNotNull();
-
-            verify(span).tag("decision.action", "search_available_products");
-            verify(span).tag("decision.action", "reply_to_user");
-            verify(span, atLeastOnce()).tag("decision.intent", "catalog.product.search");
-            verify(span, atLeastOnce()).tag("decision.policy", "MAX_TOOL_ITERATIONS=5");
-            verify(span, atLeastOnce()).tag("decision.outcome.status", "SUCCESS");
-        }
-
-        @Test
-        @DisplayName("Given direct conversational turn, when completed, then records direct response decision tags on agent.turn span")
-        void records_direct_response_decision_tags_on_span() {
-            Span span = mock(Span.class);
-            Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
-            Tracer tracer = mockTracerSetup(span, spanInScope);
-
-            ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
-            when(mcpHub.discoverAllTools()).thenReturn(List.of());
-
-            ModelResponse directResponse = new ModelResponse("Hello! How can I assist you today?", List.of());
-            when(modelClient.generateResponse(anyList(), anyList())).thenReturn(directResponse);
-
-            AssistantChatService serviceWithTracer = createChatService(
-                    modelClient, mcpHub, tracer);
-
-            ChatMessageRequest request = new ChatMessageRequest("Hello");
-            ChatMessageResponse response = serviceWithTracer.sendMessage(request, null);
-
-            assertThat(response).isNotNull();
-
-            verify(span).tag("decision.action", "reply_to_user");
-            verify(span, atLeastOnce()).tag("decision.intent", "general.conversation");
-            verify(span).tag("decision.outcome.status", "SUCCESS");
-            verify(span).tag("decision.outcome.detail", "Direct conversational response generated");
-        }
-
-        @Test
-        @DisplayName("Given tool call execution, when processed, then invokes recorder with audit metadata, intent, and arguments")
-        void invokes_enriched_record_tool_execution_with_audit_metadata() {
-            AgentDecisionRecorder mockRecorder = mock(AgentDecisionRecorder.class);
-            ExternalMcpHub mcpHub = createMcpHub();
-            Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
-            doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
-
-            CallToolResult expectedResult = new CallToolResult(List.of(new TextContent("Charger 65W")), false, null, Map.of());
-            when(mockRecorder.recordToolExecution(
-                    anyString(), anyString(), anyDouble(), anyInt(), anyString(),
-                    anyBoolean(), anyString(), any(), any(), any(), anyList(), any(), any()))
-                    .thenReturn(expectedResult);
-
-            ModelResponse turn1 = new ModelResponse("", List.of(new ToolCall("search_available_products", Map.of("query", "charger"))));
-            ModelResponse turn2 = new ModelResponse("Found charger 65W.", List.of());
-            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
-                    .thenReturn(turn1)
-                    .thenReturn(turn2);
-
-            AssistantChatService service = createChatService(
-                    modelClient, mcpHub, null, null, mockRecorder, null, null, null);
-
-            ChatMessageRequest request = new ChatMessageRequest("sess-record-audit", "Find charger");
-            ChatMessageResponse response = service.sendMessage(request, "user-789");
-
-            assertThat(response).isNotNull();
-
-            verify(mockRecorder).recordToolExecution(
-                    eq("sess-record-audit"),
-                    eq("catalog.product.search"),
-                    eq(0.92),
-                    eq(1),
-                    eq("search_available_products"),
-                    eq(true),
-                    eq("ALLOW"),
-                    org.mockito.ArgumentMatchers.nullable(String.class),
-                    eq("catalog.read"),
-                    eq(Map.of("query", "charger")),
-                    anyList(),
-                    any(),
-                    any()
-            );
-        }
 
         @Test
         @DisplayName("Given ObjectProvider<Tracer>, when instantiated, then extracts Tracer bean successfully")
@@ -553,7 +439,7 @@ class AssistantChatServiceTest {
             when(mockMcpHub.discoverAllTools()).thenReturn(List.of());
 
             AssistantChatService service = createChatService(
-                    modelClient, mockMcpHub, new ObjectMapper(), tracer, null, null, null, null);
+                    modelClient, mockMcpHub, new ObjectMapper(), tracer, null, null, null);
 
             when(modelClient.chat(anyList())).thenReturn("Reply");
             ChatMessageResponse response = service.sendMessage(new ChatMessageRequest("Hi"), "user-1");
@@ -580,25 +466,29 @@ class AssistantChatServiceTest {
         }
 
         @Test
-        @DisplayName("Given mutating intent with confidence below threshold, when message sent, then asks clarifying question without invoking model or tools")
-        void asks_clarifying_question_when_mutating_intent_has_low_confidence() {
+        @DisplayName("Given intent with confidence below threshold, when message sent, then falls back to full available tools without canned clarification")
+        void falls_back_to_available_tools_when_confidence_below_threshold() {
             ExternalMcpHub mcpHub = mock(ExternalMcpHub.class);
-            when(mcpHub.discoverAllTools()).thenReturn(List.of(Tool.builder("place_order").build()));
+            Tool tool = Tool.builder("place_order").build();
+            when(mcpHub.discoverAllTools()).thenReturn(List.of(tool));
 
             IntentResolver mockResolver = mock(IntentResolver.class);
             when(mockResolver.resolve(anyString(), anyList()))
                     .thenReturn(new IntentClassification(
                             IntentClassification.ORDER_PLACE, 0.60));
 
+            when(modelClient.generateResponse(anyList(), eq(List.of(tool)), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("I can help you place an order. Which product do you need?"));
+
             AssistantChatService service = createChatService(
-                    modelClient, mcpHub, null, null, null, mockResolver, null, null);
+                    modelClient, mcpHub, null, null, mockResolver, null, null);
 
             ChatMessageRequest request = new ChatMessageRequest("buy something maybe");
             ChatMessageResponse response = service.sendMessage(request, "user-123");
 
             assertThat(response).isNotNull();
-            assertThat(response.reply()).contains("could you please clarify your request with specific details");
-            verify(modelClient, never()).generateResponse(anyList(), anyList());
+            assertThat(response.reply()).isEqualTo("I can help you place an order. Which product do you need?");
+            verify(modelClient).generateResponse(anyList(), eq(List.of(tool)), any(ModelRequestContext.class));
             verify(mcpHub, never()).executeTool(anyString(), any());
         }
 
@@ -638,19 +528,19 @@ class AssistantChatServiceTest {
         @Test
         @DisplayName("Given PolicyEngine denies required scope, when tool requested, then short-circuits execution and returns denial reason")
         void short_circuits_and_returns_denial_reason_when_policy_engine_denies_scope() {
-            ExternalMcpHub mcpHub = createMcpHub();
-            Tool tool = Tool.builder("place_order").build();
-            doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
-
             PolicyEngine mockPolicy = mock(PolicyEngine.class);
             when(mockPolicy.authorize(anyString(), eq("order.write")))
                     .thenReturn(PolicyDecision.deny("Missing scope 'order.write'."));
+
+            ExternalMcpHub mcpHub = createMcpHub(null, mockPolicy);
+            Tool tool = Tool.builder("place_order").build();
+            doReturn(List.of(tool)).when(mcpHub).discoverAllTools();
 
             ModelResponse turn1Response = new ModelResponse("", List.of(new ToolCall("place_order", Map.of("sku", "PROD-1"))));
             when(modelClient.generateResponse(anyList(), anyList())).thenReturn(turn1Response);
 
             AssistantChatService service = createChatService(
-                    modelClient, mcpHub, null, null, null, null, null, mockPolicy);
+                    modelClient, mcpHub, null, null, null, null, mockPolicy);
 
             ChatMessageRequest request = new ChatMessageRequest("buy the wireless earbuds");
             ChatMessageResponse response = service.sendMessage(request, "user-no-scope");
@@ -875,7 +765,7 @@ class AssistantChatServiceTest {
             when(mockMcpHub.discoverAllTools()).thenReturn(List.of());
 
             AssistantChatService service = new AssistantChatService(
-                    modelClient, mockMcpHub, new ObjectMapper(), null, null, null, null, null);
+                    modelClient, mockMcpHub, null, null);
 
             when(modelClient.chat(anyList())).thenReturn("Reply");
             ChatMessageResponse response = service.sendMessage(new ChatMessageRequest("Hi"), "user-1");
@@ -890,8 +780,12 @@ class AssistantChatServiceTest {
     }
 
     private ExternalMcpHub createMcpHub(Tracer tracer) {
+        return createMcpHub(tracer, null);
+    }
+
+    private ExternalMcpHub createMcpHub(Tracer tracer, PolicyEngine policyEngine) {
         PolarisMcpClient client = mock(PolarisMcpClient.class);
-        return spy(new ExternalMcpHub(client, tracer));
+        return spy(new ExternalMcpHub(client, tracer, new ObjectMapper(), new IntentToolRegistry(), policyEngine));
     }
 
     @SuppressWarnings("unchecked")
@@ -909,7 +803,7 @@ class AssistantChatServiceTest {
     }
 
     private AssistantChatService createChatService(AssistantModelClient modelClient, McpHub mcpHub, Tracer tracer) {
-        return createChatService(modelClient, mcpHub, new ObjectMapper(), tracer, null, null, null, null);
+        return createChatService(modelClient, mcpHub, new ObjectMapper(), tracer, null, null, null);
     }
 
     private AssistantChatService createChatService(
@@ -917,19 +811,19 @@ class AssistantChatServiceTest {
             McpHub mcpHub,
             ObjectMapper objectMapper,
             Tracer tracer,
-            AgentDecisionRecorder decisionRecorder,
             IntentResolver intentResolver,
             IntentToolRegistry intentToolRegistry,
             PolicyEngine policyEngine) {
+        IntentResolutionFacade facade = new IntentResolutionFacade(
+                intentResolver,
+                intentToolRegistry,
+                mcpHub
+        );
         AssistantChatService target = new AssistantChatService(
                 modelClient,
                 mcpHub,
-                objectMapper != null ? objectMapper : new ObjectMapper(),
                 providerOf(tracer),
-                providerOf(decisionRecorder),
-                providerOf(intentResolver),
-                providerOf(intentToolRegistry),
-                providerOf(policyEngine)
+                facade
         );
         if (tracer != null) {
             org.springframework.aop.aspectj.annotation.AspectJProxyFactory factory =

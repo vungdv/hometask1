@@ -19,17 +19,14 @@ Implement tool execution auditability, governance attribution, and PII/PCI argum
    - Produce a safe, bounded JSON summary string (`mcp.tool.args_summary`) capped at 256 characters.
 2. Update `ExternalMcpHub`:
    - Tag `mcp.tool_call` distributed tracing spans with standard `gen_ai.tool.name`.
-3. Enhance `AgentDecisionRecorder.recordToolExecution`:
-   - Accept audit metadata: `iteration`, `validationResult`, `policyDecision`, `policyReason`, `requiredScope`, and raw `arguments`.
-   - Attach audit tags to the active span: `gen_ai.tool.name`, `agent.iteration`, `agent.tool.validation_result`, `agent.policy.decision`, `agent.policy.reason`, `agent.policy.required_scope`, `agent.tool.result_size_bytes`, `mcp.tool.args_summary`.
-   - Tag `error = "true"` if `CallToolResult.isError()` or an exception is thrown.
-   - Preserve all existing method signatures for backwards compatibility.
-4. Deliver comprehensive unit tests in `ArgumentSanitizerTest`, `AgentDecisionRecorderTest`, and `ExternalMcpHubTest`.
+3. Direct Tool Execution via `ExternalMcpHub` *(superseded Task 3: AgentDecisionRecorder decommissioned)*:
+   - Tool execution managed directly by `ExternalMcpHub.handleToolCalls` / `executeTool`.
+4. Deliver comprehensive unit tests in `ArgumentSanitizerTest` and `ExternalMcpHubTest`.
 
 **Constraint Checklist:**
 - [x] Zero raw PII/PCI data attached to distributed tracing spans.
 - [x] Strict bounding of argument summary string (max 256 chars).
-- [x] Maintain 100% binary and source backwards compatibility for `AgentDecisionRecorder` and `ExternalMcpHub`.
+- [x] Maintain 100% binary and source backwards compatibility for `ExternalMcpHub`.
 - [x] Complete fail-safe behavior: sanitization or logging errors must never abort tool execution.
 - [x] Unit test coverage must achieve 100% pass rate across `polaris-assistant` and monorepo reactor.
 
@@ -156,8 +153,8 @@ public final class ArgumentSanitizer {
 In `executeTool(String toolName, Map<String, Object> arguments)`:
 - Add `span.tag("gen_ai.tool.name", toolName != null ? toolName : "unknown");` to the `mcp.tool_call` span alongside existing `mcp.tool.name`.
 
-### Task 3: Enhance `AgentDecisionRecorder.recordToolExecution`
-**File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/observability/AgentDecisionRecorder.java`
+### Task 3: Enhance `AgentDecisionRecorder.recordToolExecution` *(Superseded: Decommissioned)*
+**File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/observability/AgentDecisionRecorder.java` *(Decommissioned)*
 
 1. Add enriched overload:
    ```java
@@ -212,10 +209,7 @@ In `executeTool(String toolName, Map<String, Object> arguments)`:
    - `sanitize_handlesNestedMaps`: verify nested objects are recursively sanitized.
    - `sanitizeToSummary_boundsLength`: verify long payloads are truncated to 256 characters with `...`.
    - `sanitizeToSummary_handlesNullAndEmpty`: returns `"{}"` without error.
-2. **Update `AgentDecisionRecorderTest.java`**:
-   - Test enriched `recordToolExecution` verifying all governance span tags (`gen_ai.tool.name`, `agent.iteration`, `agent.tool.validation_result`, `agent.policy.decision`, `agent.policy.reason`, `agent.policy.required_scope`, `mcp.tool.args_summary`, `agent.tool.result_size_bytes`).
-   - Test error outcome tagging (`error="true"`).
-3. **Update `ExternalMcpHubTest.java`**:
+2. **Update `ExternalMcpHubTest.java`**:
    - Verify `gen_ai.tool.name` is tagged on the span.
 
 ---
@@ -223,7 +217,7 @@ In `executeTool(String toolName, Map<String, Object> arguments)`:
 ## 3. Verification & Acceptance Criteria
 
 ```bash
-mvn clean test -pl apps/polaris-assistant -Dtest="ArgumentSanitizerTest,AgentDecisionRecorderTest,ExternalMcpHubTest"
+mvn clean test -pl apps/polaris-assistant -Dtest="ArgumentSanitizerTest,ExternalMcpHubTest"
 mvn clean test -pl apps/polaris-assistant
 ```
 All tests must pass with 0 failures and 0 errors.

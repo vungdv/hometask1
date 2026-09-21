@@ -87,6 +87,26 @@ class IntentToolRegistryTest {
         void maps_required_scope_for_known_tools(String toolName, String expectedScope) {
             assertThat(registry.getRequiredScope(toolName)).isEqualTo(expectedScope);
         }
+
+        @Test
+        @DisplayName("Given confidence meets threshold, when resolveIntent called, then filters allowed tools and marks meetsThreshold true")
+        void resolves_intent_with_filtered_tools_when_confidence_meets_threshold() {
+            List<Tool> allTools = List.of(
+                    Tool.builder("search_available_products").build(),
+                    Tool.builder("place_order").build()
+            );
+
+            IntentClassification classification = new IntentClassification(IntentClassification.CATALOG_SEARCH, 0.95);
+            ResolvedIntent resolved = registry.resolveIntent(classification, allTools);
+
+            assertThat(resolved.intentId()).isEqualTo(IntentClassification.CATALOG_SEARCH);
+            assertThat(resolved.confidence()).isEqualTo(0.95);
+            assertThat(resolved.meetsThreshold()).isTrue();
+            assertThat(resolved.acceptedTools())
+                    .extracting(Tool::name)
+                    .containsExactly("search_available_products");
+            assertThat(resolved.tools()).isEqualTo(resolved.acceptedTools());
+        }
     }
 
     // =========================================================================
@@ -164,6 +184,34 @@ class IntentToolRegistryTest {
             List<Tool> generalTools = registry.allowedTools(IntentClassification.GENERAL_CONVERSATION, allTools);
 
             assertThat(generalTools).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Given confidence below threshold, when resolveIntent called, then falls back to all available tools and marks meetsThreshold false")
+        void resolves_intent_with_all_available_tools_when_confidence_below_threshold() {
+            List<Tool> allTools = List.of(
+                    Tool.builder("search_available_products").build(),
+                    Tool.builder("place_order").build()
+            );
+
+            IntentClassification classification = new IntentClassification(IntentClassification.ORDER_PLACE, 0.60);
+            ResolvedIntent resolved = registry.resolveIntent(classification, allTools);
+
+            assertThat(resolved.intentId()).isEqualTo(IntentClassification.ORDER_PLACE);
+            assertThat(resolved.confidence()).isEqualTo(0.60);
+            assertThat(resolved.meetsThreshold()).isFalse();
+            assertThat(resolved.acceptedTools()).isEqualTo(allTools);
+        }
+
+        @Test
+        @DisplayName("Given null classification or tools, when resolveIntent called, then gracefully defaults")
+        void resolves_intent_gracefully_with_null_inputs() {
+            ResolvedIntent resolvedNull = registry.resolveIntent((IntentClassification) null, null);
+
+            assertThat(resolvedNull.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
+            assertThat(resolvedNull.confidence()).isEqualTo(1.0);
+            assertThat(resolvedNull.meetsThreshold()).isTrue();
+            assertThat(resolvedNull.acceptedTools()).isEmpty();
         }
     }
 }

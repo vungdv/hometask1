@@ -15,7 +15,7 @@
 Implement proactive tool set narrowing, defensive tool registry checks, OAuth2 scope authorization, and intent observability in `apps/polaris-assistant`:
 1. **Domain models & taxonomy configuration:** `IntentDefinition`, `IntentClassification`, `PolicyDecision`, and `IntentTaxonomyProperties`.
 2. **Core components:** `IntentResolver` & `DefaultIntentResolver`, `IntentToolRegistry`, `PolicyEngine` & `DefaultPolicyEngine`.
-3. **Observability extensions:** Extend `AgentDecisionRecorder` for `intent.resolve`, `registry.validate`, and `policy.authorize` with ADR-0014 span tags and structured JSON logs.
+3. **Observability extensions:** Trace context integration in `ExternalMcpHub` for intent and policy validation (`AgentDecisionRecorder` decommissioned).
 4. **Service integration:** Update `AssistantChatService` to run intent resolution once per turn, clarify low-confidence mutating intents, proactively offer filtered tools, defensively guard tool invocations, and enforce OAuth2 scopes while preserving 100% binary/source backwards compatibility.
 5. **Configuration:** Wire built-in taxonomy in `application.yml`.
 6. **Testing:** Deliver comprehensive unit test suites achieving 100% pass rate.
@@ -74,8 +74,8 @@ Implement proactive tool set narrowing, defensive tool registry checks, OAuth2 s
   - Supports JWT claims `scope` or `scp`.
   - Non-anonymous callers in non-secured test setups are permitted for test portability; anonymous callers are denied when a scope is required.
 
-### Task 3: Observability Extensions
-**File:** `vn.danang.polaris.assistant.observability.AgentDecisionRecorder`
+### Task 3: Observability Extensions (Decommissioned)
+**File:** `vn.danang.polaris.assistant.observability.AgentDecisionRecorder` *(Note: Decommissioned and removed in favor of standard OTel spans and events)*
 - Added `recordIntentResolution(IntentClassification classification, double threshold, boolean isMutating)`:
   - Tags `decision.action="intent.resolve"`, `decision.intent`, `decision.confidence`.
   - Tags `decision.outcome.status="RESOLVED"` or `"LOW_CONFIDENCE"`.

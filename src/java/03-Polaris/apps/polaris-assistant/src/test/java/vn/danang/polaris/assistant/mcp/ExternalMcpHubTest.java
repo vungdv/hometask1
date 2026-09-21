@@ -166,7 +166,7 @@ class ExternalMcpHubTest {
 
             Tool tool = Tool.builder("search_available_products").build();
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(tool), null
+                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(tool)
             );
             List<ToolCall> toolCalls = List.of(new ToolCall("search_available_products", Map.of("query", "charger"), "sig-123"));
 
@@ -199,7 +199,7 @@ class ExternalMcpHubTest {
         void rejects_forbidden_tool_with_corrective_message_without_client_call() {
             Tool allowedTool = Tool.builder("search_available_products").build();
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(allowedTool), null
+                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(allowedTool)
             );
             List<ToolCall> toolCalls = List.of(new ToolCall("cancel_order", Map.of("order_id", "123")));
 
@@ -220,12 +220,12 @@ class ExternalMcpHubTest {
                     .thenReturn(PolicyDecision.deny("Missing scope order.write"));
 
             ExternalMcpHub hubWithPolicy = new ExternalMcpHub(
-                    polarisMcpClient, null, new ObjectMapper(), null, new IntentToolRegistry(), mockPolicy
+                    polarisMcpClient, null, new ObjectMapper(), new IntentToolRegistry(), mockPolicy
             );
 
             Tool tool = Tool.builder("place_order").build();
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "commerce.order.place", 0.95, true, List.of(tool), null
+                    "sess-1", "user-1", 1, "commerce.order.place", 0.95, true, List.of(tool)
             );
             List<ToolCall> toolCalls = List.of(new ToolCall("place_order", Map.of("sku", "PROD-1")));
 
@@ -306,7 +306,7 @@ class ExternalMcpHubTest {
             Tool t1 = Tool.builder("search_available_products").build();
             Tool t2 = Tool.builder("search_promotions").build();
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "general.conversation", 0.95, false, List.of(t1, t2), null
+                    "sess-1", "user-1", 1, "general.conversation", 0.95, false, List.of(t1, t2)
             );
             List<ToolCall> toolCalls = List.of(
                     new ToolCall("search_available_products", Map.of("query", "charger"), "sig-1"),

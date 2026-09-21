@@ -27,17 +27,18 @@ import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.DefaultIntentResolver;
 import vn.danang.polaris.assistant.intent.IntentClassification;
+import vn.danang.polaris.assistant.intent.IntentResolutionFacade;
 import vn.danang.polaris.assistant.intent.IntentResolver;
 import vn.danang.polaris.assistant.intent.IntentTaxonomyProperties;
 import vn.danang.polaris.assistant.intent.IntentToolRegistry;
 import vn.danang.polaris.assistant.intent.PolicyEngine;
+import vn.danang.polaris.assistant.intent.ResolvedIntent;
 import vn.danang.polaris.assistant.mcp.McpHub;
 import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
 import vn.danang.polaris.assistant.mcp.ToolExecutionResult;
 import vn.danang.polaris.assistant.model.AssistantModelClient;
 import vn.danang.polaris.assistant.model.ModelRequestContext;
 import vn.danang.polaris.assistant.model.ModelResponse;
-import vn.danang.polaris.assistant.observability.AgentDecisionRecorder;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
@@ -54,41 +55,24 @@ public class AssistantChatService {
     private static final int MAX_TOOL_ITERATIONS = 5;
 
     private final AssistantModelClient modelClient;
-    private final Optional<McpHub> mcpHub;
-    private final ObjectMapper objectMapper;
+    private final McpHub mcpHub;
     private final Optional<Tracer> tracer;
-    private final AgentDecisionRecorder decisionRecorder;
-    private final IntentResolver intentResolver;
-    private final IntentToolRegistry intentToolRegistry;
-    private final Optional<PolicyEngine> policyEngine;
-
+    private final IntentResolutionFacade intentResolutionFacade;
     // In-memory conversation store: sessionId -> List of AssistantMessage
     private final Map<String, List<AssistantMessage>> conversationStore = new ConcurrentHashMap<>();
 
     @Autowired
     public AssistantChatService(
             AssistantModelClient modelClient,
-            @Nullable McpHub mcpHub,
-            @Nullable ObjectMapper objectMapper,
+            McpHub mcpHub,
             ObjectProvider<Tracer> tracerProvider,
-            ObjectProvider<AgentDecisionRecorder> decisionRecorderProvider,
-            ObjectProvider<IntentResolver> intentResolverProvider,
-            ObjectProvider<IntentToolRegistry> intentToolRegistryProvider,
-            ObjectProvider<PolicyEngine> policyEngineProvider) {
+            IntentResolutionFacade intentResolutionFacade) {
         this.modelClient = modelClient;
-        this.mcpHub = Optional.ofNullable(mcpHub);
-        this.objectMapper = Optional.ofNullable(objectMapper).orElseGet(ObjectMapper::new);
+        this.mcpHub = mcpHub;
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
-        this.decisionRecorder = Optional.ofNullable(decisionRecorderProvider)
-                .map(ObjectProvider::getIfAvailable)
-                .orElseGet(() -> new AgentDecisionRecorder(this.objectMapper, this.tracer.orElse(null)));
-        this.intentToolRegistry = Optional.ofNullable(intentToolRegistryProvider)
-                .map(ObjectProvider::getIfAvailable)
-                .orElseGet(IntentToolRegistry::new);
-        this.intentResolver = Optional.ofNullable(intentResolverProvider)
-                .map(ObjectProvider::getIfAvailable)
-                .orElseGet(() -> new DefaultIntentResolver(new IntentTaxonomyProperties()));
-        this.policyEngine = Optional.ofNullable(policyEngineProvider).map(ObjectProvider::getIfAvailable);
+        this.intentResolutionFacade = intentResolutionFacade != null
+                ? intentResolutionFacade
+                : new IntentResolutionFacade();
     }
 
     @CustomNextSpan(
@@ -101,60 +85,33 @@ public class AssistantChatService {
             }
     )
     public ChatMessageResponse sendMessage(ChatMessageRequest request, String userId) {
-        String messageText = request.message();
-        String sessionId = request.sessionId();
+        String messageText = request.message().trim();
 
-        // 1. Load conversation history for this session
+        String sessionId = (request.sessionId() != null && !request.sessionId().isBlank())
+                ? request.sessionId()
+                : "sess-" + System.currentTimeMillis();
+
+        // 1. Get or create history for session
         List<AssistantMessage> history = conversationStore.computeIfAbsent(sessionId, k -> new CopyOnWriteArrayList<>());
 
-        // 2. Append incoming user message
-        history.add(AssistantMessage.of(messageText));
+        // 2. Append incoming user message to history
+        var userMsg = AssistantMessage.of(messageText);
+        history.add(userMsg);
 
-        // 3. Discover available tools from MCP
-        List<Tool> availableTools = mcpHub
-                .map(McpHub::discoverAllTools)
-                .orElseGet(List::of);
+        // 3. Resolve intent and accepted tools via facade
+        ResolvedIntent resolved = intentResolutionFacade.resolve(messageText, history);
 
-        // 4. Resolve intent once per user's turn
-        Optional<IntentClassification> classification = Optional.ofNullable(
-                intentResolver.resolve(messageText, new ArrayList<>(history)));
-        String intentId = classification
-                .map(IntentClassification::intentId)
-                .filter(Predicate.not(String::isBlank))
-                .orElse(IntentClassification.GENERAL_CONVERSATION);
-        double confidence = classification
-                .map(IntentClassification::confidence)
-                .orElse(1.0);
-
-        double threshold = intentToolRegistry.getConfidenceThreshold(intentId);
-        boolean meetsThreshold = confidence >= threshold;
-        boolean isMutating = intentToolRegistry.isMutating(intentId);
-
-        // Record user's intent
-        decisionRecorder.recordIntentResolution(sessionId, messageText, intentId, confidence, threshold, meetsThreshold);
-
-        // Filter tools or prompt for clarification
-        List<Tool> filteredTools;
+        String intentId = resolved.intentId();
+        double confidence = resolved.confidence();
+        boolean meetsThreshold = resolved.meetsThreshold();
+        List<Tool> filteredTools = resolved.acceptedTools();
         String finalReply = null;
         String finalThoughtSignature = null;
-
-        if (!meetsThreshold && isMutating) {
-            finalReply = "I noticed you may want to " + (IntentClassification.ORDER_CANCEL.equals(intentId) ? "cancel an order" : "place an order")
-                    + ", but could you please clarify your request with specific details?";
-            filteredTools = List.of();
-            decisionRecorder.recordDirectResponseDecision(sessionId, intentId, confidence, availableTools);
-        } else if (!meetsThreshold) {
-            // Read-only intent with low confidence -> fall back to full available tools
-            filteredTools = availableTools;
-        } else {
-            // Confidence meets threshold -> filter tools by intent
-            filteredTools = intentToolRegistry.allowedTools(intentId, availableTools);
-        }
 
         // 5. Autonomous agent workflow loop (ReAct loop)
         int iterations = 0;
 
-        while (finalReply == null && iterations < MAX_TOOL_ITERATIONS) {
+        while (iterations < MAX_TOOL_ITERATIONS) {
             iterations++;
             log.info("Executing conversation turn iteration {} for sessionId: {}, userId: {}", iterations, sessionId, userId);
 
@@ -172,7 +129,7 @@ public class AssistantChatService {
                         return new ModelResponse(fallback);
                     });
 
-            if (modelResponse.hasToolCalls() && mcpHub.isPresent()) {
+            if (modelResponse.hasToolCalls()) {
                 ToolExecutionContext toolContext = new ToolExecutionContext(
                         sessionId,
                         userId,
@@ -180,12 +137,9 @@ public class AssistantChatService {
                         intentId,
                         confidence,
                         meetsThreshold,
-                        filteredTools,
-                        this.policyEngine.orElse(null),
-                        this.intentToolRegistry,
-                        this.decisionRecorder
+                        filteredTools
                 );
-                ToolExecutionResult toolResult = mcpHub.get().handleToolCalls(modelResponse.toolCalls(), toolContext);
+                ToolExecutionResult toolResult = mcpHub.handleToolCalls(modelResponse.toolCalls(), toolContext);
                 if (toolResult != null) {
                     Optional.ofNullable(toolResult.messages()).ifPresent(history::addAll);
                     if (toolResult.policyDenied()) {
@@ -196,14 +150,12 @@ public class AssistantChatService {
             } else {
                 finalReply = modelResponse.text();
                 finalThoughtSignature = modelResponse.thoughtSignature();
-                decisionRecorder.recordDirectResponseDecision(sessionId, intentId, confidence, filteredTools);
                 break;
             }
         }
 
         if (finalReply == null || finalReply.isBlank()) {
             finalReply = "I have completed processing your request.";
-            decisionRecorder.recordDirectResponseDecision(sessionId, intentId, confidence, filteredTools);
         }
 
         tagIterationsCount(iterations);

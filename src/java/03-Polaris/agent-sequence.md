@@ -29,7 +29,7 @@ sequenceDiagram
     activate IntentSvc
     IntentSvc-->>ChatService: IntentClassification(intentId, confidence)
     deactivate IntentSvc
-    Note over ChatService: emit DecisionEvent[intent.resolve]<br/>decision.intent, decision.confidence
+    Note over ChatService: Resolve intent:<br/>intentId, confidence
 
     ChatService->>Registry: allowedTools(intentId)
     activate Registry
@@ -53,7 +53,7 @@ sequenceDiagram
                 deactivate Registry
 
                 alt tool not valid for intent
-                    Note over McpHub: emit DecisionEvent[FAILED, outcome=INTENT_TOOL_MISMATCH]<br/>record corrective turn
+                    Note over McpHub: Tool not permitted for intent<br/>record corrective turn
                 else tool valid
                     McpHub->>Policy: authorize(userId, requiredScope(toolName))
                     activate Policy
@@ -61,10 +61,10 @@ sequenceDiagram
                     deactivate Policy
 
                     alt policy denies
-                        Note over McpHub: emit DecisionEvent[FAILED, outcome=POLICY_DENIED]<br/>mark policyDenied in result
+                        Note over McpHub: Policy denied<br/>mark policyDenied in result
                     else policy allows
                         McpHub->>McpHub: executeTool(toolName, arguments)
-                        Note over McpHub: emit DecisionEvent[COMPLETED]<br/>record tool result turn
+                        Note over McpHub: Record span event: agent.tool.call / result<br/>record tool result turn
                     end
                 end
             end
@@ -85,12 +85,12 @@ sequenceDiagram
 ## Key Flow Steps
 
 1. **Tool Discovery**: `AssistantChatService` calls `ExternalMcpHub.discoverAllTools()` to discover all registered tools from the MCP server.
-2. **Intent Resolution (once per turn)**: `AssistantChatService` calls `IntentResolver.resolve(...)` with the user's message and conversation context, returning an `IntentClassification` (`intentId`, `confidence`). This is emitted as its own decision event, tagging `decision.action="intent.resolve"`, `decision.intent`, `decision.confidence`, and `decision.outcome.status="RESOLVED"` (or `"LOW_CONFIDENCE"`).
+2. **Intent Resolution (once per turn)**: `AssistantChatService` calls `IntentResolver.resolve(...)` with the user's message and conversation context, returning an `IntentClassification` (`intentId`, `confidence`).
 3. **Tool Set Filtering & Threshold Check**:
    - `AssistantChatService` looks up the resolved intent in `IntentToolRegistry`.
    - If confidence is below the intent's configured threshold:
      - For mutating intents (`commerce.order.place`, `commerce.order.cancel`), the assistant immediately returns a clarifying question to the user without offering mutating tools or guessing.
-     - For read-only intents, the assistant falls back to the full tool set (`availableTools`) tagged `LOW_CONFIDENCE`.
+     - For read-only intents, the assistant falls back to the full tool set (`availableTools`).
    - If confidence meets or exceeds threshold:
      - `AssistantChatService` calls `IntentToolRegistry.allowedTools(intentId, availableTools)` to offer only permissible tools to the model. For `general.conversation`, the filtered list is empty, allowing the model to answer directly.
 4. **ReAct Loop Execution**:
@@ -98,10 +98,10 @@ sequenceDiagram
    - If the model returns a tool invocation, `AssistantChatService` delegates the batch to `ExternalMcpHub.handleToolCalls(toolCalls, toolContext)`.
    - For each tool call in the batch, `ExternalMcpHub`:
      - Calls `IntentToolRegistry.isValid(intentId, toolName)` to defensively confirm the proposed tool is actually permitted for the resolved intent — catching cases where the model strays outside the offered set.
-     - If tool is not valid: `ExternalMcpHub` emits a decision event with `decision.action="registry.validate"` and `decision.outcome.status="TOOL_MISMATCH"`, and records a corrective message turn so the model can recover.
-     - If tool is valid: `ExternalMcpHub` emits a decision event with `decision.action="registry.validate"` and `decision.outcome.status="VALID"`, then calls `PolicyEngine.authorize(userId, requiredScope)` to confirm the caller's OAuth2/OIDC scopes permit the action (e.g. `order.read` vs `order.write`).
-     - If policy denies: `ExternalMcpHub` emits a decision event with `decision.action="policy.authorize"`, `decision.policy=requiredScope`, and `decision.outcome.status="DENY"`, and returns a `ToolExecutionResult` indicating policy denial. `AssistantChatService` breaks the loop and returns the denial reason to the user.
-     - If policy allows: `ExternalMcpHub` emits a decision event with `decision.action="policy.authorize"` and `decision.outcome.status="ALLOW"`, calls `executeTool(...)` (recorded via `AgentDecisionRecorder`), and records the tool result turn.
+     - If tool is not valid: `ExternalMcpHub` logs a warning and records a corrective message turn so the model can recover.
+     - If tool is valid: `ExternalMcpHub` calls `PolicyEngine.authorize(userId, requiredScope)` to confirm the caller's OAuth2/OIDC scopes permit the action (e.g. `order.read` vs `order.write`).
+     - If policy denies: `ExternalMcpHub` logs the policy denial and returns a `ToolExecutionResult` indicating policy denial. `AssistantChatService` breaks the loop and returns the denial reason to the user.
+     - If policy allows: `ExternalMcpHub` records an `agent.tool.call` span event, executes the tool via `executeTool(...)`, records `agent.tool.result`, and records the tool result turn.
    - `AssistantChatService` appends all returned model and tool turns to conversation history and continues the loop.
    - Once the model produces a final direct answer (or the iteration limit is reached), the loop terminates.
 5. **Response Generation**: `AssistantChatService` stores the assistant's reply and returns `ChatMessageResponse` to the client.

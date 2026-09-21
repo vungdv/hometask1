@@ -18,7 +18,7 @@ Wire foundation model context propagation, enriched tool execution auditing, lif
 2. Enrich lifecycle span events on `agent.turn` from bare event markers to payload-attributed events:
    - `agent.tool.call: <tool_name>`
    - `agent.tool.result: <tool_name>`
-3. Wire the enriched `AgentDecisionRecorder.recordToolExecution` passing iteration, validation status, policy decision, required scope, and tool arguments.
+3. Wire tool execution through `ExternalMcpHub.handleToolCalls` passing iteration, validation status, policy decision, required scope, and tool arguments directly.
 4. Implement correlated structured logging for Gemini `thoughtSignature` blobs with 1% sampling (or debug level) to enable reasoning evaluation without trace tag bloat.
 5. Guarantee zero data leakage (no raw prompts or thought signatures in span tags).
 6. Verify end-to-end telemetry and reactor test pass (`mvn clean test`, `./gcx.sh traces`).

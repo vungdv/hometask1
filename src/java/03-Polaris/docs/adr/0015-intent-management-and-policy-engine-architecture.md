@@ -50,7 +50,7 @@ Introduce modular components in package `vn.danang.polaris.assistant.intent`:
 - `IntentResolver`: Classifies user utterances into taxonomy intents with confidence scores.
 - `IntentToolRegistry`: Filters available MCP tools and validates proposed invocations.
 - `PolicyEngine`: Authorizes actions against the caller's OAuth 2.0 token scopes.
-- Integration in `AssistantChatService` and `AgentDecisionRecorder`.
+- Integration in `AssistantChatService` and `ExternalMcpHub`.
 
 ---
 
