@@ -3,10 +3,10 @@ package vn.danang.polaris.assistant.service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Predicate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,23 +15,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
-import vn.danang.polaris.assistant.intent.DefaultIntentResolver;
-import vn.danang.polaris.assistant.intent.IntentClassification;
 import vn.danang.polaris.assistant.intent.IntentResolutionFacade;
-import vn.danang.polaris.assistant.intent.IntentResolver;
-import vn.danang.polaris.assistant.intent.IntentTaxonomyProperties;
-import vn.danang.polaris.assistant.intent.IntentToolRegistry;
-import vn.danang.polaris.assistant.intent.PolicyEngine;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
 import vn.danang.polaris.assistant.mcp.McpHub;
 import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
@@ -67,8 +58,8 @@ public class AssistantChatService {
             McpHub mcpHub,
             ObjectProvider<Tracer> tracerProvider,
             IntentResolutionFacade intentResolutionFacade) {
-        this.modelClient = modelClient;
-        this.mcpHub = mcpHub;
+        this.modelClient = Objects.requireNonNull(modelClient, "modelClient must not be null");
+        this.mcpHub = Objects.requireNonNull(mcpHub, "mcpHub must not be null");
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
         this.intentResolutionFacade = intentResolutionFacade != null
                 ? intentResolutionFacade
@@ -95,16 +86,11 @@ public class AssistantChatService {
         List<AssistantMessage> history = conversationStore.computeIfAbsent(sessionId, k -> new CopyOnWriteArrayList<>());
 
         // 2. Append incoming user message to history
-        var userMsg = AssistantMessage.of(messageText);
-        history.add(userMsg);
+        history.add(AssistantMessage.of(messageText));
 
         // 3. Resolve intent and accepted tools via facade
-        ResolvedIntent resolved = intentResolutionFacade.resolve(messageText, history);
+        ResolvedIntent resolvedIntent = intentResolutionFacade.resolve(messageText, history);
 
-        String intentId = resolved.intentId();
-        double confidence = resolved.confidence();
-        boolean meetsThreshold = resolved.meetsThreshold();
-        List<Tool> filteredTools = resolved.acceptedTools();
         String finalReply = null;
         String finalThoughtSignature = null;
 
@@ -117,27 +103,29 @@ public class AssistantChatService {
 
             ModelRequestContext context = new ModelRequestContext(
                     iterations,
-                    intentId,
-                    confidence,
-                    filteredTools.size()
+                    resolvedIntent.intentId(),
+                    resolvedIntent.confidence(),
+                    resolvedIntent.filteredTools().size()
             );
 
-            ModelResponse modelResponse = Optional.ofNullable(modelClient.generateResponse(new ArrayList<>(history), filteredTools, context))
-                    .or(() -> Optional.ofNullable(modelClient.generateResponse(new ArrayList<>(history), filteredTools)))
-                    .orElseGet(() -> {
-                        String fallback = Optional.ofNullable(modelClient.chat(new ArrayList<>(history))).orElse("");
-                        return new ModelResponse(fallback);
-                    });
+            ModelResponse modelResponse = modelClient.generateResponse(new ArrayList<>(history), resolvedIntent.filteredTools(), context);
+            if (modelResponse == null) {
+                modelResponse = modelClient.generateResponse(new ArrayList<>(history), resolvedIntent.filteredTools());
+            }
+            if (modelResponse == null) {
+                String fallback = modelClient.chat(new ArrayList<>(history));
+                modelResponse = new ModelResponse(fallback != null ? fallback : "");
+            }
 
             if (modelResponse.hasToolCalls()) {
                 ToolExecutionContext toolContext = new ToolExecutionContext(
                         sessionId,
                         userId,
                         iterations,
-                        intentId,
-                        confidence,
-                        meetsThreshold,
-                        filteredTools
+                        resolvedIntent.intentId(),
+                        resolvedIntent.confidence(),
+                        resolvedIntent.meetsThreshold(),
+                        resolvedIntent.filteredTools()
                 );
                 ToolExecutionResult toolResult = mcpHub.handleToolCalls(modelResponse.toolCalls(), toolContext);
                 if (toolResult != null) {
