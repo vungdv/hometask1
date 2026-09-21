@@ -38,9 +38,11 @@ import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
+import vn.danang.polaris.assistant.intent.DefaultIntentResolver;
 import vn.danang.polaris.assistant.intent.IntentClassification;
 import vn.danang.polaris.assistant.intent.IntentResolutionFacade;
 import vn.danang.polaris.assistant.intent.IntentResolver;
+import vn.danang.polaris.assistant.intent.IntentTaxonomyProperties;
 import vn.danang.polaris.assistant.intent.IntentToolRegistry;
 import vn.danang.polaris.assistant.intent.PolicyDecision;
 import vn.danang.polaris.assistant.intent.PolicyEngine;
@@ -95,8 +97,8 @@ class AssistantChatServiceTest {
 
             List<AssistantMessage> sentMessages = captor.getValue();
             assertThat(sentMessages).hasSize(1);
-            assertThat(sentMessages.get(0).getRole()).isEqualTo(MessageRole.USER);
-            assertThat(sentMessages.get(0).getContent()).isEqualTo("Tell me about Polaris");
+            assertThat(sentMessages.getFirst().getRole()).isEqualTo(MessageRole.USER);
+            assertThat(sentMessages.getFirst().getContent()).isEqualTo("Tell me about Polaris");
         }
 
         @Test
@@ -422,32 +424,6 @@ class AssistantChatServiceTest {
             verify(span, never()).event("agent.tool.call");
             verify(span, never()).event("agent.tool.result");
         }
-
-
-        @Test
-        @DisplayName("Given ObjectProvider<Tracer>, when instantiated, then extracts Tracer bean successfully")
-        @SuppressWarnings("unchecked")
-        void extracts_tracer_from_object_provider_in_constructor() {
-            Span span = mock(Span.class);
-            Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
-            Tracer tracer = mockTracerSetup(span, spanInScope);
-
-            ObjectProvider<Tracer> provider = mock(ObjectProvider.class);
-            when(provider.getIfAvailable()).thenReturn(tracer);
-
-            McpHub mockMcpHub = mock(McpHub.class);
-            when(mockMcpHub.discoverAllTools()).thenReturn(List.of());
-
-            AssistantChatService service = createChatService(
-                    modelClient, mockMcpHub, new ObjectMapper(), tracer, null, null, null);
-
-            when(modelClient.chat(anyList())).thenReturn("Reply");
-            ChatMessageResponse response = service.sendMessage(new ChatMessageRequest("Hi"), "user-1");
-
-            assertThat(response).isNotNull();
-            verify(tracer).nextSpan();
-            verify(span).name("agent.turn");
-        }
     }
 
     // =========================================================================
@@ -757,22 +733,6 @@ class AssistantChatServiceTest {
             verify(span, never()).tag(anyString(), eq(secretThought));
             verify(span, never()).tag(anyString(), eq("THOUGHT_SIGNATURE_FINAL_67890"));
         }
-
-        @Test
-        @DisplayName("Given null ObjectProvider, when instantiated, then operates cleanly without tracer")
-        void handles_null_object_provider_cleanly_without_tracer() {
-            McpHub mockMcpHub = mock(McpHub.class);
-            when(mockMcpHub.discoverAllTools()).thenReturn(List.of());
-
-            AssistantChatService service = new AssistantChatService(
-                    modelClient, mockMcpHub, null, null);
-
-            when(modelClient.chat(anyList())).thenReturn("Reply");
-            ChatMessageResponse response = service.sendMessage(new ChatMessageRequest("Hi"), "user-1");
-
-            assertThat(response).isNotNull();
-            assertThat(response.reply()).isEqualTo("Reply");
-        }
     }
 
     private ExternalMcpHub createMcpHub() {
@@ -803,7 +763,7 @@ class AssistantChatServiceTest {
     }
 
     private AssistantChatService createChatService(AssistantModelClient modelClient, McpHub mcpHub, Tracer tracer) {
-        return createChatService(modelClient, mcpHub, new ObjectMapper(), tracer, null, null, null);
+        return createChatService(modelClient, mcpHub, tracer, null, null);
     }
 
     private AssistantChatService createChatService(
@@ -814,9 +774,18 @@ class AssistantChatServiceTest {
             IntentResolver intentResolver,
             IntentToolRegistry intentToolRegistry,
             PolicyEngine policyEngine) {
+        return createChatService(modelClient, mcpHub, tracer, intentResolver, intentToolRegistry);
+    }
+
+    private AssistantChatService createChatService(
+            AssistantModelClient modelClient,
+            McpHub mcpHub,
+            Tracer tracer,
+            IntentResolver intentResolver,
+            IntentToolRegistry intentToolRegistry) {
         IntentResolutionFacade facade = new IntentResolutionFacade(
-                intentResolver,
-                intentToolRegistry,
+                intentResolver != null ? intentResolver : new DefaultIntentResolver(new IntentTaxonomyProperties()),
+                intentToolRegistry != null ? intentToolRegistry : new IntentToolRegistry(),
                 mcpHub
         );
         AssistantChatService target = new AssistantChatService(

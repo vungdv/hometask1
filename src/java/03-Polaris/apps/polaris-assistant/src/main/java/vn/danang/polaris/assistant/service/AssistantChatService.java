@@ -34,9 +34,12 @@ import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
 /**
- * Orchestrates the conversational agent workflow for Polaris Assistant.
- * Responsible for managing the conversation lifecycle, intent resolution,
- * ReAct workflow iterations, and delegating tool call batches to {@link McpHub}.
+ * Orchestrates the conversational agent main workflow for Polaris Assistant.
+ * Responsible for managing the
+ * - Conversation lifecycle
+ * - Intent resolution,
+ * - ReAct workflow iterations
+ * - And delegating tool call batches to {@link McpHub}.
  */
 @Service
 @Transactional
@@ -61,9 +64,7 @@ public class AssistantChatService {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient must not be null");
         this.mcpHub = Objects.requireNonNull(mcpHub, "mcpHub must not be null");
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
-        this.intentResolutionFacade = intentResolutionFacade != null
-                ? intentResolutionFacade
-                : new IntentResolutionFacade();
+        this.intentResolutionFacade = Objects.requireNonNull(intentResolutionFacade, "intentResolutionFacade must not be null");
     }
 
     @CustomNextSpan(

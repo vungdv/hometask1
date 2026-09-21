@@ -4,11 +4,15 @@ description: Guidelines for writing testable code via TDD/BDD, 3-bucket logical 
 ---
 
 # Testable Code & Behavior-Driven Testing Discipline
+## 1. Scopes
+Identify the test scope by: 
+- Unit-Test: system under test responsibility
+- Integration-Test: scenario/situation 
 
-## 1. TDD/BDD Workflow
+## 2. TDD/BDD Workflow
 Define the contract (API, DTOs, schemas) → write failing tests expressing behavior → implement minimum code to pass → refactor while keeping tests green.
 
-## 2. Three-Bucket Grouping
+## 3. Three-Bucket Grouping
 Keep the root test class/file, package, and location untouched — standard for test-runner discovery and reporting. Within that class, group tests into three buckets, in order, using nested classes/blocks (`@Nested`, `describe`, or comment sections) and behaviorally-named test cases:
 
 1. **Happy path** — main successful flow, valid inputs, expected outcomes.
@@ -20,17 +24,8 @@ Never move, merge, split, or rename test files/packages to fit the grouping.
 ## 3. Sizing & Granularity
 - One behavior per test; no shared mutable state or execution-order coupling.
 - Cap each bucket at ~3–5 cases. Need more? Split the slice, don't inflate the suite.
-
-## 4. Naming
-Name by behavior/outcome, not implementation: `rejects_expired_token`, not `test_case_3`.
-
-## 5. Table-Driven Tests
-Prefer parameterized tests (`@ParameterizedTest`, `@CsvSource`, etc.) when cases share shape.
-
-## 6. Single Assertion Discipline
-One assertion focus per test — each test fails for exactly one clear reason.
-
-## 7. Agent Verification Checklist
+- 
+## 4. Agent Verification Checklist
 - Each test fails for one clear reason?
 - Happy/invalid/edge trio maps cleanly to the requirement?
 - Test class/file/package structure unchanged (nothing moved, merged, or flattened)?
