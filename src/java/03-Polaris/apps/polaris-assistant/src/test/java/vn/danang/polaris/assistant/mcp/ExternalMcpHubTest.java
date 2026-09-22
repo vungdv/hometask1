@@ -29,8 +29,6 @@ import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import vn.danang.polaris.assistant.entity.AssistantMessage;
-import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.IntentToolRegistry;
 import vn.danang.polaris.assistant.intent.PolicyDecision;
 import vn.danang.polaris.assistant.intent.PolicyEngine;
@@ -154,7 +152,7 @@ class ExternalMcpHubTest {
         }
 
         @Test
-        @DisplayName("Given permitted tool call, when handled, then executes tool and generates paired assistant and tool messages")
+        @DisplayName("Given permitted tool call, when handled, then executes tool and returns success ToolResult")
         void handles_permitted_tool_calls_and_returns_turn_messages() {
             CallToolResult toolResult = new CallToolResult(
                     List.of(new TextContent("Product found: Charger")),
@@ -170,20 +168,15 @@ class ExternalMcpHubTest {
             );
             List<ToolCall> toolCalls = List.of(new ToolCall("search_available_products", Map.of("query", "charger"), "sig-123"));
 
-            ToolExecutionResult result = mcpHub.handleToolCalls(toolCalls, context);
+            List<ToolResult> results = mcpHub.handleToolCalls(toolCalls, context);
 
-            assertThat(result.policyDenied()).isFalse();
-            assertThat(result.messages()).hasSize(2);
-
-            AssistantMessage modelMsg = result.messages().get(0);
-            assertThat(modelMsg.getRole()).isEqualTo(MessageRole.ASSISTANT);
-            assertThat(modelMsg.getToolCallId()).isEqualTo("search_available_products");
-            assertThat(modelMsg.getThoughtSignature()).isEqualTo("sig-123");
-
-            AssistantMessage toolMsg = result.messages().get(1);
-            assertThat(toolMsg.getRole()).isEqualTo(MessageRole.TOOL);
-            assertThat(toolMsg.getToolCallId()).isEqualTo("search_available_products");
-            assertThat(toolMsg.getContent()).isEqualTo("Product found: Charger");
+            assertThat(results).hasSize(1);
+            ToolResult result = results.get(0);
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.status()).isEqualTo(ToolResult.Status.SUCCESS);
+            assertThat(result.toolCall()).isEqualTo(toolCalls.get(0));
+            assertThat(result.result()).isEqualTo("Product found: Charger");
+            assertThat(result.errorDescription()).isNull();
         }
     }
 
@@ -195,7 +188,7 @@ class ExternalMcpHubTest {
     class InvalidInput {
 
         @Test
-        @DisplayName("Given tool forbidden for current intent, when handled, then returns corrective tool message without invoking client")
+        @DisplayName("Given tool forbidden for current intent, when handled, then returns corrective error result without invoking client")
         void rejects_forbidden_tool_with_corrective_message_without_client_call() {
             Tool allowedTool = Tool.builder("search_available_products").build();
             ToolExecutionContext context = new ToolExecutionContext(
@@ -203,12 +196,14 @@ class ExternalMcpHubTest {
             );
             List<ToolCall> toolCalls = List.of(new ToolCall("cancel_order", Map.of("order_id", "123")));
 
-            ToolExecutionResult result = mcpHub.handleToolCalls(toolCalls, context);
+            List<ToolResult> results = mcpHub.handleToolCalls(toolCalls, context);
 
-            assertThat(result.policyDenied()).isFalse();
-            assertThat(result.messages()).hasSize(2);
-            assertThat(result.messages().get(1).getRole()).isEqualTo(MessageRole.TOOL);
-            assertThat(result.messages().get(1).getContent()).contains("not permitted for intent 'catalog.product.search'");
+            assertThat(results).hasSize(1);
+            ToolResult result = results.get(0);
+            assertThat(result.isError()).isTrue();
+            assertThat(result.status()).isEqualTo(ToolResult.Status.ERROR);
+            assertThat(result.result()).contains("not permitted for intent 'catalog.product.search'");
+            assertThat(result.errorDescription()).isEqualTo("Tool 'cancel_order' is not permitted under intent 'catalog.product.search'.");
             verify(polarisMcpClient, never()).callTool(anyString(), any());
         }
 
@@ -229,10 +224,14 @@ class ExternalMcpHubTest {
             );
             List<ToolCall> toolCalls = List.of(new ToolCall("place_order", Map.of("sku", "PROD-1")));
 
-            ToolExecutionResult result = hubWithPolicy.handleToolCalls(toolCalls, context);
+            List<ToolResult> results = hubWithPolicy.handleToolCalls(toolCalls, context);
 
-            assertThat(result.policyDenied()).isTrue();
-            assertThat(result.denialReason()).isEqualTo("Missing scope order.write");
+            assertThat(results).hasSize(1);
+            ToolResult result = results.get(0);
+            assertThat(result.isDenied()).isTrue();
+            assertThat(result.status()).isEqualTo(ToolResult.Status.DENIED);
+            assertThat(result.result()).isEqualTo("Missing scope order.write");
+            assertThat(result.errorDescription()).isEqualTo("Policy authorization denied execution of tool 'place_order' for user 'user-1': Missing scope order.write");
             verify(polarisMcpClient, never()).callTool(anyString(), any());
         }
     }
@@ -296,7 +295,7 @@ class ExternalMcpHubTest {
         }
 
         @Test
-        @DisplayName("Given multiple parallel tool calls, when handled, then groups all ASSISTANT turns before TOOL turns")
+        @DisplayName("Given multiple parallel tool calls, when handled, then executes and returns all tool results")
         void groups_model_turns_before_tool_turns_in_parallel_calls() {
             CallToolResult res1 = new CallToolResult(List.of(new TextContent("Charger")), false, null, Map.of());
             CallToolResult res2 = new CallToolResult(List.of(new TextContent("10% off")), false, null, Map.of());
@@ -313,20 +312,22 @@ class ExternalMcpHubTest {
                     new ToolCall("search_promotions", Map.of("category", "all"), "sig-2")
             );
 
-            ToolExecutionResult result = mcpHub.handleToolCalls(toolCalls, context);
+            List<ToolResult> results = mcpHub.handleToolCalls(toolCalls, context);
 
-            assertThat(result.messages()).hasSize(4);
-            assertThat(result.messages().get(0).getRole()).isEqualTo(MessageRole.ASSISTANT);
-            assertThat(result.messages().get(1).getRole()).isEqualTo(MessageRole.ASSISTANT);
-            assertThat(result.messages().get(2).getRole()).isEqualTo(MessageRole.TOOL);
-            assertThat(result.messages().get(3).getRole()).isEqualTo(MessageRole.TOOL);
+            assertThat(results).hasSize(2);
+            assertThat(results.get(0).toolCall().name()).isEqualTo("search_available_products");
+            assertThat(results.get(0).result()).isEqualTo("Charger");
+            assertThat(results.get(0).isSuccess()).isTrue();
+            assertThat(results.get(1).toolCall().name()).isEqualTo("search_promotions");
+            assertThat(results.get(1).result()).isEqualTo("10% off");
+            assertThat(results.get(1).isSuccess()).isTrue();
         }
 
         @Test
-        @DisplayName("Given null or empty tool calls, when handled, then returns empty messages result")
+        @DisplayName("Given null or empty tool calls, when handled, then returns empty results")
         void returns_empty_result_for_null_or_empty_tool_calls() {
-            assertThat(mcpHub.handleToolCalls(null, null).messages()).isEmpty();
-            assertThat(mcpHub.handleToolCalls(List.of(), null).messages()).isEmpty();
+            assertThat(mcpHub.handleToolCalls(null, null)).isEmpty();
+            assertThat(mcpHub.handleToolCalls(List.of(), null)).isEmpty();
         }
 
         @Test

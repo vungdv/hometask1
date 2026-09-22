@@ -366,10 +366,13 @@ public class GeminiAiModelClient implements AssistantModelClient {
 
                         if (part.has("functionCall")) {
                             JsonNode fc = part.path("functionCall");
+                            String id = fc.hasNonNull("id") ? fc.path("id").asText() : null;
                             String fnName = fc.path("name").asText();
                             Map<String, Object> args = new HashMap<>();
                             if (fc.has("args") && fc.path("args").isObject()) {
                                 args = objectMapper.convertValue(fc.path("args"), new TypeReference<Map<String, Object>>() {});
+                            } else if (fc.has("arguments") && fc.path("arguments").isObject()) {
+                                args = objectMapper.convertValue(fc.path("arguments"), new TypeReference<Map<String, Object>>() {});
                             }
                             if (partSignature == null) {
                                 if (fc.hasNonNull("thoughtSignature")) {
@@ -378,7 +381,7 @@ public class GeminiAiModelClient implements AssistantModelClient {
                                     partSignature = fc.path("thought_signature").asText();
                                 }
                             }
-                            toolCalls.add(new ToolCall(fnName, args, partSignature));
+                            toolCalls.add(new ToolCall(id, fnName, args, partSignature));
                         } else {
                             boolean isThought = part.path("thought").asBoolean(false);
                             if (!isThought && part.has("text")) {
