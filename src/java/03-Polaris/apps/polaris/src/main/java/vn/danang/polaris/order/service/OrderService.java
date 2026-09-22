@@ -70,6 +70,7 @@ public class OrderService {
         List<ResolvedItem> resolvedItems = new ArrayList<>();
 
         // Sort items deterministically by SKU before acquiring locks to prevent database deadlocks
+        // without sorted items, multiple lock-row level can interfere between the concurrent transaction and lock each other.
         List<OrderItemRequest> sortedItems = requestedItems.stream()
                 .sorted(java.util.Comparator.comparing(item -> item.sku().toLowerCase()))
                 .toList();
