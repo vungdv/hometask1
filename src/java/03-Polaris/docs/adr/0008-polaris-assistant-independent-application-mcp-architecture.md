@@ -46,7 +46,7 @@ Chosen Option: **Decoupled Autonomous Application (`apps/polaris-assistant`) wit
    - Polaris Assistant (`apps/polaris-assistant`) acts as the **MCP Client** (`PolarisMcpClient`, `HttpPolarisMcpClient`), invoking tools (`search_available_products`, `get_product_by_sku`, `place_order`, etc.) over HTTP/SSE.
 
 3. **Extensible Multi-MCP Client Hub:**
-   - Introduced `ExternalMcpHub` in `apps/polaris-assistant` to dynamically aggregate tool definitions from Polaris Core and registered external MCP servers.
+   - Introduced `ToolManager` in `apps/polaris-assistant` to dynamically aggregate tool definitions from Polaris Core and registered external MCP servers.
    - Dispatches model tool calls dynamically to the correct MCP connection based on tool capability matching.
 
 4. **Dedicated Ingress & TLS Routing:**
@@ -64,6 +64,6 @@ Chosen Option: **Decoupled Autonomous Application (`apps/polaris-assistant`) wit
 ## Positive Consequences
 
 * **Zero Domain Coupling:** Catalog and Order domains can evolve without risk of breaking assistant internals, and assistant LLM logic can be refactored without touching commerce core.
-* **Unified Tool Ecosystem:** Adding external MCP servers (e.g. documentation search, real-time logistics) requires only registering them with `ExternalMcpHub`, without modifying Polaris Core.
+* **Unified Tool Ecosystem:** Adding external MCP servers (e.g. documentation search, real-time logistics) requires only registering them with `ToolManager`, without modifying Polaris Core.
 * **Independent Scaling:** AI workloads can scale horizontally independent of core transactional databases.
 * **Standards Compliance:** Full adherence to RFC 9110, RFC 7807, MCP 2024-11-05, and W3C Trace Context.
