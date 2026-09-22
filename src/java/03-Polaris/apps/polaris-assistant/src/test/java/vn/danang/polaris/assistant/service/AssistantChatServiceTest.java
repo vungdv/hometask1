@@ -33,7 +33,6 @@ import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.IntentClassification;
 import vn.danang.polaris.assistant.intent.IntentResolutionFacade;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
-import vn.danang.polaris.assistant.mcp.McpHub;
 import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
 import vn.danang.polaris.assistant.mcp.ToolResult;
 import vn.danang.polaris.assistant.model.AssistantModelClient;
@@ -46,21 +45,19 @@ import vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect;
  * Unit tests for {@link AssistantChatService}.
  * <p>
  * SUT Responsibility: Conversational agent orchestrator managing the conversation lifecycle,
- * intent resolution delegation, ReAct loop iteration bounds, and tool batch delegation to {@link McpHub}.
+ * intent resolution delegation, ReAct loop iteration bounds, and tool batch delegation to {@link IntentResolutionFacade}.
  * Low-level execution details (MCP communication, policy enforcement rules, intent classification algorithms)
  * are encapsulated within collaborators and tested at their respective seam contracts.
  */
 class AssistantChatServiceTest {
 
     private AssistantModelClient modelClient;
-    private McpHub mcpHub;
     private IntentResolutionFacade intentResolutionFacade;
     private AssistantChatService chatService;
 
     @BeforeEach
     void setUp() {
         modelClient = mock(AssistantModelClient.class);
-        mcpHub = mock(McpHub.class);
         intentResolutionFacade = mock(IntentResolutionFacade.class);
 
         when(intentResolutionFacade.resolve(anyString(), anyList()))
@@ -71,7 +68,7 @@ class AssistantChatServiceTest {
                         List.of()
                 ));
 
-        chatService = createChatService(modelClient, mcpHub, null, intentResolutionFacade);
+        chatService = createChatService(modelClient, null, intentResolutionFacade);
     }
 
     // =========================================================================
@@ -103,10 +100,11 @@ class AssistantChatServiceTest {
             assertThat(sentMessages).hasSize(1);
             assertThat(sentMessages.getFirst().getRole()).isEqualTo(MessageRole.USER);
             assertThat(sentMessages.getFirst().getContent()).isEqualTo("Tell me about Polaris");
+            verify(intentResolutionFacade).resolve(eq("Tell me about Polaris"), anyList());
         }
 
         @Test
-        @DisplayName("Given model requests tool call, when processed in ReAct loop, then delegates to McpHub and loops to final reply")
+        @DisplayName("Given model requests tool call, when processed in ReAct loop, then delegates to IntentResolutionFacade and loops to final reply")
         void executes_tool_in_react_loop_and_returns_final_reply() {
             ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
             ModelResponse turn1Response = new ModelResponse("", List.of(toolCall));
@@ -116,7 +114,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            when(mcpHub.handleToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
                     .thenReturn(List.of(ToolResult.success(toolCall, "Found: Fast Charger 65W ($24.90)")));
 
             ChatMessageRequest request = ChatMessageRequest.of("Find fast chargers");
@@ -124,7 +122,7 @@ class AssistantChatServiceTest {
 
             assertThat(response).isNotNull();
             assertThat(response.reply()).isEqualTo("I found the Fast Charger 65W for $24.90.");
-            verify(mcpHub, times(1)).handleToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class));
+            verify(intentResolutionFacade, times(1)).executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class));
             verify(modelClient, times(2)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
         }
 
@@ -169,7 +167,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            when(mcpHub.handleToolCalls(eq(List.of(toolCall1, toolCall2)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall1, toolCall2)), any(ToolExecutionContext.class)))
                     .thenReturn(List.of(
                             ToolResult.success(toolCall1, "Charger"),
                             ToolResult.success(toolCall2, "10% off")
@@ -215,14 +213,14 @@ class AssistantChatServiceTest {
     class InvalidInput {
 
         @Test
-        @DisplayName("Given model requests tool call and MCP execution is denied, when processed, then short-circuits ReAct loop and returns denial reason")
+        @DisplayName("Given model requests tool call and facade tool execution is denied, when processed, then short-circuits ReAct loop and returns denial reason")
         void short_circuits_and_returns_denial_reason_when_mcp_tool_execution_is_denied() {
             ToolCall toolCall = new ToolCall("place_order", Map.of("sku", "PROD-1"));
             ModelResponse turn1Response = new ModelResponse("", List.of(toolCall));
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenReturn(turn1Response);
 
-            when(mcpHub.handleToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
                     .thenReturn(List.of(ToolResult.denied(toolCall, "Missing scope 'order.write'.")));
 
             ChatMessageRequest request = ChatMessageRequest.of("buy wireless earbuds");
@@ -231,7 +229,7 @@ class AssistantChatServiceTest {
             assertThat(response).isNotNull();
             assertThat(response.reply()).isEqualTo("Action denied: Missing scope 'order.write'.");
             verify(modelClient, times(1)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
-            verify(mcpHub, times(1)).handleToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class));
+            verify(intentResolutionFacade, times(1)).executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class));
         }
 
         @Test
@@ -241,7 +239,7 @@ class AssistantChatServiceTest {
             Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
             Tracer tracer = mockTracerSetup(span, spanInScope);
 
-            AssistantChatService serviceWithTracer = createChatService(modelClient, mcpHub, tracer, intentResolutionFacade);
+            AssistantChatService serviceWithTracer = createChatService(modelClient, tracer, intentResolutionFacade);
 
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenThrow(new RuntimeException("Gemini model failure"));
@@ -290,7 +288,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenReturn(new ModelResponse("", List.of(loopCall)));
 
-            when(mcpHub.handleToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class)))
                     .thenReturn(List.of(ToolResult.success(loopCall, "ok")));
 
             ChatMessageRequest request = ChatMessageRequest.of("Run loop");
@@ -299,7 +297,7 @@ class AssistantChatServiceTest {
             assertThat(response).isNotNull();
             assertThat(response.reply()).isEqualTo("I have completed processing your request.");
             verify(modelClient, times(5)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
-            verify(mcpHub, times(5)).handleToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class));
+            verify(intentResolutionFacade, times(5)).executeToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class));
         }
 
         @Test
@@ -309,7 +307,7 @@ class AssistantChatServiceTest {
             Tracer.SpanInScope spanInScope = mock(Tracer.SpanInScope.class);
             Tracer tracer = mockTracerSetup(span, spanInScope);
 
-            AssistantChatService serviceWithTracer = createChatService(modelClient, mcpHub, tracer, intentResolutionFacade);
+            AssistantChatService serviceWithTracer = createChatService(modelClient, tracer, intentResolutionFacade);
 
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenReturn(new ModelResponse("Direct response", List.of()));
@@ -337,7 +335,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            when(mcpHub.handleToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
                     .thenReturn(List.of(ToolResult.success(toolCall, "Product found: Charger")));
 
             ChatMessageRequest request = ChatMessageRequest.of("Search for charger");
@@ -403,12 +401,10 @@ class AssistantChatServiceTest {
 
     private AssistantChatService createChatService(
             AssistantModelClient modelClient,
-            McpHub mcpHub,
             Tracer tracer,
             IntentResolutionFacade facade) {
         AssistantChatService target = new AssistantChatService(
                 modelClient,
-                mcpHub,
                 providerOf(tracer),
                 facade != null ? facade : intentResolutionFacade,
                 new ObjectMapper()
