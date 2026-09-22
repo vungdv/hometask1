@@ -2,7 +2,6 @@ package vn.danang.polaris.assistant.mcp;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -38,11 +37,11 @@ class ExternalMcpHubTest {
     @Mock
     private PolarisMcpClient polarisMcpClient;
 
-    private ExternalMcpHub mcpHub;
+    private ToolManager mcpHub;
 
     @BeforeEach
     void setUp() {
-        mcpHub = new ExternalMcpHub(polarisMcpClient);
+        mcpHub = new ToolManager(polarisMcpClient);
     }
 
     // =========================================================================
@@ -167,7 +166,7 @@ class ExternalMcpHubTest {
             when(mockPolicy.authorize(anyString(), eq("order.write")))
                     .thenReturn(PolicyDecision.deny("Missing scope order.write"));
 
-            ExternalMcpHub hubWithPolicy = new ExternalMcpHub(
+            ToolManager hubWithPolicy = new ToolManager(
                     polarisMcpClient, new ObjectMapper(), new IntentToolRegistry(), mockPolicy
             );
 
@@ -202,6 +201,34 @@ class ExternalMcpHubTest {
             assertThat(checkResult.isOk()).isFalse();
             assertThat(checkResult.isRejected()).isTrue();
             assertThat(checkResult.rejection().isError()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Given policy engine denies scope, when checkPolicy evaluated, returns rejected ToolPolicyCheckResult with denied status")
+        void checkPolicy_returns_rejected_when_policy_engine_denies() {
+            PolicyEngine mockPolicy = mock(PolicyEngine.class);
+            when(mockPolicy.authorize(eq("user-1"), eq("order.write")))
+                    .thenReturn(PolicyDecision.deny("Missing scope order.write"));
+
+            ToolManager hubWithPolicy = new ToolManager(
+                    polarisMcpClient, new ObjectMapper(), new IntentToolRegistry(), mockPolicy
+            );
+
+            Tool tool = Tool.builder("place_order").build();
+            ToolExecutionContext context = new ToolExecutionContext(
+                    "sess-1", "user-1", 1, "commerce.order.place", 0.95, true, List.of(tool)
+            );
+            ToolCall toolCall = new ToolCall("place_order", Map.of("sku", "PROD-1"));
+
+            ToolPolicyCheckResult checkResult = hubWithPolicy.checkPolicy(toolCall, context);
+
+            assertThat(checkResult.isOk()).isFalse();
+            assertThat(checkResult.isRejected()).isTrue();
+            assertThat(checkResult.rejection().isDenied()).isTrue();
+            assertThat(checkResult.rejection().status()).isEqualTo(ToolResult.Status.DENIED);
+            assertThat(checkResult.rejection().result()).isEqualTo("Missing scope order.write");
+            assertThat(checkResult.rejection().errorDescription())
+                    .isEqualTo("Policy authorization denied execution of tool 'place_order' for user 'user-1': Missing scope order.write");
         }
     }
 

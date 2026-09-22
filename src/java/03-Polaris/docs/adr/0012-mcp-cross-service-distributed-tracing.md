@@ -13,7 +13,7 @@ Following [ADR-0008](0008-polaris-assistant-independent-application-mcp-architec
 
 Furthermore, [ADR-0011](0011-gemini-model-call-distributed-tracing.md) established distributed tracing for Google Gemini foundation model calls (`GeminiAiModelClient`). However, distributed tracing across the MCP inter-service boundary remained broken:
 
-1. **Context Severance Across HTTP Egress:** When `ExternalMcpHub` in `apps/polaris-assistant` starts a client span (`mcp.tool_call <tool_name>`), `HttpPolarisMcpClient` dispatches the JSON-RPC request to `http://polaris:8080/mcp` without injecting the W3C `traceparent` header. As a result, Polaris Core cannot correlate incoming tool requests with the caller's trace and initiates a disjointed, orphaned trace.
+1. **Context Severance Across HTTP Egress:** When `ToolManager` in `apps/polaris-assistant` starts a client span (`mcp.tool_call <tool_name>`), `HttpPolarisMcpClient` dispatches the JSON-RPC request to `http://polaris:8080/mcp` without injecting the W3C `traceparent` header. As a result, Polaris Core cannot correlate incoming tool requests with the caller's trace and initiates a disjointed, orphaned trace.
 2. **Untracked Tool Discovery (`tools/list`):** `ExternalMcpHub.discoverAllTools()` invokes `HttpPolarisMcpClient.listAvailableTools()` without creating a span, leaving tool schema discovery unmeasured.
 3. **Missing Server-Side MCP Spans in Polaris Core:** Within `apps/polaris`, `ProductMcpTools` and `OrderMcpTools` receive an injected `Tracer` bean, but do not create spans around tool execution. In Grafana Tempo, the internal execution latency of `search_available_products`, `place_order`, etc., is invisible between the HTTP ingress span and database queries.
 4. **Architectural Non-Conformance ([AGENTS.md](../../AGENTS.md) Principle 3.1):** Distributed tracing mandates propagating standard W3C Trace Context across all service boundaries and emitting correlated spans with standard tags.
@@ -26,7 +26,7 @@ How should Polaris architect cross-service trace propagation and MCP server inst
 
 * **Observability by Default ([AGENTS.md: Principle 3.1](../../AGENTS.md)):** Unbroken distributed tracing across Web Gateway &rarr; Assistant App &rarr; Gemini API &rarr; Polaris Core MCP Server &rarr; PostgreSQL.
 * **Standard Protocol Alignment (W3C Trace Context / RFC 9110):** Propagate context strictly via standard W3C `traceparent` headers (`00-{traceId}-{spanId}-{flags}`) without proprietary or bespoke headers.
-* **Framework Homogeneity:** Leverage existing Spring Boot 4.x / Micrometer Tracing (`io.micrometer.tracing.Tracer`, `Span`, `TraceContext`) used in `ExternalMcpHub` and `GeminiAiModelClient`.
+* **Framework Homogeneity:** Leverage existing Spring Boot 4.x / Micrometer Tracing (`io.micrometer.tracing.Tracer`, `Span`, `TraceContext`) used in `ToolManager` and `GeminiAiModelClient`.
 * **Fail-Safe & Non-Blocking Resilience:** Tracing failures (missing tracer, uninitialized context) must never crash tool discovery, tool invocation, or commerce operations.
 * **Binary & Interface Stability ([Evaluation Criteria B1-B4](../../.agents/agents/arch-agent.md)):** Maintain backwards-compatible constructors and contracts across `PolarisMcpClient`, `ProductMcpTools`, and `OrderMcpTools`.
 
@@ -35,10 +35,10 @@ How should Polaris architect cross-service trace propagation and MCP server inst
 ## 3. Considered Options
 
 ### Option 1: Manual W3C Header Injection & In-Process Tool Execution Spans (Selected)
-- **Assistant MCP Client (`apps/polaris-assistant`):** Inject `ObjectProvider<Tracer>` into `HttpPolarisMcpClient`. Before sending JSON-RPC HTTP requests in `buildJsonRpcRequest`, extract the active trace context from `tracer.currentSpan()` or `tracer.currentTraceContext()` and inject `traceparent: 00-{traceId}-{spanId}-{sampled}`. Instrument `discoverAllTools()` in `ExternalMcpHub` with span `mcp.list_tools`.
+- **Assistant MCP Client (`apps/polaris-assistant`):** Inject `ObjectProvider<Tracer>` into `HttpPolarisMcpClient`. Before sending JSON-RPC HTTP requests in `buildJsonRpcRequest`, extract the active trace context from `tracer.currentSpan()` or `tracer.currentTraceContext()` and inject `traceparent: 00-{traceId}-{spanId}-{sampled}`. Instrument `discoverAllTools()` in `ToolManager` with span `mcp.list_tools`.
 - **Polaris Core MCP Server (`apps/polaris`):** Utilize the `Tracer` already injected into `ProductMcpTools` and `OrderMcpTools` to wrap each tool invocation in a server child span (`mcp.server.tool_call <tool_name>`). Tag standard attributes (`mcp.tool.name`, `mcp.server`, `mcp.category`, `error`), and ensure errors and exceptions are recorded on the span.
 
-* **Pros:** Direct alignment with existing `GeminiAiModelClient` and `ExternalMcpHub` implementations; zero additional dependencies; transparent trace hierarchy in Tempo; non-intrusive to existing MCP SDK transport.
+* **Pros:** Direct alignment with existing `GeminiAiModelClient` and `ToolManager` implementations; zero additional dependencies; transparent trace hierarchy in Tempo; non-intrusive to existing MCP SDK transport.
 * **Cons:** Requires updating tool methods in `ProductMcpTools` and `OrderMcpTools` to wrap logic in span execution templates.
 
 ### Option 2: Java HTTP Client Interceptor & Servlet Filter Auto-Instrumentation
@@ -76,7 +76,7 @@ In `HttpPolarisMcpClient`:
   ```
 - Invoke `injectTraceParent(builder)` in `buildJsonRpcRequest(String jsonBody)` so both `tools/list` and `tools/call` HTTP requests carry the W3C trace context.
 
-#### 2. Tool Discovery Span in `ExternalMcpHub` (`apps/polaris-assistant`)
+#### 2. Tool Discovery Span in `ToolManager` (`apps/polaris-assistant`)
 In `ExternalMcpHub.discoverAllTools()`:
 - If `tracer != null`, start span named `mcp.list_tools`.
 - Tag `mcp.provider`: `"polaris-core"`, `mcp.operation`: `"tools/list"`.

@@ -11,7 +11,7 @@
 
 ## 1. Context and Problem Statement
 
-Polaris Assistant operates as an autonomous microservice (`apps/polaris-assistant`) adhering to [ADR-0008](0008-polaris-assistant-independent-application-mcp-architecture.md). Inbound conversational requests (`POST /api/v1/assistant/chat`) are handled by `AssistantChatService.sendMessage()`, where an autonomous ReAct loop runs up to `MAX_TOOL_ITERATIONS` (5), querying Google Gemini for inference and dispatching tools via the Model Context Protocol (`ExternalMcpHub`).
+Polaris Assistant operates as an autonomous microservice (`apps/polaris-assistant`) adhering to [ADR-0008](0008-polaris-assistant-independent-application-mcp-architecture.md). Inbound conversational requests (`POST /api/v1/assistant/chat`) are handled by `AssistantChatService.sendMessage()`, where an autonomous ReAct loop runs up to `MAX_TOOL_ITERATIONS` (5), querying Google Gemini for inference and dispatching tools via the Model Context Protocol (`ToolManager`).
 
 Prior telemetry milestones established:
 - [ADR-0011](0011-gemini-model-call-distributed-tracing.md): Child spans for Gemini model inference.

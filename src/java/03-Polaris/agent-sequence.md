@@ -1,8 +1,8 @@
 # Polaris Assistant Communication Sequence
 
-This document illustrates the main communication flow between [`AssistantChatService`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/service/AssistantChatService.java), [`IntentResolver`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/intent/IntentResolver.java), [`IntentToolRegistry`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/intent/IntentToolRegistry.java), [`PolicyEngine`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/intent/PolicyEngine.java), [`AssistantModelClient`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/model/AssistantModelClient.java), and [`ExternalMcpHub`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java).
+This document illustrates the main communication flow between [`AssistantChatService`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/service/AssistantChatService.java), [`IntentResolver`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/intent/IntentResolver.java), [`IntentToolRegistry`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/intent/IntentToolRegistry.java), [`PolicyEngine`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/intent/PolicyEngine.java), [`AssistantModelClient`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/model/AssistantModelClient.java), and [`ToolManager`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java).
 
-Intent resolution runs **once per user turn**, before the ReAct loop starts, and narrows the tool set the model is offered. When the model proposes tool calls, `AssistantChatService` delegates the tool execution loop to [`ExternalMcpHub.handleToolCalls(...)`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java). Within `ExternalMcpHub`, registry validation and policy authorization run **per proposed tool call** as a guard directly before tool dispatching, so the model is checked both proactively (smaller tool surface) and defensively (every actual call re-validated against the resolved intent).
+Intent resolution runs **once per user turn**, before the ReAct loop starts, and narrows the tool set the model is offered. When the model proposes tool calls, `AssistantChatService` delegates the tool execution loop to [`ExternalMcpHub.handleToolCalls(...)`](apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java). Within `ToolManager`, registry validation and policy authorization run **per proposed tool call** as a guard directly before tool dispatching, so the model is checked both proactively (smaller tool surface) and defensively (every actual call re-validated against the resolved intent).
 
 ```mermaid
 sequenceDiagram
@@ -96,12 +96,12 @@ sequenceDiagram
 4. **ReAct Loop Execution**:
    - `AssistantChatService` invokes `AssistantModelClient.generateResponse(...)` with the message history and the filtered tool set.
    - If the model returns a tool invocation, `AssistantChatService` delegates the batch to `ExternalMcpHub.handleToolCalls(toolCalls, toolContext)`.
-   - For each tool call in the batch, `ExternalMcpHub`:
+   - For each tool call in the batch, `ToolManager`:
      - Calls `IntentToolRegistry.isValid(intentId, toolName)` to defensively confirm the proposed tool is actually permitted for the resolved intent — catching cases where the model strays outside the offered set.
-     - If tool is not valid: `ExternalMcpHub` logs a warning and records a corrective message turn so the model can recover.
-     - If tool is valid: `ExternalMcpHub` calls `PolicyEngine.authorize(userId, requiredScope)` to confirm the caller's OAuth2/OIDC scopes permit the action (e.g. `order.read` vs `order.write`).
-     - If policy denies: `ExternalMcpHub` logs the policy denial and returns a `ToolExecutionResult` indicating policy denial. `AssistantChatService` breaks the loop and returns the denial reason to the user.
-     - If policy allows: `ExternalMcpHub` records an `agent.tool.call` span event, executes the tool via `executeTool(...)`, records `agent.tool.result`, and records the tool result turn.
+     - If tool is not valid: `ToolManager` logs a warning and records a corrective message turn so the model can recover.
+     - If tool is valid: `ToolManager` calls `PolicyEngine.authorize(userId, requiredScope)` to confirm the caller's OAuth2/OIDC scopes permit the action (e.g. `order.read` vs `order.write`).
+     - If policy denies: `ToolManager` logs the policy denial and returns a `ToolExecutionResult` indicating policy denial. `AssistantChatService` breaks the loop and returns the denial reason to the user.
+     - If policy allows: `ToolManager` records an `agent.tool.call` span event, executes the tool via `executeTool(...)`, records `agent.tool.result`, and records the tool result turn.
    - `AssistantChatService` appends all returned model and tool turns to conversation history and continues the loop.
    - Once the model produces a final direct answer (or the iteration limit is reached), the loop terminates.
 5. **Response Generation**: `AssistantChatService` stores the assistant's reply and returns `ChatMessageResponse` to the client.

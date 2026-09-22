@@ -11,7 +11,7 @@
 
 ## 1. Context and Problem Statement
 
-Polaris Assistant operates as an autonomous microservice (`apps/polaris-assistant`) adhering to [ADR-0008](0008-polaris-assistant-independent-application-mcp-architecture.md). Inbound conversational requests (`POST /api/v1/assistant/chat`) are handled by `AssistantChatController`, which delegates execution to `AssistantChatService.sendMessage()`. Inside this service, an autonomous ReAct loop runs up to `MAX_TOOL_ITERATIONS` (5), querying Google Gemini for inference and executing tools via the Model Context Protocol (`ExternalMcpHub`).
+Polaris Assistant operates as an autonomous microservice (`apps/polaris-assistant`) adhering to [ADR-0008](0008-polaris-assistant-independent-application-mcp-architecture.md). Inbound conversational requests (`POST /api/v1/assistant/chat`) are handled by `AssistantChatController`, which delegates execution to `AssistantChatService.sendMessage()`. Inside this service, an autonomous ReAct loop runs up to `MAX_TOOL_ITERATIONS` (5), querying Google Gemini for inference and executing tools via the Model Context Protocol (`ToolManager`).
 
 Prior telemetry milestones established:
 - [ADR-0011](0011-gemini-model-call-distributed-tracing.md): Distributed tracing child spans (`gemini.generate_content <model>`) for model calls.
@@ -44,7 +44,7 @@ How should Polaris architect agent-turn observability to provide zero-blind-spot
 Inject `ObjectProvider<Tracer>` into `AssistantChatService`. Open an enclosing child span named `agent.turn`, activate it using `tracer.withSpan(span)`, and record timestamped events using `span.event(eventName)` at each milestone in the ReAct lifecycle.
 
 * **Pros:**
-  - Automatically nests existing model and MCP spans under `agent.turn` without touching `GeminiAiModelClient` or `ExternalMcpHub`.
+  - Automatically nests existing model and MCP spans under `agent.turn` without touching `GeminiAiModelClient` or `ToolManager`.
   - Zero span explosion: Exactly 1 enclosing span is created per turn; milestones appear as timestamped annotations in Grafana Tempo.
   - Full access to ReAct internal variables (iteration count, tool counts, session/user IDs).
   - Clean null-safe guard (`if (this.tracer != null)`).

@@ -9,9 +9,9 @@
 
 ## 1. Context and Problem Statement
 
-`polaris-assistant` operates as an autonomous microservice communicating with Polaris Core via Model Context Protocol ([ADR-0008](0008-polaris-assistant-independent-application-mcp-architecture.md)). When handling conversational requests (`POST /api/v1/assistant/chat`), `AssistantChatService` executes an autonomous ReAct loop alternating between foundation model inference (`GeminiAiModelClient`) and tool execution (`ExternalMcpHub`).
+`polaris-assistant` operates as an autonomous microservice communicating with Polaris Core via Model Context Protocol ([ADR-0008](0008-polaris-assistant-independent-application-mcp-architecture.md)). When handling conversational requests (`POST /api/v1/assistant/chat`), `AssistantChatService` executes an autonomous ReAct loop alternating between foundation model inference (`GeminiAiModelClient`) and tool execution (`ToolManager`).
 
-While tool invocations across MCP are traced via `ExternalMcpHub` (`mcp.tool_call <tool_name>`), model inference calls to Google Gemini (`POST /v1beta/models/{model}:generateContent`) currently have zero tracing instrumentation:
+While tool invocations across MCP are traced via `ToolManager` (`mcp.tool_call <tool_name>`), model inference calls to Google Gemini (`POST /v1beta/models/{model}:generateContent`) currently have zero tracing instrumentation:
 1. **Latency Blind Spot:** Model inference accounts for 70–90% of total turn latency (800ms–4000ms), but appears as untracked dead time in Grafana Tempo traces.
 2. **Missing Token & Cost Observability:** Gemini API returns `usageMetadata` (prompt tokens, candidates tokens, total tokens), but these metrics are discarded rather than tagged on traces.
 3. **Protocol Non-Conformance:** [`AGENTS.md`](../../AGENTS.md) Principle 3 mandates standard W3C `traceparent` propagation across all external HTTP entrypoints and egress calls. `GeminiAiModelClient` currently emits requests without trace context.
@@ -25,7 +25,7 @@ How should Polaris architect distributed tracing for Gemini model calls to ensur
 
 * **Observability by Default ([AGENTS.md Principle 3.1](../../AGENTS.md)):** Unbroken distributed tracing across Web Gateway -> Assistant App -> Gemini API -> Polaris Core MCP -> PostgreSQL.
 * **OpenTelemetry GenAI Semantic Conventions:** Alignment with industry standard semantic attributes (`gen_ai.system`, `gen_ai.request.model`, `gen_ai.operation.name`, `gen_ai.usage.*`).
-* **Framework Homogeneity:** Standardize on Spring Boot 4.x / Micrometer Tracing (`io.micrometer.tracing.Tracer`), matching [`ExternalMcpHub`](../../apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java) and [`TraceFilter`](../../libs/polaris-common/src/main/java/vn/danang/polaris/config/TraceFilter.java).
+* **Framework Homogeneity:** Standardize on Spring Boot 4.x / Micrometer Tracing (`io.micrometer.tracing.Tracer`), matching [`ToolManager`](../../apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java) and [`TraceFilter`](../../libs/polaris-common/src/main/java/vn/danang/polaris/config/TraceFilter.java).
 * **Fail-Safe & Non-Blocking Resilience:** Telemetry failures (missing tracer, tracer initialization error) must never disrupt model inference or user chat availability.
 * **Interface & Binary Stability ([Evaluation Criteria B1-B4]):** Zero breaking changes to `AssistantModelClient` contract or existing unit tests.
 
@@ -36,7 +36,7 @@ How should Polaris architect distributed tracing for Gemini model calls to ensur
 ### Option 1: In-Process Micrometer Tracer Instrumentation in `GeminiAiModelClient` (Selected)
 Inject `ObjectProvider<Tracer>` into `GeminiAiModelClient`. Wrap the outbound HTTP call in a child span named `gemini.generate_content {model}`, inject W3C `traceparent` into the `HttpRequest`, and tag latency, token counts, and error statuses.
 
-* **Pros:** Direct alignment with `ExternalMcpHub` pattern; zero additional dependencies; full access to request/response lifecycle for token parsing; fail-safe via `tracer == null` guard.
+* **Pros:** Direct alignment with `ToolManager` pattern; zero additional dependencies; full access to request/response lifecycle for token parsing; fail-safe via `tracer == null` guard.
 * **Cons:** Requires updating `GeminiAiModelClient` constructor with overloaded fallback.
 
 ### Option 2: Java `HttpClient` Interceptor / Decorator

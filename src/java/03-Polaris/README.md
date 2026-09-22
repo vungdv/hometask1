@@ -35,6 +35,12 @@ Polaris is organized around clear bounded contexts adhering to Domain-Driven Des
 
 ```mermaid
 flowchart LR
+    subgraph External["External"]
+        direction TB
+        subgraph LLM["LLM"]
+            Gemini-3.6-flash["Gemni-3.6-flash"]
+        end
+    end
     subgraph Observability["Observability/Grafana-Stack"]
         direction LR
         Grafana["Grafana"]
@@ -42,7 +48,7 @@ flowchart LR
         Loki["Loki"]
         Prometheus["Prometheus"]
     end
-    subgraph Main[" "]
+    subgraph Main["Apps"]
         direction TB
         subgraph L1["Clients"]
             direction LR
@@ -63,6 +69,7 @@ flowchart LR
     L2 -->|Proxy| L3
     Polaris-Assistant -->|MCP /http| Polaris-App
     Main -.->|Collector/OTLP| Observability
+    Polaris-Assistant -->|Gemini-3.6-flash| Gemini-3.6-flash
 ```
 
 ---
