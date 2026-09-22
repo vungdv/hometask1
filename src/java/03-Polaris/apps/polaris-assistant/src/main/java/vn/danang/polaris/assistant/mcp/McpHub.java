@@ -5,7 +5,7 @@ import java.util.Map;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import vn.danang.polaris.assistant.model.ToolCall;
+import vn.danang.polaris.assistant.ai.ToolCall;
 
 /**
  * Hub contract for Model Context Protocol (MCP) operations.

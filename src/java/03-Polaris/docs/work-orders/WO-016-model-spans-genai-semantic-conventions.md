@@ -36,9 +36,10 @@ Implement OpenTelemetry GenAI Semantic Conventions (v1.27+) and reasoning contex
 ## 2. Detailed Technical Tasks
 
 ### Task 1: Create Domain Record `ModelRequestContext`
-**File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/model/ModelRequestContext.java`
+**File:** `llm`
+
 ```java
-package vn.danang.polaris.assistant.model;
+package vn.danang.polaris.assistant.ai;
 
 /**
  * Immutable context describing the agent turn and intent state surrounding a model inference call.
@@ -61,7 +62,7 @@ public record ModelRequestContext(
 ```
 
 ### Task 2: Extend Interface `AssistantModelClient`
-**File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/model/AssistantModelClient.java`
+**File:** `llm`
 Add the default method:
 ```java
     /**
@@ -78,7 +79,7 @@ Add the default method:
 ```
 
 ### Task 3: Update `GeminiAiModelClient` Span Tagging
-**File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/model/GeminiAiModelClient.java`
+**File:** `llm`
 
 1. Override `generateResponse(List<AssistantMessage> messages, List<Tool> tools, ModelRequestContext context)`:
    - Implement the full execution logic delegating to `generateResponseInternal(messages, tools, context)`.
@@ -109,7 +110,7 @@ Add the default method:
    - Ensure neither `messages`, `system_instruction`, candidate text, nor `partSignature` / `thoughtSignature` are attached as tags to `span`.
 
 ### Task 4: Unit Test Suite
-**File:** `apps/polaris-assistant/src/test/java/vn/danang/polaris/assistant/model/GeminiAiModelClientTest.java`
+**File:** `llm`
 
 Implement unit tests verifying:
 1. `generateResponse_withOtelGenAiSemanticConventions`:

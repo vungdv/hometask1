@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.model;
+package vn.danang.polaris.assistant.ai;
 
 /**
  * Immutable context describing the agent turn and intent state surrounding a model inference call.

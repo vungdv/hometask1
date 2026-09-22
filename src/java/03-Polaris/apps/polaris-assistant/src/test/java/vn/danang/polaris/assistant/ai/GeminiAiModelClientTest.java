@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.model;
+package vn.danang.polaris.assistant.ai;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -14,7 +14,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;

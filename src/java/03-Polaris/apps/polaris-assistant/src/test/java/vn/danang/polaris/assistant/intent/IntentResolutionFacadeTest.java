@@ -18,7 +18,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.mcp.McpHub;
 import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
 import vn.danang.polaris.assistant.mcp.ToolResult;
-import vn.danang.polaris.assistant.model.ToolCall;
+import vn.danang.polaris.assistant.ai.ToolCall;
 
 class IntentResolutionFacadeTest {
 

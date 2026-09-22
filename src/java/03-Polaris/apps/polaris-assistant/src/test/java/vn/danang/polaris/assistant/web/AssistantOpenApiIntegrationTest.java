@@ -17,7 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import vn.danang.polaris.assistant.PolarisAssistantApp;
 import vn.danang.polaris.assistant.mcp.PolarisMcpClient;
-import vn.danang.polaris.assistant.model.AssistantModelClient;
+import vn.danang.polaris.assistant.ai.AssistantModelClient;
 
 @SpringBootTest(classes = PolarisAssistantApp.class)
 @AutoConfigureMockMvc

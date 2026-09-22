@@ -8,12 +8,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.mcp.McpHub;
 import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
 import vn.danang.polaris.assistant.mcp.ToolResult;
-import vn.danang.polaris.assistant.model.ToolCall;
+import vn.danang.polaris.assistant.ai.ToolCall;
 
 /**
  * Facade that orchestrates tool discovery from {@link McpHub}, intent classification
