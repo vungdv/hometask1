@@ -11,6 +11,9 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.mcp.McpHub;
+import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
+import vn.danang.polaris.assistant.mcp.ToolResult;
+import vn.danang.polaris.assistant.model.ToolCall;
 
 /**
  * Facade that orchestrates tool discovery from {@link McpHub}, intent classification
@@ -72,5 +75,34 @@ public class IntentResolutionFacade {
         List<AssistantMessage> context = history != null ? new ArrayList<>(history) : new ArrayList<>();
         IntentClassification classification = intentResolver.resolve(messageText, context);
         return intentToolRegistry.resolveIntent(classification, availableTools);
+    }
+
+    /**
+     * Executes the proposed tool calls through the configured {@link McpHub},
+     * ensuring all tool invocations and accepted tools are governed by the intent and policy framework.
+     *
+     * @param toolCalls the tool calls proposed by the model
+     * @param context the tool execution context containing session, intent, and security metadata
+     * @return list of tool results representing the outcome of each tool execution
+     */
+    public List<ToolResult> executeToolCalls(
+            List<ToolCall> toolCalls,
+            ToolExecutionContext context) {
+        if (toolCalls == null || toolCalls.isEmpty()) {
+            return List.of();
+        }
+        if (this.mcpHub == null) {
+            return List.of();
+        }
+        return this.mcpHub.handleToolCalls(toolCalls, context);
+    }
+
+    /**
+     * Alias for {@link #executeToolCalls(List, ToolExecutionContext)}.
+     */
+    public List<ToolResult> handleToolCalls(
+            List<ToolCall> toolCalls,
+            ToolExecutionContext context) {
+        return executeToolCalls(toolCalls, context);
     }
 }

@@ -32,6 +32,7 @@ import jakarta.annotation.Nullable;
  * Manages the distributed tracing span lifecycle (creation, tagging, activation, error capturing,
  * and completion) around annotated methods. Evaluates static values and dynamic SpEL expressions
  * bound to method arguments to attach context-rich tags to the span.
+ *
  */
 @Aspect
 @Component
