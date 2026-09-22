@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.model;
+package vn.danang.polaris.assistant.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;

@@ -29,7 +29,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.intent.IntentToolRegistry;
 import vn.danang.polaris.assistant.intent.PolicyDecision;
 import vn.danang.polaris.assistant.intent.PolicyEngine;
-import vn.danang.polaris.assistant.model.ToolCall;
+import vn.danang.polaris.assistant.ai.ToolCall;
 
 @ExtendWith(MockitoExtension.class)
 class ExternalMcpHubTest {

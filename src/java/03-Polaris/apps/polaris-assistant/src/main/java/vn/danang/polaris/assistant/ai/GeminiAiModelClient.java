@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.model;
+package vn.danang.polaris.assistant.ai;
 
 import java.io.IOException;
 import java.net.URI;

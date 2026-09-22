@@ -1,10 +1,7 @@
 package vn.danang.polaris.assistant.mcp;
 
 import jakarta.annotation.Nullable;
-import vn.danang.polaris.assistant.model.ToolCall;
-
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
+import vn.danang.polaris.assistant.ai.ToolCall;
 
 /**
  * Result of policy and intent checks performed on a tool call.

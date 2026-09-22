@@ -25,7 +25,7 @@ Implement distributed tracing for all Google Gemini model calls in `apps/polaris
 ## 2. Detailed Technical Tasks
 
 ### Task 1: Update `GeminiAiModelClient.java`
-**File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/model/GeminiAiModelClient.java`
+**File:** `llm`
 
 1. **Inject Tracer**:
    - Add field `@Nullable private final Tracer tracer;` (import `io.micrometer.tracing.Tracer`, `io.micrometer.tracing.Span`, `jakarta.annotation.Nullable`).
@@ -73,7 +73,7 @@ Implement distributed tracing for all Google Gemini model calls in `apps/polaris
 ---
 
 ### Task 2: Update Unit Tests in `GeminiAiModelClientTest.java`
-**File:** `apps/polaris-assistant/src/test/java/vn/danang/polaris/assistant/model/GeminiAiModelClientTest.java`
+**File:** `llm`
 
 1. Verify all existing tests run and pass without modification.
 2. Add new unit tests exercising:

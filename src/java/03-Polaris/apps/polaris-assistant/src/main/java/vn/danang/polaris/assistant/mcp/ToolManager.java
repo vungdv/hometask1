@@ -27,7 +27,9 @@ import vn.danang.polaris.assistant.intent.DefaultPolicyEngine;
 import vn.danang.polaris.assistant.intent.IntentToolRegistry;
 import vn.danang.polaris.assistant.intent.PolicyDecision;
 import vn.danang.polaris.assistant.intent.PolicyEngine;
-import vn.danang.polaris.assistant.model.ToolCall;
+import vn.danang.polaris.assistant.ai.ToolCall;
+import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
+import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
 /**
  * Hub and tool registry for Polaris Assistant.
@@ -36,9 +38,9 @@ import vn.danang.polaris.assistant.model.ToolCall;
  * with policy validation and concurrent execution for remote tool calls.
  */
 @Component
-public class ExternalMcpHub implements McpHub, DisposableBean {
+public class ToolManager implements McpHub, DisposableBean {
 
-    private static final Logger log = LoggerFactory.getLogger(ExternalMcpHub.class);
+    private static final Logger log = LoggerFactory.getLogger(ToolManager.class);
 
     private final PolarisMcpClient polarisMcpClient;
     private final IntentToolRegistry intentToolRegistry;
@@ -47,7 +49,7 @@ public class ExternalMcpHub implements McpHub, DisposableBean {
     private final boolean managedExecutor;
 
     @Autowired
-    public ExternalMcpHub(
+    public ToolManager(
             PolarisMcpClient polarisMcpClient,
             ObjectProvider<IntentToolRegistry> intentToolRegistryProvider,
             ObjectProvider<PolicyEngine> policyEngineProvider,
@@ -68,18 +70,18 @@ public class ExternalMcpHub implements McpHub, DisposableBean {
         }
     }
 
-    public ExternalMcpHub(PolarisMcpClient polarisMcpClient) {
+    public ToolManager(PolarisMcpClient polarisMcpClient) {
         this(polarisMcpClient, (IntentToolRegistry) null, null, null);
     }
 
-    public ExternalMcpHub(
+    public ToolManager(
             PolarisMcpClient polarisMcpClient,
             @Nullable IntentToolRegistry intentToolRegistry,
             @Nullable PolicyEngine policyEngine) {
         this(polarisMcpClient, intentToolRegistry, policyEngine, null);
     }
 
-    public ExternalMcpHub(
+    public ToolManager(
             PolarisMcpClient polarisMcpClient,
             @Nullable ObjectMapper objectMapper,
             @Nullable IntentToolRegistry intentToolRegistry,
@@ -87,7 +89,7 @@ public class ExternalMcpHub implements McpHub, DisposableBean {
         this(polarisMcpClient, intentToolRegistry, policyEngine, null);
     }
 
-    public ExternalMcpHub(
+    public ToolManager(
             PolarisMcpClient polarisMcpClient,
             @Nullable IntentToolRegistry intentToolRegistry,
             @Nullable PolicyEngine policyEngine,
@@ -108,7 +110,7 @@ public class ExternalMcpHub implements McpHub, DisposableBean {
         }
     }
 
-    public ExternalMcpHub(
+    public ToolManager(
             PolarisMcpClient polarisMcpClient,
             @Nullable ObjectMapper objectMapper,
             @Nullable IntentToolRegistry intentToolRegistry,
@@ -128,6 +130,9 @@ public class ExternalMcpHub implements McpHub, DisposableBean {
      * Discovers all tools available from Polaris Core.
      */
     @Override
+    @CustomNextSpan(
+            name = "mcp.polaris.discovery"
+    )
     public List<Tool> discoverAllTools() {
         return polarisMcpClient.listAvailableTools();
     }
@@ -140,6 +145,13 @@ public class ExternalMcpHub implements McpHub, DisposableBean {
      * - last step: collect results.
      */
     @Override
+    @CustomNextSpan(
+            name = "mcp.polaris.execute",
+            tags = {
+                    @SpanTag(key = "mcp.itent_id", expression = "#context?.intentId()"),
+                    @SpanTag(key = "mcp.itent_confidence", expression = "#context?.confidence()"),
+            }
+    )
     public List<ToolResult> handleToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context) {
         if (toolCalls == null || toolCalls.isEmpty()) {
             return List.of();

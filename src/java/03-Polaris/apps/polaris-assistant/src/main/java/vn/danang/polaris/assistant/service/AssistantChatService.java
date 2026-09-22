@@ -30,10 +30,10 @@ import vn.danang.polaris.assistant.intent.IntentResolutionFacade;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
 import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
 import vn.danang.polaris.assistant.mcp.ToolResult;
-import vn.danang.polaris.assistant.model.AssistantModelClient;
-import vn.danang.polaris.assistant.model.ModelRequestContext;
-import vn.danang.polaris.assistant.model.ModelResponse;
-import vn.danang.polaris.assistant.model.ToolCall;
+import vn.danang.polaris.assistant.ai.AssistantModelClient;
+import vn.danang.polaris.assistant.ai.ModelRequestContext;
+import vn.danang.polaris.assistant.ai.ModelResponse;
+import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
