@@ -50,7 +50,7 @@ import vn.danang.polaris.assistant.mcp.ExternalMcpHub;
 import vn.danang.polaris.assistant.mcp.McpHub;
 import vn.danang.polaris.assistant.mcp.PolarisMcpClient;
 import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
-import vn.danang.polaris.assistant.mcp.ToolExecutionResult;
+import vn.danang.polaris.assistant.mcp.ToolResult;
 import vn.danang.polaris.assistant.model.AssistantModelClient;
 import vn.danang.polaris.assistant.model.ModelRequestContext;
 import vn.danang.polaris.assistant.model.ModelResponse;
@@ -82,7 +82,7 @@ class AssistantChatServiceTest {
         @DisplayName("Given valid message, when sendMessage is called, then forwards to model client and returns response")
         @SuppressWarnings("unchecked")
         void forwards_valid_message_to_model_client_and_returns_response() {
-            ChatMessageRequest request = new ChatMessageRequest("Tell me about Polaris");
+            ChatMessageRequest request = ChatMessageRequest.of("Tell me about Polaris");
             when(modelClient.chat(anyList())).thenReturn("Polaris is an enterprise ecommerce platform.");
 
             ChatMessageResponse response = chatService.sendMessage(request, "user-123");
@@ -129,7 +129,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            ChatMessageRequest request = new ChatMessageRequest("Find fast chargers");
+            ChatMessageRequest request = ChatMessageRequest.of("Find fast chargers");
             ChatMessageResponse response = chatService.sendMessage(request, "user-123");
 
             assertThat(response).isNotNull();
@@ -146,11 +146,11 @@ class AssistantChatServiceTest {
                     .thenReturn(new ModelResponse("Da Nang is a coastal city in Vietnam.", List.of()));
 
             String sessionId = "session-persist-100";
-            ChatMessageRequest msg1 = new ChatMessageRequest(sessionId, "Hi");
+            ChatMessageRequest msg1 = ChatMessageRequest.of(sessionId, "Hi");
             ChatMessageResponse resp1 = chatService.sendMessage(msg1, "user-123");
             assertThat(resp1.reply()).isEqualTo("Hello! How can I help you?");
 
-            ChatMessageRequest msg2 = new ChatMessageRequest(sessionId, "Tell me about Da Nang");
+            ChatMessageRequest msg2 = ChatMessageRequest.of(sessionId, "Tell me about Da Nang");
             ChatMessageResponse resp2 = chatService.sendMessage(msg2, "user-123");
             assertThat(resp2.reply()).isEqualTo("Da Nang is a coastal city in Vietnam.");
 
@@ -184,7 +184,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            ChatMessageRequest request = new ChatMessageRequest("Search for charger");
+            ChatMessageRequest request = ChatMessageRequest.of("Search for charger");
             ChatMessageResponse response = chatService.sendMessage(request, "user-123");
 
             assertThat(response).isNotNull();
@@ -210,11 +210,9 @@ class AssistantChatServiceTest {
 
             when(mockMcpHub.discoverAllTools()).thenReturn(List.of(Tool.builder("search_available_products").build()));
 
-            AssistantMessage toolMsg = new AssistantMessage();
-            toolMsg.setRole(MessageRole.TOOL);
-            toolMsg.setContent("Found 1 product");
+            ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "phone"));
             when(mockMcpHub.handleToolCalls(anyList(), any(ToolExecutionContext.class)))
-                    .thenReturn(ToolExecutionResult.success(List.of(toolMsg)));
+                    .thenReturn(List.of(ToolResult.success(toolCall, "Found 1 product")));
 
             ModelResponse turn1 = new ModelResponse("", List.of(new ToolCall("search_available_products", Map.of("query", "phone"))));
             ModelResponse turn2 = new ModelResponse("Found the phone.", List.of());
@@ -222,7 +220,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1)
                     .thenReturn(turn2);
 
-            ChatMessageResponse response = chatService.sendMessage(new ChatMessageRequest("Search phone"), "user-123");
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("Search phone"), "user-123");
             assertThat(response.reply()).isEqualTo("Found the phone.");
 
             verify(mockMcpHub, times(1)).handleToolCalls(eq(turn1.toolCalls()), any(ToolExecutionContext.class));
@@ -245,7 +243,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList())).thenReturn(directReply);
 
             AssistantChatService service = createChatService(modelClient, mcpHub);
-            ChatMessageRequest request = new ChatMessageRequest("Find chargers in stock");
+            ChatMessageRequest request = ChatMessageRequest.of("Find chargers in stock");
             ChatMessageResponse response = service.sendMessage(request, "user-123");
 
             assertThat(response.reply()).isEqualTo("Found 3 chargers.");
@@ -269,7 +267,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList())).thenReturn(directReply);
 
             AssistantChatService service = createChatService(modelClient, mcpHub);
-            ChatMessageRequest request = new ChatMessageRequest("Hello there!");
+            ChatMessageRequest request = ChatMessageRequest.of("Hello there!");
             ChatMessageResponse response = service.sendMessage(request, "user-123");
 
             assertThat(response.reply()).isEqualTo("Hello! How can I assist you?");
@@ -291,7 +289,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class))).thenReturn(directReply);
 
             AssistantChatService service = createChatService(modelClient, mcpHub);
-            ChatMessageRequest request = new ChatMessageRequest("Find chargers in stock");
+            ChatMessageRequest request = ChatMessageRequest.of("Find chargers in stock");
             ChatMessageResponse response = service.sendMessage(request, "user-123");
 
             assertThat(response.reply()).isEqualTo("Found the products.");
@@ -338,7 +336,7 @@ class AssistantChatServiceTest {
             AssistantChatService serviceWithTracer = createChatService(
                     modelClient, mcpHub, tracer);
 
-            ChatMessageRequest request = new ChatMessageRequest("sess-001", "Find fast chargers");
+            ChatMessageRequest request = ChatMessageRequest.of("sess-001", "Find fast chargers");
             ChatMessageResponse response = serviceWithTracer.sendMessage(request, "user-456");
 
             assertThat(response).isNotNull();
@@ -376,7 +374,7 @@ class AssistantChatServiceTest {
             AssistantChatService serviceWithTracer = createChatService(
                     modelClient, mcpHub, tracer);
 
-            ChatMessageRequest request = new ChatMessageRequest("Hello");
+            ChatMessageRequest request = ChatMessageRequest.of("Hello");
             ChatMessageResponse response = serviceWithTracer.sendMessage(request, null);
 
             assertThat(response).isNotNull();
@@ -412,7 +410,7 @@ class AssistantChatServiceTest {
             AssistantChatService service = createChatService(
                     modelClient, mcpHub, tracer);
 
-            ChatMessageRequest request = new ChatMessageRequest("sess-enriched-events", "Find charger");
+            ChatMessageRequest request = ChatMessageRequest.of("sess-enriched-events", "Find charger");
             ChatMessageResponse response = service.sendMessage(request, "user-456");
 
             assertThat(response).isNotNull();
@@ -436,7 +434,7 @@ class AssistantChatServiceTest {
         @Test
         @DisplayName("Given blank message, when constructed in request, then throws IllegalArgumentException")
         void rejects_blank_message_payload() {
-            assertThatThrownBy(() -> new ChatMessageRequest("   "))
+            assertThatThrownBy(() -> ChatMessageRequest.of("   "))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("Message content must not be blank.");
         }
@@ -459,7 +457,7 @@ class AssistantChatServiceTest {
             AssistantChatService service = createChatService(
                     modelClient, mcpHub, null, null, mockResolver, null, null);
 
-            ChatMessageRequest request = new ChatMessageRequest("buy something maybe");
+            ChatMessageRequest request = ChatMessageRequest.of("buy something maybe");
             ChatMessageResponse response = service.sendMessage(request, "user-123");
 
             assertThat(response).isNotNull();
@@ -485,7 +483,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn2Response);
 
             AssistantChatService service = createChatService(modelClient, mcpHub);
-            ChatMessageRequest request = new ChatMessageRequest("Find chargers");
+            ChatMessageRequest request = ChatMessageRequest.of("Find chargers");
             ChatMessageResponse response = service.sendMessage(request, "user-123");
 
             assertThat(response.reply()).isEqualTo("Understood, I am looking up products instead.");
@@ -518,7 +516,7 @@ class AssistantChatServiceTest {
             AssistantChatService service = createChatService(
                     modelClient, mcpHub, null, null, null, null, mockPolicy);
 
-            ChatMessageRequest request = new ChatMessageRequest("buy the wireless earbuds");
+            ChatMessageRequest request = ChatMessageRequest.of("buy the wireless earbuds");
             ChatMessageResponse response = service.sendMessage(request, "user-no-scope");
 
             assertThat(response).isNotNull();
@@ -542,7 +540,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList()))
                     .thenThrow(new RuntimeException("Gemini model failure"));
 
-            ChatMessageRequest request = new ChatMessageRequest("sess-err", "Find fast chargers");
+            ChatMessageRequest request = ChatMessageRequest.of("sess-err", "Find fast chargers");
 
             assertThatThrownBy(() -> serviceWithTracer.sendMessage(request, "user-err"))
                     .isInstanceOf(RuntimeException.class)
@@ -573,7 +571,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList()))
                     .thenReturn(new ModelResponse("", List.of(new ToolCall("looping_tool", Map.of()))));
 
-            ChatMessageRequest request = new ChatMessageRequest("Run loop");
+            ChatMessageRequest request = ChatMessageRequest.of("Run loop");
             ChatMessageResponse response = chatService.sendMessage(request, "user-123");
 
             assertThat(response).isNotNull();
@@ -599,7 +597,7 @@ class AssistantChatServiceTest {
             AssistantChatService serviceWithTracer = createChatService(
                     modelClient, mcpHub, tracer);
 
-            ChatMessageRequest request = new ChatMessageRequest("sess-max", "Perpetual loop");
+            ChatMessageRequest request = ChatMessageRequest.of("sess-max", "Perpetual loop");
             ChatMessageResponse response = serviceWithTracer.sendMessage(request, "user-loop");
 
             assertThat(response).isNotNull();
@@ -635,7 +633,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            ChatMessageRequest request = new ChatMessageRequest("Search charger and deals");
+            ChatMessageRequest request = ChatMessageRequest.of("Search charger and deals");
             ChatMessageResponse response = chatService.sendMessage(request, "user-123");
 
             assertThat(response).isNotNull();
@@ -688,7 +686,7 @@ class AssistantChatServiceTest {
             AssistantChatService serviceWithTracer = createChatService(
                     modelClient, mcpHub, tracer);
 
-            ChatMessageRequest request = new ChatMessageRequest("sess-parallel", "Find charger deals");
+            ChatMessageRequest request = ChatMessageRequest.of("sess-parallel", "Find charger deals");
             ChatMessageResponse response = serviceWithTracer.sendMessage(request, "user-999");
 
             assertThat(response).isNotNull();
@@ -721,7 +719,7 @@ class AssistantChatServiceTest {
             AssistantChatService service = createChatService(
                     modelClient, mcpHub, tracer);
 
-            ChatMessageRequest request = new ChatMessageRequest("session-sampling-test", "Find products");
+            ChatMessageRequest request = ChatMessageRequest.of("session-sampling-test", "Find products");
             ChatMessageResponse response = service.sendMessage(request, "user-test");
 
             assertThat(response).isNotNull();

@@ -47,4 +47,12 @@ public record ChatMessageRequest(
                 ? UUID.randomUUID().toString()
                 : sessionId;
     }
+
+    public static  ChatMessageRequest of(String message){
+        return new ChatMessageRequest("", message);
+    }
+
+    public static  ChatMessageRequest of(String sessionId, String message){
+        return new ChatMessageRequest(sessionId, message);
+    }
 }

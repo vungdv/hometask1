@@ -157,6 +157,54 @@ class GeminiAiModelClientTest {
             ToolCall call = response.toolCalls().get(0);
             assertThat(call.name()).isEqualTo("search_available_products");
             assertThat(call.arguments()).containsEntry("query", "charger");
+            assertThat(call.args()).containsEntry("query", "charger");
+        }
+
+        @Test
+        @DisplayName("Given candidate part with functionCall containing id, name, and args, when parsed, then populates all fields in ToolCall")
+        @SuppressWarnings("unchecked")
+        void parses_tool_call_with_id_name_and_args() throws Exception {
+            properties.setApiKey("test-valid-api-key");
+            properties.setModel("gemini-3.6-flash");
+
+            String mockResponseBody = """
+                    {
+                      "candidates": [
+                        {
+                          "content": {
+                            "parts": [
+                              {
+                                "functionCall": {
+                                  "id": "call_12345",
+                                  "name": "lookup_customer_by_id",
+                                  "args": {
+                                    "customer_id": "CUST-007"
+                                  }
+                                }
+                              }
+                            ],
+                            "role": "model"
+                          }
+                        }
+                      ]
+                    }
+                    """;
+
+            HttpResponse<String> mockResponse = mock(HttpResponse.class);
+            when(mockResponse.statusCode()).thenReturn(200);
+            when(mockResponse.body()).thenReturn(mockResponseBody);
+            when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                    .thenReturn(mockResponse);
+
+            ModelResponse response = client.generateResponse(List.of(createUserMessage("Lookup customer")), List.of());
+
+            assertThat(response.hasToolCalls()).isTrue();
+            assertThat(response.toolCalls()).hasSize(1);
+            ToolCall call = response.toolCalls().get(0);
+            assertThat(call.id()).isEqualTo("call_12345");
+            assertThat(call.name()).isEqualTo("lookup_customer_by_id");
+            assertThat(call.args()).containsEntry("customer_id", "CUST-007");
+            assertThat(call.arguments()).containsEntry("customer_id", "CUST-007");
         }
 
         @Test

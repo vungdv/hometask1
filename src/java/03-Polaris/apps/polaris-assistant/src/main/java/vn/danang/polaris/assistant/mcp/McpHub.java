@@ -30,20 +30,20 @@ public interface McpHub {
     CallToolResult executeTool(String toolName, Map<String, Object> arguments);
 
     /**
-     * Handles the entire execution loop for a batch of tool calls proposed by the AI model.
+     * Handles the execution for a batch of tool calls proposed by the AI model.
      * Performs defensive validation against intent, policy authorization against caller scopes,
-     * tool dispatching via MCP, decision auditing, telemetry events, and turns construction.
+     * tool dispatching via MCP, decision auditing, and telemetry events.
      *
      * @param toolCalls the list of tool calls proposed by the model
      * @param context the execution context containing session, intent, policy, and tracing details
-     * @return result containing generated conversation messages and policy denial status
+     * @return list of tool results indicating outcome for each tool call
      */
-    ToolExecutionResult handleToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context);
+    List<ToolResult> handleToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context);
 
     /**
      * Alias for {@link #handleToolCalls(List, ToolExecutionContext)}.
      */
-    default ToolExecutionResult executeToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context) {
+    default List<ToolResult> executeToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context) {
         return handleToolCalls(toolCalls, context);
     }
 }

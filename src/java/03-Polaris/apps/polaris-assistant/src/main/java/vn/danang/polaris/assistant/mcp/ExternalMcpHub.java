@@ -1,6 +1,5 @@
 package vn.danang.polaris.assistant.mcp;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -20,8 +19,6 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import jakarta.annotation.Nullable;
-import vn.danang.polaris.assistant.entity.AssistantMessage;
-import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.DefaultPolicyEngine;
 import vn.danang.polaris.assistant.intent.IntentToolRegistry;
 import vn.danang.polaris.assistant.intent.PolicyDecision;
@@ -163,46 +160,28 @@ public class ExternalMcpHub implements McpHub {
     }
 
     /**
-     * Handles the entire execution loop for a batch of tool calls proposed by the AI model.
+     * Handles the execution for a batch of tool calls proposed by the AI model.
      * Validates intent, authorizes scopes against policy, executes tools via MCP,
-     * emits lifecycle telemetry, records decision audits, and constructs conversation turns.
+     * emits lifecycle telemetry, records decision audits, and returns a list of {@link ToolResult}s.
      */
     @Override
-    public ToolExecutionResult handleToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context) {
+    public List<ToolResult> handleToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context) {
         if (toolCalls == null || toolCalls.isEmpty()) {
-            return ToolExecutionResult.empty();
+            return List.of();
         }
 
         String sessionId = context != null && context.sessionId() != null ? context.sessionId() : "";
         String userId = context != null && context.userId() != null ? context.userId() : "anonymous";
         int iteration = context != null ? context.iteration() : 1;
         String intentId = context != null && context.intentId() != null ? context.intentId() : "general.conversation";
-        double confidence = context != null ? context.confidence() : 1.0;
         boolean meetsThreshold = context != null && context.meetsThreshold();
         List<Tool> filteredTools = context != null && context.filteredTools() != null ? context.filteredTools() : List.of();
         Span span = Optional.ofNullable(tracer).map(Tracer::currentSpan).orElse(null);
 
-        List<AssistantMessage> modelTurns = new ArrayList<>();
-        List<AssistantMessage> toolTurns = new ArrayList<>();
-        boolean policyDenied = false;
-        String denialReason = null;
+        List<ToolResult> results = new ArrayList<>();
 
         for (ToolCall toolCall : toolCalls) {
             log.info("Model requested tool call: '{}' with arguments: {}", toolCall.name(), toolCall.arguments());
-
-            // Save model's tool call turn to message history
-            AssistantMessage modelTurn = new AssistantMessage();
-            modelTurn.setRole(MessageRole.ASSISTANT);
-            modelTurn.setToolCallId(toolCall.name());
-            try {
-                modelTurn.setWidgetPayload(objectMapper.writeValueAsString(toolCall.arguments()));
-            } catch (Exception e) {
-                modelTurn.setWidgetPayload("{}");
-            }
-            modelTurn.setThoughtSignature(toolCall.thoughtSignature());
-            modelTurn.setCreatedAt(Instant.now());
-            modelTurns.add(modelTurn);
-
             logThoughtSignatureSampling(sessionId, iteration, toolCall.thoughtSignature(), span);
 
             // 1. Defensive tool validation against intent
@@ -212,12 +191,9 @@ public class ExternalMcpHub implements McpHub {
 
             if (!isValidTool) {
                 log.warn("Tool '{}' is not permitted for intent '{}'", toolCall.name(), intentId);
-                AssistantMessage toolTurn = new AssistantMessage();
-                toolTurn.setRole(MessageRole.TOOL);
-                toolTurn.setToolCallId(toolCall.name());
-                toolTurn.setContent("Tool execution denied: Tool '" + toolCall.name() + "' is not permitted for intent '" + intentId + "'. Please provide a direct response or use permitted tools.");
-                toolTurn.setCreatedAt(Instant.now());
-                toolTurns.add(toolTurn);
+                String correctiveMessage = "Tool execution denied: Tool '" + toolCall.name() + "' is not permitted for intent '" + intentId + "'. Please provide a direct response or use permitted tools.";
+                String semanticNote = "Tool '" + toolCall.name() + "' is not permitted under intent '" + intentId + "'.";
+                results.add(ToolResult.error(toolCall, correctiveMessage, semanticNote));
                 continue;
             }
 
@@ -227,8 +203,9 @@ public class ExternalMcpHub implements McpHub {
 
             if (!policyDecision.allowed()) {
                 log.warn("Policy DENIED execution of tool '{}' for user '{}': {}", toolCall.name(), userId, policyDecision.reason());
-                denialReason = policyDecision.reason() != null ? policyDecision.reason() : "Authorization required.";
-                policyDenied = true;
+                String denialReason = policyDecision.reason() != null ? policyDecision.reason() : "Authorization required.";
+                String semanticNote = "Policy authorization denied execution of tool '" + toolCall.name() + "' for user '" + userId + "': " + denialReason;
+                results.add(ToolResult.denied(toolCall, denialReason, semanticNote));
                 break;
             }
 
@@ -238,20 +215,15 @@ public class ExternalMcpHub implements McpHub {
             String resultText = extractToolResultText(toolResult);
             recordEvent(span, "agent.tool.result: " + toolCall.name());
 
-            // Save tool execution result turn to message history
-            AssistantMessage toolTurn = new AssistantMessage();
-            toolTurn.setRole(MessageRole.TOOL);
-            toolTurn.setToolCallId(toolCall.name());
-            toolTurn.setContent(resultText);
-            toolTurn.setCreatedAt(Instant.now());
-            toolTurns.add(toolTurn);
+            if (toolResult != null && Boolean.TRUE.equals(toolResult.isError())) {
+                String semanticNote = "MCP provider reported execution error for tool '" + toolCall.name() + "'.";
+                results.add(ToolResult.error(toolCall, resultText, semanticNote));
+            } else {
+                results.add(ToolResult.success(toolCall, resultText));
+            }
         }
 
-        List<AssistantMessage> messages = new ArrayList<>();
-        messages.addAll(modelTurns);
-        messages.addAll(toolTurns);
-
-        return new ToolExecutionResult(messages, policyDenied, denialReason);
+        return results;
     }
 
     private void recordEvent(@Nullable Span span, String eventName) {

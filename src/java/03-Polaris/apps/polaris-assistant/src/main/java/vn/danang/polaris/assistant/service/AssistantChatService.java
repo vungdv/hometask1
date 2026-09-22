@@ -1,5 +1,6 @@
 package vn.danang.polaris.assistant.service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -7,6 +8,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,9 +17,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
@@ -26,10 +31,11 @@ import vn.danang.polaris.assistant.intent.IntentResolutionFacade;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
 import vn.danang.polaris.assistant.mcp.McpHub;
 import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
-import vn.danang.polaris.assistant.mcp.ToolExecutionResult;
+import vn.danang.polaris.assistant.mcp.ToolResult;
 import vn.danang.polaris.assistant.model.AssistantModelClient;
 import vn.danang.polaris.assistant.model.ModelRequestContext;
 import vn.danang.polaris.assistant.model.ModelResponse;
+import vn.danang.polaris.assistant.model.ToolCall;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
@@ -52,6 +58,7 @@ public class AssistantChatService {
     private final McpHub mcpHub;
     private final Optional<Tracer> tracer;
     private final IntentResolutionFacade intentResolutionFacade;
+    private final ObjectMapper objectMapper;
     // In-memory conversation store: sessionId -> List of AssistantMessage
     private final Map<String, List<AssistantMessage>> conversationStore = new ConcurrentHashMap<>();
 
@@ -60,11 +67,21 @@ public class AssistantChatService {
             AssistantModelClient modelClient,
             McpHub mcpHub,
             ObjectProvider<Tracer> tracerProvider,
-            IntentResolutionFacade intentResolutionFacade) {
+            IntentResolutionFacade intentResolutionFacade,
+            @Nullable ObjectMapper objectMapper) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient must not be null");
         this.mcpHub = Objects.requireNonNull(mcpHub, "mcpHub must not be null");
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
         this.intentResolutionFacade = Objects.requireNonNull(intentResolutionFacade, "intentResolutionFacade must not be null");
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+    }
+
+    public AssistantChatService(
+            AssistantModelClient modelClient,
+            McpHub mcpHub,
+            ObjectProvider<Tracer> tracerProvider,
+            IntentResolutionFacade intentResolutionFacade) {
+        this(modelClient, mcpHub, tracerProvider, intentResolutionFacade, null);
     }
 
     @CustomNextSpan(
@@ -77,11 +94,9 @@ public class AssistantChatService {
             }
     )
     public ChatMessageResponse sendMessage(ChatMessageRequest request, String userId) {
-        String messageText = request.message().trim();
+        String messageText = request.message();
 
-        String sessionId = (request.sessionId() != null && !request.sessionId().isBlank())
-                ? request.sessionId()
-                : "sess-" + System.currentTimeMillis();
+        String sessionId = request.sessionId();
 
         // 1. Get or create history for session
         List<AssistantMessage> history = conversationStore.computeIfAbsent(sessionId, k -> new CopyOnWriteArrayList<>());
@@ -128,14 +143,24 @@ public class AssistantChatService {
                         resolvedIntent.meetsThreshold(),
                         resolvedIntent.filteredTools()
                 );
-                ToolExecutionResult toolResult = mcpHub.handleToolCalls(modelResponse.toolCalls(), toolContext);
-                if (toolResult != null) {
-                    Optional.ofNullable(toolResult.messages()).ifPresent(history::addAll);
-                    if (toolResult.policyDenied()) {
-                        finalReply = "Action denied: " + Optional.ofNullable(toolResult.denialReason()).orElse("Authorization required.");
-                        break;
-                    }
-                }
+
+                var toolResults = mcpHub.handleToolCalls(modelResponse.toolCalls(), toolContext);
+                toolResults
+                        .forEach(result -> {
+                            if (result.isSuccess()){
+                                history.add(AssistantMessage.of(
+                                        result.result(),
+                                        MessageRole.USER,
+                                        result.toolCall().thoughtSignature(),
+                                        result.toolCall().name()));
+                            }else {
+                                history.add(AssistantMessage.of(
+                                        result.errorDescription(),
+                                        MessageRole.USER,
+                                        result.toolCall().thoughtSignature(),
+                                        result.toolCall().name()));
+                            }
+                        });
             } else {
                 finalReply = modelResponse.text();
                 finalThoughtSignature = modelResponse.thoughtSignature();
@@ -167,5 +192,28 @@ public class AssistantChatService {
 
     private Optional<Span> currentSpan() {
         return tracer.map(Tracer::currentSpan);
+    }
+
+    private AssistantMessage toModelTurn(ToolCall toolCall) {
+        AssistantMessage modelTurn = new AssistantMessage();
+        modelTurn.setRole(MessageRole.ASSISTANT);
+        modelTurn.setToolCallId(toolCall.name());
+        try {
+            modelTurn.setWidgetPayload(objectMapper.writeValueAsString(toolCall.args()));
+        } catch (Exception e) {
+            modelTurn.setWidgetPayload("{}");
+        }
+        modelTurn.setThoughtSignature(toolCall.thoughtSignature());
+        modelTurn.setCreatedAt(Instant.now());
+        return modelTurn;
+    }
+
+    private AssistantMessage toToolTurn(ToolResult toolResult) {
+        AssistantMessage toolTurn = new AssistantMessage();
+        toolTurn.setRole(MessageRole.TOOL);
+        toolTurn.setToolCallId(toolResult.toolCall().name());
+        toolTurn.setContent(toolResult.result());
+        toolTurn.setCreatedAt(Instant.now());
+        return toolTurn;
     }
 }

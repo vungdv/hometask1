@@ -28,7 +28,7 @@ class ChatMessageRequestTest {
             String customSessionId = "custom-session-123";
 
             // When
-            ChatMessageRequest request = new ChatMessageRequest(customSessionId, "Hello Polaris");
+            ChatMessageRequest request = ChatMessageRequest.of(customSessionId, "Hello Polaris");
 
             // Then
             assertThat(request.sessionId()).isEqualTo(customSessionId);
@@ -41,7 +41,7 @@ class ChatMessageRequestTest {
             String messageContent = "Hello Polaris";
 
             // When
-            ChatMessageRequest request = new ChatMessageRequest("custom-session-123", messageContent);
+            ChatMessageRequest request = ChatMessageRequest.of("custom-session-123", messageContent);
 
             // Then
             assertThat(request.message()).isEqualTo(messageContent);
@@ -54,7 +54,7 @@ class ChatMessageRequestTest {
             String message = "Hello Polaris";
 
             // When
-            ChatMessageRequest request = new ChatMessageRequest(message);
+            ChatMessageRequest request = ChatMessageRequest.of(message);
 
             // Then
             assertThatCode(() -> UUID.fromString(request.sessionId())).doesNotThrowAnyException();
@@ -74,7 +74,7 @@ class ChatMessageRequestTest {
         @DisplayName("Given null, empty, or whitespace message, when constructed, then throws IllegalArgumentException")
         void rejects_null_empty_or_whitespace_message(String invalidMessage) {
             // When / Then
-            assertThatThrownBy(() -> new ChatMessageRequest(invalidMessage))
+            assertThatThrownBy(() -> ChatMessageRequest.of(invalidMessage))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("Message content must not be blank.");
         }
@@ -88,7 +88,7 @@ class ChatMessageRequestTest {
             String sessionId = "session-123";
 
             // When / Then
-            assertThatThrownBy(() -> new ChatMessageRequest(sessionId, blankMessage))
+            assertThatThrownBy(() -> ChatMessageRequest.of(sessionId, blankMessage))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("Message content must not be blank.");
         }
@@ -107,7 +107,7 @@ class ChatMessageRequestTest {
         @DisplayName("Given a blank or null sessionId, when constructed, then generates a valid UUID sessionId")
         void generates_uuid_session_id_when_provided_session_id_is_blank(String blankSessionId) {
             // When
-            ChatMessageRequest request = new ChatMessageRequest(blankSessionId, "Hello Polaris");
+            ChatMessageRequest request = ChatMessageRequest.of(blankSessionId, "Hello Polaris");
 
             // Then
             assertThatCode(() -> UUID.fromString(request.sessionId())).doesNotThrowAnyException();
@@ -121,7 +121,7 @@ class ChatMessageRequestTest {
             String rawMessage = "  \u200BHello \u0000Polaris!\u200E  ";
 
             // When
-            ChatMessageRequest request = new ChatMessageRequest(rawMessage);
+            ChatMessageRequest request = ChatMessageRequest.of(rawMessage);
 
             // Then
             assertThat(request.message()).isEqualTo("Hello Polaris!");
@@ -137,7 +137,7 @@ class ChatMessageRequestTest {
         @DisplayName("Given a message consisting solely of invisible format or control characters, when constructed, then throws IllegalArgumentException")
         void rejects_message_consisting_solely_of_invisible_or_control_characters(String invisibleMessage) {
             // When / Then
-            assertThatThrownBy(() -> new ChatMessageRequest(invisibleMessage))
+            assertThatThrownBy(() -> ChatMessageRequest.of(invisibleMessage))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("Message content must not be blank.");
         }
