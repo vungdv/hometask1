@@ -8,7 +8,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -144,23 +143,25 @@ public class AssistantChatService {
                         resolvedIntent.filteredTools()
                 );
 
+                for (ToolCall toolCall : modelResponse.toolCalls()) {
+                    history.add(toModelTurn(toolCall));
+                }
+
                 var toolResults = mcpHub.handleToolCalls(modelResponse.toolCalls(), toolContext);
-                toolResults
-                        .forEach(result -> {
-                            if (result.isSuccess()){
-                                history.add(AssistantMessage.of(
-                                        result.result(),
-                                        MessageRole.USER,
-                                        result.toolCall().thoughtSignature(),
-                                        result.toolCall().name()));
-                            }else {
-                                history.add(AssistantMessage.of(
-                                        result.errorDescription(),
-                                        MessageRole.USER,
-                                        result.toolCall().thoughtSignature(),
-                                        result.toolCall().name()));
-                            }
-                        });
+                boolean policyDenied = false;
+                if (toolResults != null) {
+                    for (ToolResult result : toolResults) {
+                        history.add(toToolTurn(result));
+                        if (result.isDenied()) {
+                            finalReply = "Action denied: " + (result.result() != null && !result.result().isBlank() ? result.result() : "Authorization required.");
+                            policyDenied = true;
+                            break;
+                        }
+                    }
+                }
+                if (policyDenied) {
+                    break;
+                }
             } else {
                 finalReply = modelResponse.text();
                 finalThoughtSignature = modelResponse.thoughtSignature();
