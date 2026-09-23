@@ -93,8 +93,16 @@ class CustomerSearchApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.fullName").value("Alice Tran"))
+                .andExpect(jsonPath("$.firstName").value("Alice"))
+                .andExpect(jsonPath("$.lastName").value("Tran"))
                 .andExpect(jsonPath("$.email").value("alice.tran@example.com"))
+                .andExpect(jsonPath("$.secondaryEmail").value("alice.personal@example.com"))
                 .andExpect(jsonPath("$.phone").value("0901111111"))
+                .andExpect(jsonPath("$.company").value("Danang Tech Solutions"))
+                .andExpect(jsonPath("$.customerTier").value("GOLD"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.billingCity").value("Da Nang"))
+                .andExpect(jsonPath("$.shippingCity").value("Da Nang"))
                 .andExpect(jsonPath("$.createdAt").exists());
     }
 

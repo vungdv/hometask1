@@ -17,8 +17,47 @@ import lombok.Setter;
 public class Customer {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    // Personal / Identity details
     private String fullName;
+    private String firstName;
+    private String lastName;
     private String email;
+    private String secondaryEmail;
     private String phone;
+    private String mobilePhone;
+    private String dateOfBirth;
+    private String gender;
+    private String avatarUrl;
+
+    // Organization / Business details
+    private String company;
+    private String jobTitle;
+    private String department;
+    private String taxId;
+
+    // Billing address details
+    private String billingAddressLine1;
+    private String billingAddressLine2;
+    private String billingCity;
+    private String billingState;
+    private String billingPostalCode;
+    private String billingCountry;
+
+    // Shipping address details
+    private String shippingAddressLine1;
+    private String shippingAddressLine2;
+    private String shippingCity;
+    private String shippingState;
+    private String shippingPostalCode;
+    private String shippingCountry;
+
+    // Account status & CRM notes
+    private String customerTier;
+    private String status;
+    private String notes;
+
+    // Audit timestamps
     private Instant createdAt;
+    private Instant updatedAt;
 }
