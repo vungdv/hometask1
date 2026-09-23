@@ -138,7 +138,6 @@ public class SecurityConfig {
                         for (Object role : roles) {
                             if (role instanceof String roleStr) {
                                 authorities.add(new SimpleGrantedAuthority("PERM_" + roleStr));
-                                authorities.add(new SimpleGrantedAuthority("PERMISSION_" + roleStr));
                             }
                         }
                     }

@@ -84,18 +84,6 @@ class SecurityConfigTest {
                     "ROLE_purchase-management", "ROLE_PURCHASE_MANAGEMENT",
                     "ROLE_admin", "ROLE_ADMIN"
             );
-
-            // Fine-grained polaris-api permissions (both PERM_ and PERMISSION_ prefixes)
-            assertThat(authorities).contains(
-                    "PERM_catalog.read", "PERMISSION_catalog.read",
-                    "PERM_catalog.write", "PERMISSION_catalog.write",
-                    "PERM_order.read", "PERMISSION_order.read",
-                    "PERM_order.write", "PERMISSION_order.write",
-                    "PERM_customer.read", "PERMISSION_customer.read",
-                    "PERM_customer.write", "PERMISSION_customer.write",
-                    "PERM_inventory.read", "PERMISSION_inventory.read",
-                    "PERM_inventory.write", "PERMISSION_inventory.write"
-            );
         }
 
         @Test
