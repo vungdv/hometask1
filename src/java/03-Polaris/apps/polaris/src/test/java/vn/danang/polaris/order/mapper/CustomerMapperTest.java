@@ -19,13 +19,40 @@ class CustomerMapperTest {
 
     private final CustomerMapper mapper = Mappers.getMapper(CustomerMapper.class);
 
-    private Customer createSampleCustomer() {
+    private Customer createRichSampleCustomer() {
         Customer customer = new Customer();
         customer.setId(1L);
         customer.setFullName("Alice Tran");
+        customer.setFirstName("Alice");
+        customer.setLastName("Tran");
         customer.setEmail("alice.tran@example.com");
+        customer.setSecondaryEmail("alice.personal@example.com");
         customer.setPhone("0901111111");
+        customer.setMobilePhone("0901111199");
+        customer.setDateOfBirth("1992-05-14");
+        customer.setGender("Female");
+        customer.setAvatarUrl("https://polaris.local/avatars/alice.png");
+        customer.setCompany("Danang Tech Solutions");
+        customer.setJobTitle("Senior Software Engineer");
+        customer.setDepartment("Engineering");
+        customer.setTaxId("VN-987654321");
+        customer.setBillingAddressLine1("123 Bach Dang St");
+        customer.setBillingAddressLine2("Floor 4, Suite 402");
+        customer.setBillingCity("Da Nang");
+        customer.setBillingState("Hai Chau");
+        customer.setBillingPostalCode("550000");
+        customer.setBillingCountry("Vietnam");
+        customer.setShippingAddressLine1("123 Bach Dang St");
+        customer.setShippingAddressLine2("Floor 4, Suite 402");
+        customer.setShippingCity("Da Nang");
+        customer.setShippingState("Hai Chau");
+        customer.setShippingPostalCode("550000");
+        customer.setShippingCountry("Vietnam");
+        customer.setCustomerTier("GOLD");
+        customer.setStatus("ACTIVE");
+        customer.setNotes("High-value enterprise customer since 2024");
         customer.setCreatedAt(Instant.parse("2026-01-15T08:30:00Z"));
+        customer.setUpdatedAt(Instant.parse("2026-03-01T10:00:00Z"));
         return customer;
     }
 
@@ -34,73 +61,116 @@ class CustomerMapperTest {
     class HappyPath {
 
         @Test
-        @DisplayName("Should automatically map identical properties from Customer to CustomerResponse")
-        void shouldMapCustomerToCustomerResponse() {
-            Customer customer = createSampleCustomer();
+        @DisplayName("Should automatically map all 30+ identical properties from Customer entity to CustomerResponse")
+        void shouldMapAllPropertiesFromCustomerToCustomerResponse() {
+            Customer customer = createRichSampleCustomer();
 
             CustomerResponse response = mapper.toResponse(customer);
 
             assertThat(response).isNotNull();
+            // Identifiers & Names
             assertThat(response.id()).isEqualTo(1L);
             assertThat(response.fullName()).isEqualTo("Alice Tran");
+            assertThat(response.firstName()).isEqualTo("Alice");
+            assertThat(response.lastName()).isEqualTo("Tran");
+
+            // Communications
             assertThat(response.email()).isEqualTo("alice.tran@example.com");
+            assertThat(response.secondaryEmail()).isEqualTo("alice.personal@example.com");
             assertThat(response.phone()).isEqualTo("0901111111");
+            assertThat(response.mobilePhone()).isEqualTo("0901111199");
+
+            // Profile & Demographics
+            assertThat(response.dateOfBirth()).isEqualTo("1992-05-14");
+            assertThat(response.gender()).isEqualTo("Female");
+            assertThat(response.avatarUrl()).isEqualTo("https://polaris.local/avatars/alice.png");
+
+            // Organization
+            assertThat(response.company()).isEqualTo("Danang Tech Solutions");
+            assertThat(response.jobTitle()).isEqualTo("Senior Software Engineer");
+            assertThat(response.department()).isEqualTo("Engineering");
+            assertThat(response.taxId()).isEqualTo("VN-987654321");
+
+            // Billing address
+            assertThat(response.billingAddressLine1()).isEqualTo("123 Bach Dang St");
+            assertThat(response.billingAddressLine2()).isEqualTo("Floor 4, Suite 402");
+            assertThat(response.billingCity()).isEqualTo("Da Nang");
+            assertThat(response.billingState()).isEqualTo("Hai Chau");
+            assertThat(response.billingPostalCode()).isEqualTo("550000");
+            assertThat(response.billingCountry()).isEqualTo("Vietnam");
+
+            // Shipping address
+            assertThat(response.shippingAddressLine1()).isEqualTo("123 Bach Dang St");
+            assertThat(response.shippingAddressLine2()).isEqualTo("Floor 4, Suite 402");
+            assertThat(response.shippingCity()).isEqualTo("Da Nang");
+            assertThat(response.shippingState()).isEqualTo("Hai Chau");
+            assertThat(response.shippingPostalCode()).isEqualTo("550000");
+            assertThat(response.shippingCountry()).isEqualTo("Vietnam");
+
+            // CRM & Audit
+            assertThat(response.customerTier()).isEqualTo("GOLD");
+            assertThat(response.status()).isEqualTo("ACTIVE");
+            assertThat(response.notes()).isEqualTo("High-value enterprise customer since 2024");
             assertThat(response.createdAt()).isEqualTo(Instant.parse("2026-01-15T08:30:00Z"));
+            assertThat(response.updatedAt()).isEqualTo(Instant.parse("2026-03-01T10:00:00Z"));
         }
 
         @Test
-        @DisplayName("Should map list of Customer entities to CustomerResponse list preserving order")
+        @DisplayName("Should map list of Customer entities to CustomerResponse list preserving order and all fields")
         void shouldMapCustomerListToResponseList() {
-            Customer c1 = createSampleCustomer();
+            Customer c1 = createRichSampleCustomer();
 
             Customer c2 = new Customer();
             c2.setId(2L);
             c2.setFullName("Ben Nguyen");
             c2.setEmail("ben.nguyen@example.com");
-            c2.setPhone("0902222222");
-            c2.setCreatedAt(Instant.parse("2026-01-16T09:00:00Z"));
+            c2.setCompany("Mekong Logistics");
 
             List<CustomerResponse> responses = mapper.toResponseList(List.of(c1, c2));
 
             assertThat(responses).hasSize(2);
             assertThat(responses.get(0).id()).isEqualTo(1L);
-            assertThat(responses.get(0).fullName()).isEqualTo("Alice Tran");
+            assertThat(responses.get(0).company()).isEqualTo("Danang Tech Solutions");
             assertThat(responses.get(1).id()).isEqualTo(2L);
-            assertThat(responses.get(1).fullName()).isEqualTo("Ben Nguyen");
+            assertThat(responses.get(1).company()).isEqualTo("Mekong Logistics");
         }
 
         @Test
-        @DisplayName("Should map CustomerResponse DTO back to Customer entity")
+        @DisplayName("Should map CustomerResponse DTO back to Customer entity preserving all 30+ fields")
         void shouldMapCustomerResponseToCustomerEntity() {
-            CustomerResponse response = new CustomerResponse(
-                    3L,
-                    "Chi Le",
-                    "chi.le@example.com",
-                    "0903333333",
-                    Instant.parse("2026-02-01T10:00:00Z")
-            );
+            Customer source = createRichSampleCustomer();
+            CustomerResponse response = mapper.toResponse(source);
 
             Customer entity = mapper.toEntity(response);
 
             assertThat(entity).isNotNull();
-            assertThat(entity.getId()).isEqualTo(3L);
-            assertThat(entity.getFullName()).isEqualTo("Chi Le");
-            assertThat(entity.getEmail()).isEqualTo("chi.le@example.com");
-            assertThat(entity.getPhone()).isEqualTo("0903333333");
-            assertThat(entity.getCreatedAt()).isEqualTo(Instant.parse("2026-02-01T10:00:00Z"));
+            assertThat(entity.getId()).isEqualTo(1L);
+            assertThat(entity.getFullName()).isEqualTo("Alice Tran");
+            assertThat(entity.getFirstName()).isEqualTo("Alice");
+            assertThat(entity.getLastName()).isEqualTo("Tran");
+            assertThat(entity.getEmail()).isEqualTo("alice.tran@example.com");
+            assertThat(entity.getCompany()).isEqualTo("Danang Tech Solutions");
+            assertThat(entity.getJobTitle()).isEqualTo("Senior Software Engineer");
+            assertThat(entity.getBillingCity()).isEqualTo("Da Nang");
+            assertThat(entity.getShippingCity()).isEqualTo("Da Nang");
+            assertThat(entity.getCustomerTier()).isEqualTo("GOLD");
+            assertThat(entity.getStatus()).isEqualTo("ACTIVE");
+            assertThat(entity.getNotes()).isEqualTo("High-value enterprise customer since 2024");
+            assertThat(entity.getCreatedAt()).isEqualTo(Instant.parse("2026-01-15T08:30:00Z"));
+            assertThat(entity.getUpdatedAt()).isEqualTo(Instant.parse("2026-03-01T10:00:00Z"));
         }
 
         @Test
         @DisplayName("Should map via static CustomerResponse.from facade")
         void shouldMapViaCustomerResponseFromFacade() {
-            Customer customer = createSampleCustomer();
+            Customer customer = createRichSampleCustomer();
 
             CustomerResponse response = CustomerResponse.from(customer);
 
             assertThat(response).isNotNull();
             assertThat(response.id()).isEqualTo(1L);
-            assertThat(response.fullName()).isEqualTo("Alice Tran");
-            assertThat(response.email()).isEqualTo("alice.tran@example.com");
+            assertThat(response.company()).isEqualTo("Danang Tech Solutions");
+            assertThat(response.customerTier()).isEqualTo("GOLD");
         }
     }
 
@@ -109,35 +179,41 @@ class CustomerMapperTest {
     class InvalidInput {
 
         @Test
-        @DisplayName("Should map Customer with null fields into CustomerResponse with null fields")
-        void shouldMapCustomerWithNullFields() {
+        @DisplayName("Should map Customer with sparse fields into CustomerResponse with null fields gracefully")
+        void shouldMapCustomerWithSparseFields() {
             Customer customer = new Customer();
             customer.setId(4L);
-            customer.setFullName("No Contact");
+            customer.setFullName("Sparse Customer");
 
             CustomerResponse response = mapper.toResponse(customer);
 
             assertThat(response).isNotNull();
             assertThat(response.id()).isEqualTo(4L);
-            assertThat(response.fullName()).isEqualTo("No Contact");
-            assertThat(response.email()).isNull();
-            assertThat(response.phone()).isNull();
-            assertThat(response.createdAt()).isNull();
+            assertThat(response.fullName()).isEqualTo("Sparse Customer");
+            assertThat(response.company()).isNull();
+            assertThat(response.billingCity()).isNull();
+            assertThat(response.shippingCountry()).isNull();
+            assertThat(response.customerTier()).isNull();
+            assertThat(response.updatedAt()).isNull();
         }
 
         @Test
-        @DisplayName("Should map CustomerResponse with null fields into Customer entity with null fields")
-        void shouldMapCustomerResponseWithNullFieldsToEntity() {
-            CustomerResponse response = new CustomerResponse(5L, null, null, null, null);
+        @DisplayName("Should map sparse CustomerResponse into Customer entity with null fields gracefully")
+        void shouldMapSparseCustomerResponseToEntity() {
+            Customer customer = new Customer();
+            customer.setId(5L);
+            customer.setFullName("Sparse DTO");
+            CustomerResponse response = mapper.toResponse(customer);
 
             Customer entity = mapper.toEntity(response);
 
             assertThat(entity).isNotNull();
             assertThat(entity.getId()).isEqualTo(5L);
-            assertThat(entity.getFullName()).isNull();
-            assertThat(entity.getEmail()).isNull();
-            assertThat(entity.getPhone()).isNull();
-            assertThat(entity.getCreatedAt()).isNull();
+            assertThat(entity.getFullName()).isEqualTo("Sparse DTO");
+            assertThat(entity.getCompany()).isNull();
+            assertThat(entity.getBillingCity()).isNull();
+            assertThat(entity.getShippingCountry()).isNull();
+            assertThat(entity.getCustomerTier()).isNull();
         }
     }
 
