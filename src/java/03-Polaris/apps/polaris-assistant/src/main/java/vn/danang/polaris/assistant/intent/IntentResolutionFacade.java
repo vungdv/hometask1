@@ -48,35 +48,6 @@ public class IntentResolutionFacade {
     }
 
     /**
-     * Resolves the user intent and computes the accepted tools using the specified McpHub.
-     *
-     * @param messageText the incoming user prompt
-     * @param history current conversation history
-     * @param hub MCP hub to discover tools from
-     * @return ResolvedIntent containing resolved intent metadata and accepted tools
-     */
-    private ResolvedIntent resolve(String messageText, List<AssistantMessage> history, McpHub hub) {
-        List<Tool> availableTools = Optional.ofNullable(hub)
-                .map(McpHub::discoverAllTools)
-                .orElseGet(List::of);
-        return resolve(messageText, history, availableTools);
-    }
-
-    /**
-     * Resolves the user intent and computes the accepted tools given pre-discovered tools.
-     *
-     * @param messageText the incoming user prompt
-     * @param history current conversation history
-     * @param availableTools pre-discovered available tools
-     * @return ResolvedIntent containing resolved intent metadata and accepted tools
-     */
-    private ResolvedIntent resolve(String messageText, List<AssistantMessage> history, List<Tool> availableTools) {
-        List<AssistantMessage> context = history != null ? new ArrayList<>(history) : new ArrayList<>();
-        IntentClassification classification = intentResolver.resolve(messageText, context);
-        return intentToolRegistry.resolveIntent(classification, availableTools);
-    }
-
-    /**
      * Executes the proposed tool calls through the configured {@link McpHub},
      * ensuring all tool invocations and accepted tools are governed by the intent and policy framework.
      *
@@ -96,12 +67,17 @@ public class IntentResolutionFacade {
         return this.mcpHub.handleToolCalls(toolCalls, context);
     }
 
-    /**
-     * Alias for {@link #executeToolCalls(List, ToolExecutionContext)}.
-     */
-    public List<ToolResult> handleToolCalls(
-            List<ToolCall> toolCalls,
-            ToolExecutionContext context) {
-        return executeToolCalls(toolCalls, context);
+    private ResolvedIntent resolve(String messageText, List<AssistantMessage> history, McpHub hub) {
+        List<Tool> availableTools = Optional.ofNullable(hub)
+                .map(McpHub::discoverAllTools)
+                .orElseGet(List::of);
+        return resolve(messageText, history, availableTools);
     }
+
+    private ResolvedIntent resolve(String messageText, List<AssistantMessage> history, List<Tool> availableTools) {
+        List<AssistantMessage> context = history != null ? new ArrayList<>(history) : new ArrayList<>();
+        IntentClassification classification = intentResolver.resolve(messageText, context);
+        return intentToolRegistry.resolveIntent(classification, availableTools);
+    }
+
 }

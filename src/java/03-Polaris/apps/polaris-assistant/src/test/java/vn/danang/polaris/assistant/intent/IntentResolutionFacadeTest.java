@@ -96,7 +96,7 @@ class IntentResolutionFacadeTest {
                     mockHub
             );
 
-            List<ToolResult> results = facade.handleToolCalls(List.of(toolCall), context);
+            List<ToolResult> results = facade.executeToolCalls(List.of(toolCall), context);
 
             assertThat(results).isEqualTo(expectedResults);
             verify(mockHub).handleToolCalls(eq(List.of(toolCall)), eq(context));

@@ -109,10 +109,8 @@ public class AssistantChatService {
 
         // 2. Resolve intent & narrow tools to use.
         ResolvedIntent resolvedIntent = intentResolutionFacade.resolve(messageText, history);
-        List<Tool> tools = resolvedIntent.acceptedTools();
-
         // 3. Execute tool loop (max 5 iterations)
-        ConversationLoopResult loopResult = executeConversationLoop(sessionId, userId, history, tools, resolvedIntent);
+        ConversationLoopResult loopResult = executeConversationLoop(sessionId, userId, history, resolvedIntent);
 
         // 4. Tag iteration count on active span
         tagIterationsCount(loopResult.iterations());
@@ -134,7 +132,6 @@ public class AssistantChatService {
             String sessionId,
             String userId,
             List<AssistantMessage> history,
-            List<Tool> tools,
             ResolvedIntent resolvedIntent) {
 
         int iterations = 0;
@@ -149,10 +146,10 @@ public class AssistantChatService {
                     iterations,
                     resolvedIntent.intentId(),
                     resolvedIntent.confidence(),
-                    tools.size()
+                    resolvedIntent.acceptedTools().size()
             );
 
-            ModelResponse modelResponse = queryModel(history, tools, context);
+            ModelResponse modelResponse = queryModel(history, resolvedIntent.acceptedTools(), context);
 
             if (modelResponse.hasToolCalls()) {
                 ToolExecutionOutcome outcome = executeToolBatch(sessionId, userId, iterations, resolvedIntent, modelResponse.toolCalls());
