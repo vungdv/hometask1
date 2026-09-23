@@ -3,7 +3,10 @@ package vn.danang.polaris.catalog.dto;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+import org.mapstruct.factory.Mappers;
+
 import vn.danang.polaris.catalog.entity.Product;
+import vn.danang.polaris.catalog.mapper.ProductMapper;
 
 public record ProductResponse(
     Long id,
@@ -19,6 +22,8 @@ public record ProductResponse(
     Long categoryId,
     String categoryCode
 ) {
+    private static final ProductMapper MAPPER = Mappers.getMapper(ProductMapper.class);
+
     public ProductResponse(
             Long id,
             String sku,
@@ -34,26 +39,6 @@ public record ProductResponse(
     }
 
     public static ProductResponse from(Product product) {
-        boolean available = product.getStockQty() != null 
-                && product.getStockQty() > 0 
-                && Boolean.TRUE.equals(product.getIsActive());
-
-        Long catId = product.getCategoryId();
-        String catCode = product.getCategoryCode();
-
-        return new ProductResponse(
-            product.getId(),
-            product.getSku(),
-            product.getName(),
-            product.getDescription(),
-            product.getCategory(),
-            product.getPrice(),
-            product.getStockQty(),
-            available,
-            product.getIsActive(),
-            Instant.now(),
-            catId,
-            catCode
-        );
+        return MAPPER.toResponse(product);
     }
 }
