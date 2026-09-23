@@ -51,7 +51,8 @@ public record CustomerResponse(
     String status,
     String notes,
     Instant createdAt,
-    Instant updatedAt
+    Instant updatedAt,
+    Long version
 ) {
     private static final CustomerMapper MAPPER = Mappers.getMapper(CustomerMapper.class);
 

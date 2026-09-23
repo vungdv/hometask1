@@ -6,6 +6,8 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,8 +20,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import vn.danang.polaris.order.dto.CustomerResponse;
 import vn.danang.polaris.order.dto.CustomerSummaryResponse;
+import vn.danang.polaris.order.dto.UpdateCustomerRequest;
 import vn.danang.polaris.order.service.CustomerService;
 
 /**
@@ -102,5 +106,42 @@ public class CustomerController {
             @PathVariable Long id) {
         CustomerResponse customer = customerService.getCustomerById(id);
         return ResponseEntity.ok(customer);
+    }
+
+    @PutMapping("/{id}")
+    @Operation(
+        summary = "Update customer profile",
+        description = "Updates customer profile using optimistic concurrency control. "
+            + "Requires the current 'version' token to prevent lost updates from concurrent edits."
+    )
+    @ApiResponses({
+        @ApiResponse(
+            responseCode = "200",
+            description = "Customer profile successfully updated",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = CustomerResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "400",
+            description = "Invalid request payload or constraint violation (e.g. missing version token or blank full name)",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))
+        ),
+        @ApiResponse(
+            responseCode = "404",
+            description = "Customer not found with ID",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))
+        ),
+        @ApiResponse(
+            responseCode = "409",
+            description = "Optimistic lock conflict: customer was modified by another transaction",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))
+        ),
+        @ApiResponse(responseCode = "401", description = "Missing or invalid OAuth2 Bearer token")
+    })
+    public ResponseEntity<CustomerResponse> updateCustomer(
+            @Parameter(description = "Customer internal numeric ID", required = true)
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateCustomerRequest request) {
+        CustomerResponse updated = customerService.updateCustomer(id, request);
+        return ResponseEntity.ok(updated);
     }
 }

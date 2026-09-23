@@ -1,8 +1,11 @@
 package vn.danang.polaris.order.web;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import org.springframework.http.MediaType;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -121,6 +124,126 @@ class CustomerSearchApiIntegrationTest {
     @DisplayName("GET /api/v1/customers/1 unauthenticated returns 401")
     void getCustomerById_unauthenticated_returns401() throws Exception {
         mockMvc.perform(get("/api/v1/customers/1"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/customers/1 with matching version updates customer and returns 200 with incremented version")
+    void updateCustomer_validVersion_updatesSuccessfully() throws Exception {
+        String payload = """
+            {
+                "version": 0,
+                "fullName": "Alice Tran Senior",
+                "company": "Polaris Global Tech",
+                "customerTier": "PLATINUM"
+            }
+            """;
+
+        mockMvc.perform(put("/api/v1/customers/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.fullName").value("Alice Tran Senior"))
+                .andExpect(jsonPath("$.company").value("Polaris Global Tech"))
+                .andExpect(jsonPath("$.customerTier").value("PLATINUM"))
+                .andExpect(jsonPath("$.email").value("alice.tran@example.com"))
+                .andExpect(jsonPath("$.version").value(1));
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/customers/1 with stale version returns 409 Conflict ProblemDetail")
+    void updateCustomer_staleVersion_returns409Conflict() throws Exception {
+        String payload = """
+            {
+                "version": 99,
+                "fullName": "Concurrent Alice"
+            }
+            """;
+
+        mockMvc.perform(put("/api/v1/customers/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/optimistic-lock-conflict"))
+                .andExpect(jsonPath("$.title").value("Optimistic Lock Conflict"))
+                .andExpect(jsonPath("$.detail").value("Resource has been modified concurrently by another transaction. Please reload and retry."))
+                .andExpect(jsonPath("$.remedy").value("Reload the latest resource representation and retry your update with the updated version."));
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/customers/1 with missing version returns 400 Bad Request ProblemDetail")
+    void updateCustomer_missingVersion_returns400BadRequest() throws Exception {
+        String payload = """
+            {
+                "fullName": "Alice Tran"
+            }
+            """;
+
+        mockMvc.perform(put("/api/v1/customers/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/validation-error"))
+                .andExpect(jsonPath("$.title").value("Validation Error"))
+                .andExpect(jsonPath("$.invalid_param").value("version"));
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/customers/1 with blank fullName returns 400 Bad Request ProblemDetail")
+    void updateCustomer_blankFullName_returns400BadRequest() throws Exception {
+        String payload = """
+            {
+                "version": 0,
+                "fullName": "  "
+            }
+            """;
+
+        mockMvc.perform(put("/api/v1/customers/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/validation-error"))
+                .andExpect(jsonPath("$.title").value("Validation Error"))
+                .andExpect(jsonPath("$.invalid_param").value("fullName"));
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/customers/999 returns 404 ProblemDetail when customer not found")
+    void updateCustomer_notFound_returns404ProblemDetail() throws Exception {
+        String payload = """
+            {
+                "version": 0,
+                "fullName": "Nonexistent Customer"
+            }
+            """;
+
+        mockMvc.perform(put("/api/v1/customers/999")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/not-found"))
+                .andExpect(jsonPath("$.detail").value("Customer not found with id: 999"));
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/customers/1 unauthenticated returns 401")
+    void updateCustomer_unauthenticated_returns401() throws Exception {
+        String payload = """
+            {
+                "version": 0,
+                "fullName": "Alice Tran"
+            }
+            """;
+
+        mockMvc.perform(put("/api/v1/customers/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
                 .andExpect(status().isUnauthorized());
     }
 }

@@ -1,15 +1,19 @@
 package vn.danang.polaris.order.service;
 
+import java.time.Instant;
 import java.util.List;
 
 import org.mapstruct.factory.Mappers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.danang.polaris.order.dto.CustomerResponse;
 import vn.danang.polaris.order.dto.CustomerSummaryResponse;
+import vn.danang.polaris.order.dto.UpdateCustomerRequest;
+import vn.danang.polaris.order.entity.Customer;
 import vn.danang.polaris.order.mapper.CustomerMapper;
 import vn.danang.polaris.order.repository.CustomerRepository;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
@@ -47,6 +51,32 @@ public class CustomerService {
         return customerRepository.findById(id)
                 .map(customerMapper::toResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found with id: " + id));
+    }
+
+    /**
+     * Update customer profile using optimistic concurrency control.
+     * Guards against concurrent lost updates by comparing the expected version.
+     *
+     * @param id numeric customer ID
+     * @param request update payload including optimistic locking version
+     * @return updated CustomerResponse representation
+     * @throws ResourceNotFoundException if customer does not exist
+     * @throws ObjectOptimisticLockingFailureException if version does not match current state
+     */
+    @Transactional
+    public CustomerResponse updateCustomer(Long id, UpdateCustomerRequest request) {
+        Customer customer = customerRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Customer not found with id: " + id));
+
+        if (request.version() != null && !request.version().equals(customer.getVersion())) {
+            throw new ObjectOptimisticLockingFailureException(Customer.class, id);
+        }
+
+        customerMapper.updateCustomerFromRequest(request, customer);
+        customer.setUpdatedAt(Instant.now());
+
+        Customer saved = customerRepository.saveAndFlush(customer);
+        return customerMapper.toResponse(saved);
     }
 
     /**

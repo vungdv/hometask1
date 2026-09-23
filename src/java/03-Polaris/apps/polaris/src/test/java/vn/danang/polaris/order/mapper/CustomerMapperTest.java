@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
 
 import vn.danang.polaris.order.dto.CustomerResponse;
+import vn.danang.polaris.order.dto.UpdateCustomerRequest;
 import vn.danang.polaris.order.entity.Customer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -53,6 +54,7 @@ class CustomerMapperTest {
         customer.setNotes("High-value enterprise customer since 2024");
         customer.setCreatedAt(Instant.parse("2026-01-15T08:30:00Z"));
         customer.setUpdatedAt(Instant.parse("2026-03-01T10:00:00Z"));
+        customer.setVersion(0L);
         return customer;
     }
 
@@ -158,6 +160,7 @@ class CustomerMapperTest {
             assertThat(entity.getNotes()).isEqualTo("High-value enterprise customer since 2024");
             assertThat(entity.getCreatedAt()).isEqualTo(Instant.parse("2026-01-15T08:30:00Z"));
             assertThat(entity.getUpdatedAt()).isEqualTo(Instant.parse("2026-03-01T10:00:00Z"));
+            assertThat(entity.getVersion()).isEqualTo(0L);
         }
 
         @Test
@@ -171,6 +174,61 @@ class CustomerMapperTest {
             assertThat(response.id()).isEqualTo(1L);
             assertThat(response.company()).isEqualTo("Danang Tech Solutions");
             assertThat(response.customerTier()).isEqualTo("GOLD");
+            assertThat(response.version()).isEqualTo(0L);
+        }
+
+        @Test
+        @DisplayName("Should update Customer entity in-place from UpdateCustomerRequest using MapStruct @MappingTarget")
+        void shouldUpdateCustomerFromRequestUsingMappingTarget() {
+            Customer customer = createRichSampleCustomer();
+
+            UpdateCustomerRequest request = new UpdateCustomerRequest(
+                    0L,
+                    "Alice Tran Updated",
+                    "Alice",
+                    "Tran",
+                    "alice.new@example.com",
+                    null,
+                    "0909999999",
+                    null,
+                    null,
+                    null,
+                    null,
+                    "Polaris Global Corp",
+                    "Chief Architect",
+                    "Architecture",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "VIP",
+                    "ACTIVE",
+                    "Promoted to VIP"
+            );
+
+            mapper.updateCustomerFromRequest(request, customer);
+
+            assertThat(customer.getFullName()).isEqualTo("Alice Tran Updated");
+            assertThat(customer.getEmail()).isEqualTo("alice.new@example.com");
+            assertThat(customer.getPhone()).isEqualTo("0909999999");
+            assertThat(customer.getCompany()).isEqualTo("Polaris Global Corp");
+            assertThat(customer.getJobTitle()).isEqualTo("Chief Architect");
+            assertThat(customer.getCustomerTier()).isEqualTo("VIP");
+            assertThat(customer.getNotes()).isEqualTo("Promoted to VIP");
+            // Unspecified fields in request are preserved thanks to NullValuePropertyMappingStrategy.IGNORE
+            assertThat(customer.getBillingCity()).isEqualTo("Da Nang");
+            assertThat(customer.getShippingCity()).isEqualTo("Da Nang");
+            assertThat(customer.getId()).isEqualTo(1L);
+            assertThat(customer.getVersion()).isEqualTo(0L);
         }
     }
 

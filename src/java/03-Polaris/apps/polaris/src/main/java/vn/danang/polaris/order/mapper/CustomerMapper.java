@@ -2,10 +2,15 @@ package vn.danang.polaris.order.mapper;
 
 import java.util.List;
 
+import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 import org.mapstruct.factory.Mappers;
 
 import vn.danang.polaris.order.dto.CustomerResponse;
+import vn.danang.polaris.order.dto.UpdateCustomerRequest;
 import vn.danang.polaris.order.entity.Customer;
 
 /**
@@ -26,4 +31,12 @@ public interface CustomerMapper {
     List<CustomerResponse> toResponseList(List<Customer> customers);
 
     Customer toEntity(CustomerResponse response);
+
+    // These fields should be handled by the repository layer.
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "version", ignore = true)
+    @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "updatedAt", ignore = true)
+    @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
+    void updateCustomerFromRequest(UpdateCustomerRequest request, @MappingTarget Customer customer);
 }
