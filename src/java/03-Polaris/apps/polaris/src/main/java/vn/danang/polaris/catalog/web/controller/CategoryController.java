@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,6 +35,7 @@ public class CategoryController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('PERM_catalog.read')")
     @Operation(summary = "List categories", description = "List active categories. When rootOnly=true, returns only top-level categories without parents.")
     public List<CategoryResponse> listCategories(
             @Parameter(description = "If true, returns only top-level root categories without parents")
@@ -42,6 +44,7 @@ public class CategoryController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('PERM_catalog.read')")
     @Operation(summary = "Get category by ID", description = "Retrieve single category details by internal database ID.")
     public CategoryResponse getCategoryById(
             @Parameter(description = "Category database ID")
@@ -50,6 +53,7 @@ public class CategoryController {
     }
 
     @GetMapping("/code/{code}")
+    @PreAuthorize("hasAuthority('PERM_catalog.read')")
     @Operation(summary = "Get category by slug/code", description = "Retrieve single category details by slug/code.")
     public CategoryResponse getCategoryByCode(
             @Parameter(description = "Category unique code/slug (e.g., audio, electronics)")
@@ -58,6 +62,7 @@ public class CategoryController {
     }
 
     @GetMapping("/{id}/products")
+    @PreAuthorize("hasAuthority('PERM_catalog.read')")
     @Operation(summary = "Get products under category", description = "Retrieve products under the given category (and its direct subcategories), paged.")
     @Parameters({
         @Parameter(name = "page", description = "Zero-based page index (0..10000)", schema = @Schema(type = "integer", defaultValue = "0", minimum = "0", maximum = "10000")),

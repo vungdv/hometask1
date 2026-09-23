@@ -69,7 +69,7 @@ public class ProductControllerTest {
                         .param("query", "wireless")
                         .param("category", "Audio")
                         .param("available", "true")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].id").value(1))
@@ -105,7 +105,7 @@ public class ProductControllerTest {
 
         mockMvc.perform(get("/api/v1/products")
                         .param("categoryId", "2")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].categoryId").value(2))
@@ -128,7 +128,7 @@ public class ProductControllerTest {
         );
         when(productService.getProductById(1L)).thenReturn(sample);
 
-        mockMvc.perform(get("/api/v1/products/1").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/products/1").with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.sku").value("NG-EARBUD-01"))
@@ -140,7 +140,7 @@ public class ProductControllerTest {
         when(productService.getProductById(999L))
                 .thenThrow(new ResourceNotFoundException("Product not found with id: 999"));
 
-        mockMvc.perform(get("/api/v1/products/999").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/products/999").with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -164,7 +164,7 @@ public class ProductControllerTest {
         );
         when(productService.getProductBySku("NG-WATCH-01")).thenReturn(sample);
 
-        mockMvc.perform(get("/api/v1/products/sku/NG-WATCH-01").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/products/sku/NG-WATCH-01").with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(2))
                 .andExpect(jsonPath("$.sku").value("NG-WATCH-01"))
@@ -176,7 +176,7 @@ public class ProductControllerTest {
         when(productService.getProductBySku("NON-EXISTENT"))
                 .thenThrow(new ResourceNotFoundException("Product not found with SKU: NON-EXISTENT"));
 
-        mockMvc.perform(get("/api/v1/products/sku/NON-EXISTENT").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/products/sku/NON-EXISTENT").with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -187,7 +187,7 @@ public class ProductControllerTest {
     void searchProducts_invalidSortProperty_shouldReturn400ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/v1/products")
                         .param("sort", "string")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Invalid Sort Property"))
                 .andExpect(jsonPath("$.status").value(400))
@@ -201,7 +201,7 @@ public class ProductControllerTest {
     void searchProducts_pageSizeTooLarge_shouldReturn400ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/v1/products")
                         .param("size", "1073741824")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Invalid Pagination Parameter"))
                 .andExpect(jsonPath("$.status").value(400))
@@ -217,7 +217,7 @@ public class ProductControllerTest {
     void searchProducts_pageSizeBelowOne_shouldReturn400ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/v1/products")
                         .param("size", "0")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Invalid Pagination Parameter"))
                 .andExpect(jsonPath("$.status").value(400))
@@ -233,7 +233,7 @@ public class ProductControllerTest {
     void searchProducts_pageIndexTooLarge_shouldReturn400ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/v1/products")
                         .param("page", "1073741824")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Invalid Pagination Parameter"))
                 .andExpect(jsonPath("$.status").value(400))
@@ -249,7 +249,7 @@ public class ProductControllerTest {
     void searchProducts_pageIndexNegative_shouldReturn400ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/v1/products")
                         .param("page", "-1")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Invalid Pagination Parameter"))
                 .andExpect(jsonPath("$.status").value(400))
@@ -273,7 +273,7 @@ public class ProductControllerTest {
 
         mockMvc.perform(get("/api/v1/products")
                         .param("sort", "stockQuantity,desc")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)));
     }
@@ -292,7 +292,7 @@ public class ProductControllerTest {
                         .param("page", "0")
                         .param("size", "10")
                         .param("sort", "price,asc")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)));
     }
@@ -312,7 +312,7 @@ public class ProductControllerTest {
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/products/sku/NG-EARBUD-01/inventory")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content("{\"delta\": 20}")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.inventory()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sku").value("NG-EARBUD-01"))
                 .andExpect(jsonPath("$.stockQuantity").value(140));
@@ -343,7 +343,7 @@ public class ProductControllerTest {
                                     "price": 89.99
                                 }
                                 """)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "/api/v1/products/10"))
                 .andExpect(jsonPath("$.id").value(10))
@@ -386,7 +386,7 @@ public class ProductControllerTest {
                                     "active": true
                                 }
                                 """)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "/api/v1/products/11"))
                 .andExpect(jsonPath("$.id").value(11))
@@ -411,7 +411,7 @@ public class ProductControllerTest {
                                     "price": 49.99
                                 }
                                 """)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.title").value("Duplicate SKU Conflict"))
                 .andExpect(jsonPath("$.status").value(409))
@@ -433,7 +433,7 @@ public class ProductControllerTest {
                                     "stockQuantity": -5
                                 }
                                 """)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Validation Error"))
                 .andExpect(jsonPath("$.status").value(400))
@@ -456,7 +456,7 @@ public class ProductControllerTest {
                                     "price": 29.99
                                 }
                                 """)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -479,7 +479,7 @@ public class ProductControllerTest {
         mockMvc.perform(put("/api/v1/products/2/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"delta\": 30}")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.inventory()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(2))
                 .andExpect(jsonPath("$.sku").value("NG-WATCH-01"))
@@ -495,7 +495,7 @@ public class ProductControllerTest {
         mockMvc.perform(put("/api/v1/products/3/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"delta\": -10}")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.inventory()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Bad Request"))
                 .andExpect(jsonPath("$.status").value(400))
@@ -511,7 +511,7 @@ public class ProductControllerTest {
         mockMvc.perform(put("/api/v1/products/9999/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"delta\": 20}")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.inventory()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -524,10 +524,41 @@ public class ProductControllerTest {
         mockMvc.perform(put("/api/v1/products/1/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.inventory()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Validation Error"))
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.type").value("https://polaris.local/errors/validation-error"));
+    }
+
+    @Test
+    void searchProducts_unauthenticated_shouldReturn401() throws Exception {
+        mockMvc.perform(get("/api/v1/products"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void searchProducts_missingCatalogReadPermission_shouldReturn403() throws Exception {
+        mockMvc.perform(get("/api/v1/products")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void createProduct_missingCatalogWritePermission_shouldReturn403() throws Exception {
+        mockMvc.perform(post("/api/v1/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sku\":\"NG-NEW-01\",\"name\":\"Test\",\"price\":10.0}")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void adjustInventory_missingInventoryWritePermission_shouldReturn403() throws Exception {
+        mockMvc.perform(put("/api/v1/products/1/inventory")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"delta\": 10}")
+                        .with(JwtMockFactory.productCatalog())) // productCatalog has catalog.read/write, NOT inventory.write
+                .andExpect(status().isForbidden());
     }
 }

@@ -49,7 +49,7 @@ public class ProductApiIntegrationTest {
                                     "price": 99.99
                                 }
                                 """)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", startsWith("/api/v1/products/")))
                 .andExpect(jsonPath("$.sku").value("NG-KEYBOARD-NEW"))
@@ -79,7 +79,7 @@ public class ProductApiIntegrationTest {
                                     "active": true
                                 }
                                 """)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.sku").value("NG-DAC-01"))
                 .andExpect(jsonPath("$.categoryId").value(3))
@@ -103,7 +103,7 @@ public class ProductApiIntegrationTest {
                                     "price": 49.90
                                 }
                                 """)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.title").value("Duplicate SKU Conflict"))
                 .andExpect(jsonPath("$.type").value("https://polaris.local/errors/duplicate-sku"))
@@ -123,7 +123,7 @@ public class ProductApiIntegrationTest {
                                     "price": 19.99
                                 }
                                 """)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.detail").value("Category not found with id: 99999"));
@@ -137,7 +137,7 @@ public class ProductApiIntegrationTest {
         mockMvc.perform(put("/api/v1/products/1/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"delta\": -" + initialStock + "}")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.inventory()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.stockQuantity").value(0))
@@ -155,7 +155,7 @@ public class ProductApiIntegrationTest {
         mockMvc.perform(put("/api/v1/products/2/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"delta\": 25}")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.inventory()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(2))
                 .andExpect(jsonPath("$.stockQuantity").value(initialStock + 25))
@@ -170,7 +170,7 @@ public class ProductApiIntegrationTest {
         mockMvc.perform(put("/api/v1/products/1/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"delta\": -999999}")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.inventory()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Bad Request"))
                 .andExpect(jsonPath("$.status").value(400))
@@ -182,7 +182,7 @@ public class ProductApiIntegrationTest {
         mockMvc.perform(put("/api/v1/products/99999/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"delta\": 50}")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.inventory()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404));
@@ -193,7 +193,7 @@ public class ProductApiIntegrationTest {
         mockMvc.perform(put("/api/v1/products/1/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.inventory()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Validation Error"))
                 .andExpect(jsonPath("$.status").value(400));

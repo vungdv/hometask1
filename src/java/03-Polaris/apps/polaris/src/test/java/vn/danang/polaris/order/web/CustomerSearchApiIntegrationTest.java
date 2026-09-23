@@ -30,7 +30,7 @@ class CustomerSearchApiIntegrationTest {
     void search_byFirstName_returnsMatch() throws Exception {
         mockMvc.perform(get("/api/v1/customers/search")
                         .param("name", "Alice")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$[0].full_name").value("Alice Tran"))
@@ -43,7 +43,7 @@ class CustomerSearchApiIntegrationTest {
     void search_byLastName_caseInsensitive() throws Exception {
         mockMvc.perform(get("/api/v1/customers/search")
                         .param("name", "nguyen")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$[0].full_name").value("Ben Nguyen"));
@@ -54,7 +54,7 @@ class CustomerSearchApiIntegrationTest {
     void search_noMatch_returnsEmptyList() throws Exception {
         mockMvc.perform(get("/api/v1/customers/search")
                         .param("name", "zzznomatch")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$").isEmpty());
@@ -64,7 +64,7 @@ class CustomerSearchApiIntegrationTest {
     @DisplayName("GET /api/v1/customers/search without name parameter returns 400")
     void search_missingName_returns400() throws Exception {
         mockMvc.perform(get("/api/v1/customers/search")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isBadRequest());
     }
 
@@ -82,7 +82,7 @@ class CustomerSearchApiIntegrationTest {
         mockMvc.perform(get("/api/v1/customers/search")
                         .param("name", "e")   // likely to match many
                         .param("limit", "1")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$.length()").value(org.hamcrest.Matchers.lessThanOrEqualTo(1)));
@@ -92,7 +92,7 @@ class CustomerSearchApiIntegrationTest {
     @DisplayName("GET /api/v1/customers/1 returns 200 with Alice Tran and identical CustomerResponse mapped fields")
     void getCustomerById_success_returnsCustomerWithAllFields() throws Exception {
         mockMvc.perform(get("/api/v1/customers/1")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.fullName").value("Alice Tran"))
@@ -113,7 +113,7 @@ class CustomerSearchApiIntegrationTest {
     @DisplayName("GET /api/v1/customers/999 returns 404 ProblemDetail when customer not found")
     void getCustomerById_notFound_returns404ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/v1/customers/999")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.type").value("https://polaris.local/errors/not-found"))
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
@@ -142,7 +142,7 @@ class CustomerSearchApiIntegrationTest {
         mockMvc.perform(put("/api/v1/customers/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.fullName").value("Alice Tran Senior"))
@@ -165,7 +165,7 @@ class CustomerSearchApiIntegrationTest {
         mockMvc.perform(put("/api/v1/customers/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.type").value("https://polaris.local/errors/optimistic-lock-conflict"))
                 .andExpect(jsonPath("$.title").value("Optimistic Lock Conflict"))
@@ -185,7 +185,7 @@ class CustomerSearchApiIntegrationTest {
         mockMvc.perform(put("/api/v1/customers/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.type").value("https://polaris.local/errors/validation-error"))
                 .andExpect(jsonPath("$.title").value("Validation Error"))
@@ -205,7 +205,7 @@ class CustomerSearchApiIntegrationTest {
         mockMvc.perform(put("/api/v1/customers/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.type").value("https://polaris.local/errors/validation-error"))
                 .andExpect(jsonPath("$.title").value("Validation Error"))
@@ -225,7 +225,7 @@ class CustomerSearchApiIntegrationTest {
         mockMvc.perform(put("/api/v1/customers/999")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.customerSuccess()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.type").value("https://polaris.local/errors/not-found"))
                 .andExpect(jsonPath("$.detail").value("Customer not found with id: 999"));
@@ -245,5 +245,31 @@ class CustomerSearchApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/customers/search without customer.read permission returns 403")
+    void search_missingCustomerReadPermission_returns403() throws Exception {
+        mockMvc.perform(get("/api/v1/customers/search")
+                        .param("name", "Alice")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/customers/1 without customer.write permission returns 403")
+    void updateCustomer_missingCustomerWritePermission_returns403() throws Exception {
+        String payload = """
+            {
+                "version": 0,
+                "fullName": "Alice Tran"
+            }
+            """;
+
+        mockMvc.perform(put("/api/v1/customers/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload)
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isForbidden());
     }
 }

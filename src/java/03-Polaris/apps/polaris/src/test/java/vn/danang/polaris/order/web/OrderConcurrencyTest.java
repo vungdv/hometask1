@@ -268,7 +268,7 @@ public class OrderConcurrencyTest {
                     var response = mockMvc.perform(post("/api/v1/orders")
                                     .contentType(MediaType.APPLICATION_JSON)
                                     .content(payload)
-                                    .with(JwtMockFactory.user()))
+                                    .with(JwtMockFactory.admin()))
                             .andReturn().getResponse();
 
                     int status = response.getStatus();
@@ -451,7 +451,7 @@ public class OrderConcurrencyTest {
                     var response = mockMvc.perform(post("/api/v1/orders")
                                     .contentType(MediaType.APPLICATION_JSON)
                                     .content(payload)
-                                    .with(JwtMockFactory.user()))
+                                    .with(JwtMockFactory.admin()))
                             .andReturn().getResponse();
 
                     if (response.getStatus() == 201) {
@@ -478,7 +478,7 @@ public class OrderConcurrencyTest {
                                     .put("/api/v1/products/sku/" + sku + "/inventory")
                                     .contentType(MediaType.APPLICATION_JSON)
                                     .content(restockPayload)
-                                    .with(JwtMockFactory.user()))
+                                    .with(JwtMockFactory.admin()))
                             .andReturn().getResponse();
 
                     if (response.getStatus() == 200) {

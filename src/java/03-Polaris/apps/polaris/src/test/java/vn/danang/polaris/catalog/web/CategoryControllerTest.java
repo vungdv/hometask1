@@ -56,7 +56,7 @@ public class CategoryControllerTest {
 
         when(categoryService.getCategories(false)).thenReturn(List.of(cat1, cat2));
 
-        mockMvc.perform(get("/api/v1/categories").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/categories").with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[0].id").value(1))
@@ -82,7 +82,7 @@ public class CategoryControllerTest {
 
         mockMvc.perform(get("/api/v1/categories")
                         .param("rootOnly", "true")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].id").value(1))
@@ -98,7 +98,7 @@ public class CategoryControllerTest {
         );
         when(categoryService.getCategoryById(1L)).thenReturn(cat);
 
-        mockMvc.perform(get("/api/v1/categories/1").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/categories/1").with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.code").value("electronics"))
@@ -111,7 +111,7 @@ public class CategoryControllerTest {
         when(categoryService.getCategoryById(999L))
                 .thenThrow(new ResourceNotFoundException("Category not found with id: 999"));
 
-        mockMvc.perform(get("/api/v1/categories/999").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/categories/999").with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -126,7 +126,7 @@ public class CategoryControllerTest {
         );
         when(categoryService.getCategoryByCode("audio")).thenReturn(cat);
 
-        mockMvc.perform(get("/api/v1/categories/code/audio").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/categories/code/audio").with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(2))
                 .andExpect(jsonPath("$.code").value("audio"))
@@ -140,7 +140,7 @@ public class CategoryControllerTest {
         when(categoryService.getCategoryByCode("non-existent"))
                 .thenThrow(new ResourceNotFoundException("Category not found with code: non-existent"));
 
-        mockMvc.perform(get("/api/v1/categories/code/non-existent").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/categories/code/non-existent").with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -166,7 +166,7 @@ public class CategoryControllerTest {
         Page<ProductResponse> page = new PageImpl<>(List.of(product), PageRequest.of(0, 20), 1);
         when(categoryService.getCategoryProducts(eq(2L), any(Pageable.class))).thenReturn(page);
 
-        mockMvc.perform(get("/api/v1/categories/2/products").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/categories/2/products").with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].id").value(1))
@@ -181,7 +181,7 @@ public class CategoryControllerTest {
         when(categoryService.getCategoryProducts(eq(999L), any(Pageable.class)))
                 .thenThrow(new ResourceNotFoundException("Category not found with id: 999"));
 
-        mockMvc.perform(get("/api/v1/categories/999/products").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/categories/999/products").with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -192,10 +192,23 @@ public class CategoryControllerTest {
     void getCategoryProducts_invalidSortProperty_shouldReturn400ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/v1/categories/2/products")
                         .param("sort", "string")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Invalid Sort Property"))
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.type").value("https://polaris.local/errors/invalid-sort"));
+    }
+
+    @Test
+    void listCategories_unauthenticated_shouldReturn401() throws Exception {
+        mockMvc.perform(get("/api/v1/categories"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void listCategories_missingCatalogReadPermission_shouldReturn403() throws Exception {
+        mockMvc.perform(get("/api/v1/categories")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isForbidden());
     }
 }

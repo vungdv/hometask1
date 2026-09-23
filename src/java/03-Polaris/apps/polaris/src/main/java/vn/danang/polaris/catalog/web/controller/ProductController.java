@@ -9,6 +9,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,6 +47,7 @@ public class ProductController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('PERM_catalog.read')")
     @Operation(summary = "Search products", description = "Search and filter products by query keyword, category, category ID, price range, and stock availability.")
     @Parameters({
         @Parameter(name = "page", description = "Zero-based page index (0..10000)", schema = @Schema(type = "integer", defaultValue = "0", minimum = "0", maximum = "10000")),
@@ -74,6 +76,7 @@ public class ProductController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('PERM_catalog.read')")
     @Operation(summary = "Get product by ID", description = "Retrieve single product details by internal numeric ID.")
     public ProductResponse getProductById(
             @Parameter(description = "Product database ID")
@@ -82,6 +85,7 @@ public class ProductController {
     }
 
     @GetMapping("/sku/{sku}")
+    @PreAuthorize("hasAuthority('PERM_catalog.read')")
     @Operation(summary = "Get product by SKU", description = "Retrieve single product details by business SKU code.")
     public ProductResponse getProductBySku(
             @Parameter(description = "Product SKU (e.g., NG-EARBUD-01)")
@@ -90,6 +94,7 @@ public class ProductController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('PERM_catalog.write')")
     @Operation(summary = "Create product", description = "Onboard a new product into the catalog with case-insensitive unique SKU, price, and optional category/inventory.")
     @ApiResponses({
         @ApiResponse(responseCode = "201", description = "Product successfully created",
@@ -108,6 +113,7 @@ public class ProductController {
     }
 
     @PutMapping("/{id}/inventory")
+    @PreAuthorize("hasAuthority('PERM_inventory.write')")
     @Operation(summary = "Adjust product inventory by ID", description = "Adjust the available in-stock inventory count for a product by internal numeric ID using a relative delta (+/-) with pessimistic write locking.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Inventory successfully adjusted",
@@ -126,6 +132,7 @@ public class ProductController {
     }
 
     @PutMapping("/sku/{sku}/inventory")
+    @PreAuthorize("hasAuthority('PERM_inventory.write')")
     @Operation(summary = "Adjust product inventory by SKU", description = "Adjust the available in-stock inventory count for a product by SKU using a relative delta (+/-) with pessimistic write locking.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Inventory successfully adjusted",
