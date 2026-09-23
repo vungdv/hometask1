@@ -3,7 +3,10 @@ package vn.danang.polaris.catalog.dto;
 import java.util.Collections;
 import java.util.List;
 
+import org.mapstruct.factory.Mappers;
+
 import vn.danang.polaris.catalog.entity.Category;
+import vn.danang.polaris.catalog.mapper.CategoryMapper;
 
 public record CategoryResponse(
     Long id,
@@ -15,27 +18,17 @@ public record CategoryResponse(
     List<CategoryResponse> subcategories,
     Long productCount
 ) {
-    public static CategoryResponse from(Category category, Long productCount, List<CategoryResponse> subcategories) {
-        Long parentId = category.getParent() != null ? category.getParent().getId() : null;
-        String parentName = category.getParent() != null ? category.getParent().getName() : null;
+    private static final CategoryMapper MAPPER = Mappers.getMapper(CategoryMapper.class);
 
-        return new CategoryResponse(
-            category.getId(),
-            category.getCode(),
-            category.getName(),
-            category.getDescription(),
-            parentId,
-            parentName,
-            subcategories != null ? subcategories : Collections.emptyList(),
-            productCount != null ? productCount : 0L
-        );
+    public static CategoryResponse from(Category category, Long productCount, List<CategoryResponse> subcategories) {
+        return MAPPER.toResponse(category, productCount, subcategories);
     }
 
     public static CategoryResponse from(Category category, Long productCount) {
-        return from(category, productCount, Collections.emptyList());
+        return MAPPER.toResponse(category, productCount);
     }
 
     public static CategoryResponse from(Category category) {
-        return from(category, 0L, Collections.emptyList());
+        return MAPPER.toResponse(category);
     }
 }
