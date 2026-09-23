@@ -9,6 +9,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,6 +48,7 @@ public class OrderController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('PERM_order.write')")
     @Operation(
         summary = "Place a new order",
         description = "Create and submit a new multi-item purchase order with live stock deduction and idempotency support."
@@ -87,6 +89,7 @@ public class OrderController {
     }
 
     @GetMapping("/{orderNumber}")
+    @PreAuthorize("hasAuthority('PERM_order.read')")
     @Operation(summary = "Get order details", description = "Retrieve full order details, line items, and fulfillment status by business order number.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Order details successfully retrieved",
@@ -103,6 +106,7 @@ public class OrderController {
     }
 
     @GetMapping("/{orderNumber}/status")
+    @PreAuthorize("hasAuthority('PERM_order.read')")
     @Operation(summary = "Get order status", description = "Retrieve order details and status by business order number (backwards compatible endpoint).")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Order status successfully retrieved",
@@ -119,6 +123,7 @@ public class OrderController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('PERM_order.read')")
     @Operation(
         summary = "Search customer orders",
         description = "Query customer order history with optional filtering by customer ID and order status, supporting pagination and sorting."
@@ -154,6 +159,7 @@ public class OrderController {
     }
 
     @PostMapping("/{orderNumber}/cancel")
+    @PreAuthorize("hasAuthority('PERM_order.write')")
     @Operation(summary = "Cancel order", description = "Cancel an order in PLACED or CONFIRMED status, restoring inventory stock.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Order successfully cancelled and stock restored",

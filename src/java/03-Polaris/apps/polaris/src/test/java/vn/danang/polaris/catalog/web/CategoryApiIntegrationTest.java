@@ -27,7 +27,7 @@ public class CategoryApiIntegrationTest {
     @Test
     void listCategories_default_shouldReturnAllActiveCategories() throws Exception {
         mockMvc.perform(get("/api/v1/categories")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(8)))
                 .andExpect(jsonPath("$[0].code").value("electronics"))
@@ -44,7 +44,7 @@ public class CategoryApiIntegrationTest {
     void listCategories_rootOnlyTrue_shouldReturnOnlyRootCategories() throws Exception {
         mockMvc.perform(get("/api/v1/categories")
                         .param("rootOnly", "true")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[0].code").value("electronics"))
@@ -59,7 +59,7 @@ public class CategoryApiIntegrationTest {
     void getCategoryById_whenFound_shouldReturnHierarchyAndCount() throws Exception {
         // Find electronics by listing first or checking ID 1
         mockMvc.perform(get("/api/v1/categories/code/electronics")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("electronics"))
                 .andExpect(jsonPath("$.productCount").value(7))
@@ -69,7 +69,7 @@ public class CategoryApiIntegrationTest {
     @Test
     void getCategoryByCode_subCategory_shouldIncludeParentDetails() throws Exception {
         mockMvc.perform(get("/api/v1/categories/code/audio")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("audio"))
                 .andExpect(jsonPath("$.name").value("Audio & Sound"))
@@ -80,7 +80,7 @@ public class CategoryApiIntegrationTest {
     @Test
     void getCategoryByCode_whenNotFound_shouldReturn404ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/v1/categories/code/non-existent-category")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -91,7 +91,7 @@ public class CategoryApiIntegrationTest {
     void getCategoryProducts_forRootCategory_shouldReturnProductsInSubcategories() throws Exception {
         // Electronics ID is 1
         mockMvc.perform(get("/api/v1/categories/1/products")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(7)))
                 .andExpect(jsonPath("$.totalElements").value(7));
@@ -101,7 +101,7 @@ public class CategoryApiIntegrationTest {
     void getCategoryProducts_forSubCategory_shouldReturnOnlySubCategoryProducts() throws Exception {
         // Audio ID is 3
         mockMvc.perform(get("/api/v1/categories/3/products")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(3)))
                 .andExpect(jsonPath("$.totalElements").value(3))
@@ -111,7 +111,7 @@ public class CategoryApiIntegrationTest {
     @Test
     void getCategoryProducts_whenNotFound_shouldReturn404ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/v1/categories/9999/products")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -122,7 +122,7 @@ public class CategoryApiIntegrationTest {
     void productsEndpoint_withCategoryIdFilter_shouldReturnProducts() throws Exception {
         mockMvc.perform(get("/api/v1/products")
                         .param("categoryId", "3")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(3)))
                 .andExpect(jsonPath("$.content[0].categoryCode").value("audio"))
@@ -133,19 +133,19 @@ public class CategoryApiIntegrationTest {
     void productsEndpoint_withCategorySlugOrName_shouldMatchCaseInsensitively() throws Exception {
         mockMvc.perform(get("/api/v1/products")
                         .param("category", "audio")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(3)));
 
         mockMvc.perform(get("/api/v1/products")
                         .param("category", "Audio & Sound")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(3)));
 
         mockMvc.perform(get("/api/v1/products")
                         .param("category", "electronics")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(7)));
     }
@@ -157,10 +157,17 @@ public class CategoryApiIntegrationTest {
     }
 
     @Test
+    void listCategories_withoutCatalogReadPermission_returns403() throws Exception {
+        mockMvc.perform(get("/api/v1/categories")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void distributedTracingPropagation_shouldReturnTraceIdInHeader() throws Exception {
         mockMvc.perform(get("/api/v1/categories")
                         .header("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.productCatalog()))
                 .andExpect(status().isOk())
                 .andExpect(header().exists("X-Trace-Id"))
                 .andExpect(header().string("X-Trace-Id", "4bf92f3577b34da6a3ce929d0e0e4736"));

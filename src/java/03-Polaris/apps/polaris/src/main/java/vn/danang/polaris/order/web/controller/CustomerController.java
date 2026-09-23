@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -45,6 +46,7 @@ public class CustomerController {
     }
 
     @GetMapping("/search")
+    @PreAuthorize("hasAuthority('PERM_customer.read')")
     @Operation(
         summary = "Fuzzy customer name search",
         description = "Search customers by partial or misspelled name (first name, last name, or full name). "
@@ -84,6 +86,7 @@ public class CustomerController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('PERM_customer.read')")
     @Operation(
         summary = "Get customer by ID",
         description = "Retrieves full customer profile details by internal numeric ID."
@@ -109,6 +112,7 @@ public class CustomerController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('PERM_customer.write')")
     @Operation(
         summary = "Update customer profile",
         description = "Updates customer profile using optimistic concurrency control. "

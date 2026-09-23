@@ -40,7 +40,7 @@ public class OrderApiIntegrationTest {
     @Test
     void getStatus_seededOrder_shouldReturnConfirmedOrder() throws Exception {
         mockMvc.perform(get("/api/v1/orders/ORD-1002/status")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderNumber").value("ORD-1002"))
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
@@ -69,7 +69,7 @@ public class OrderApiIntegrationTest {
         mockMvc.perform(post("/api/v1/orders")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content(payload)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))
                 .andExpect(jsonPath("$.orderNumber").exists())
@@ -101,7 +101,7 @@ public class OrderApiIntegrationTest {
         mockMvc.perform(post("/api/v1/orders")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content(payload)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Insufficient Stock"))
                 .andExpect(jsonPath("$.status").value(400))
@@ -134,7 +134,7 @@ public class OrderApiIntegrationTest {
         String response1 = mockMvc.perform(post("/api/v1/orders")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content(payload)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
@@ -148,7 +148,7 @@ public class OrderApiIntegrationTest {
         String response2 = mockMvc.perform(post("/api/v1/orders")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content(payload)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
@@ -164,7 +164,7 @@ public class OrderApiIntegrationTest {
     @Test
     void getOrder_byOrderNumber_shouldReturnFullDetails() throws Exception {
         mockMvc.perform(get("/api/v1/orders/ORD-1002")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderNumber").value("ORD-1002"))
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
@@ -179,7 +179,7 @@ public class OrderApiIntegrationTest {
                         .param("customerId", "1")
                         .param("page", "0")
                         .param("size", "10")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isArray())
                 .andExpect(jsonPath("$.totalElements").value(org.hamcrest.Matchers.greaterThanOrEqualTo(2)));
@@ -190,7 +190,7 @@ public class OrderApiIntegrationTest {
         int earbudStockBefore = productRepository.findBySku("NG-EARBUD-01").orElseThrow().getStockQty();
 
         mockMvc.perform(post("/api/v1/orders/ORD-1001/cancel")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderNumber").value("ORD-1001"))
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
@@ -202,7 +202,7 @@ public class OrderApiIntegrationTest {
     @Test
     void cancel_deliveredOrder_shouldReturn409ConflictProblemDetail() throws Exception {
         mockMvc.perform(post("/api/v1/orders/ORD-1005/cancel")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.title").value("Order State Conflict"))
                 .andExpect(jsonPath("$.status").value(409))
@@ -214,7 +214,7 @@ public class OrderApiIntegrationTest {
     @Test
     void getStatus_missingOrder_shouldReturn404ProblemDetail() throws Exception {
         mockMvc.perform(get("/api/v1/orders/ORD-9999/status")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -231,7 +231,7 @@ public class OrderApiIntegrationTest {
     void distributedTracingPropagation_shouldReturnTraceIdInHeader() throws Exception {
         mockMvc.perform(get("/api/v1/orders/ORD-1002")
                         .header("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isOk())
                 .andExpect(header().exists("X-Trace-Id"))
                 .andExpect(header().string("X-Trace-Id", "4bf92f3577b34da6a3ce929d0e0e4736"));

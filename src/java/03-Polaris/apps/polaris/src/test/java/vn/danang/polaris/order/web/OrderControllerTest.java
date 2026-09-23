@@ -75,7 +75,7 @@ public class OrderControllerTest {
         Order sample = createSampleOrder("ORD-1002", OrderStatus.CONFIRMED);
         when(orderService.getOrderStatus("ORD-1002")).thenReturn(sample);
 
-        mockMvc.perform(get("/api/v1/orders/ORD-1002/status").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/orders/ORD-1002/status").with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderNumber").value("ORD-1002"))
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
@@ -94,7 +94,7 @@ public class OrderControllerTest {
         when(orderService.getOrderStatus("ORD-9999"))
                 .thenThrow(new ResourceNotFoundException("Order not found with order number: ORD-9999"));
 
-        mockMvc.perform(get("/api/v1/orders/ORD-9999/status").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/orders/ORD-9999/status").with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -113,7 +113,7 @@ public class OrderControllerTest {
         Order sample = createSampleOrder("ORD-1001", OrderStatus.CANCELLED);
         when(orderService.cancelOrder("ORD-1001")).thenReturn(sample);
 
-        mockMvc.perform(post("/api/v1/orders/ORD-1001/cancel").with(JwtMockFactory.user()))
+        mockMvc.perform(post("/api/v1/orders/ORD-1001/cancel").with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderNumber").value("ORD-1001"))
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
@@ -124,7 +124,7 @@ public class OrderControllerTest {
         when(orderService.cancelOrder("ORD-1005"))
                 .thenThrow(new IllegalStateException("Order ORD-1005 cannot be cancelled — current status is DELIVERED"));
 
-        mockMvc.perform(post("/api/v1/orders/ORD-1005/cancel").with(JwtMockFactory.user()))
+        mockMvc.perform(post("/api/v1/orders/ORD-1005/cancel").with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.title").value("Order State Conflict"))
                 .andExpect(jsonPath("$.status").value(409))
@@ -137,7 +137,7 @@ public class OrderControllerTest {
         when(orderService.cancelOrder("ORD-9999"))
                 .thenThrow(new ResourceNotFoundException("Order not found with order number: ORD-9999"));
 
-        mockMvc.perform(post("/api/v1/orders/ORD-9999/cancel").with(JwtMockFactory.user()))
+        mockMvc.perform(post("/api/v1/orders/ORD-9999/cancel").with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -150,7 +150,7 @@ public class OrderControllerTest {
         Order sample = createSampleOrder("ORD-1002", OrderStatus.CONFIRMED);
         when(orderService.getOrderStatus("ORD-1002")).thenReturn(sample);
 
-        mockMvc.perform(get("/api/v1/orders/ORD-1002").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/orders/ORD-1002").with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderNumber").value("ORD-1002"))
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
@@ -164,7 +164,7 @@ public class OrderControllerTest {
         when(orderService.getOrderStatus("ORD-9999"))
                 .thenThrow(new ResourceNotFoundException("Order not found with order number: ORD-9999"));
 
-        mockMvc.perform(get("/api/v1/orders/ORD-9999").with(JwtMockFactory.user()))
+        mockMvc.perform(get("/api/v1/orders/ORD-9999").with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
                 .andExpect(jsonPath("$.status").value(404))
@@ -190,7 +190,7 @@ public class OrderControllerTest {
         mockMvc.perform(post("/api/v1/orders")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content(json)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isCreated())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Location", "/api/v1/orders/ORD-1001"))
                 .andExpect(jsonPath("$.orderNumber").value("ORD-1001"))
@@ -217,7 +217,7 @@ public class OrderControllerTest {
                         .header("Idempotency-Key", "idem-key-123")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content(json)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isCreated())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Location", "/api/v1/orders/ORD-1001"))
                 .andExpect(jsonPath("$.orderNumber").value("ORD-1001"));
@@ -240,7 +240,7 @@ public class OrderControllerTest {
         mockMvc.perform(post("/api/v1/orders")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content(json)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Insufficient Stock"))
                 .andExpect(jsonPath("$.status").value(400))
@@ -264,7 +264,7 @@ public class OrderControllerTest {
         mockMvc.perform(post("/api/v1/orders")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content(json)
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Validation Error"))
                 .andExpect(jsonPath("$.type").value("https://polaris.local/errors/validation-error"))
@@ -299,7 +299,7 @@ public class OrderControllerTest {
         mockMvc.perform(get("/api/v1/orders")
                         .param("customerId", "1")
                         .param("status", "CONFIRMED")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].orderNumber").value("ORD-1002"))
@@ -310,7 +310,7 @@ public class OrderControllerTest {
     void searchOrders_invalidCustomerId_shouldReturn400() throws Exception {
         mockMvc.perform(get("/api/v1/orders")
                         .param("customerId", "-1")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Bad Request"))
                 .andExpect(jsonPath("$.status").value(400));
@@ -320,7 +320,7 @@ public class OrderControllerTest {
     void searchOrders_invalidSortProperty_shouldReturn400() throws Exception {
         mockMvc.perform(get("/api/v1/orders")
                         .param("sort", "unsupportedField,asc")
-                        .with(JwtMockFactory.user()))
+                        .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Invalid Sort Property"))
                 .andExpect(jsonPath("$.status").value(400))
@@ -332,5 +332,28 @@ public class OrderControllerTest {
     void searchOrders_unauthenticated_shouldReturn401() throws Exception {
         mockMvc.perform(get("/api/v1/orders"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void searchOrders_missingOrderReadPermission_shouldReturn403() throws Exception {
+        mockMvc.perform(get("/api/v1/orders")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void placeOrder_missingOrderWritePermission_shouldReturn403() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"customerId\": 1, \"items\": [{\"sku\": \"NG-EARBUD-01\", \"quantity\": 1}]}")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void cancelOrder_missingOrderWritePermission_shouldReturn403() throws Exception {
+        mockMvc.perform(post("/api/v1/orders/ORD-1001/cancel")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isForbidden());
     }
 }
