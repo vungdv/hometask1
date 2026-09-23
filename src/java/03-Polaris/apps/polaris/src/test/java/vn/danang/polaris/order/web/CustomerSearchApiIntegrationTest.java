@@ -84,4 +84,35 @@ class CustomerSearchApiIntegrationTest {
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$.length()").value(org.hamcrest.Matchers.lessThanOrEqualTo(1)));
     }
+
+    @Test
+    @DisplayName("GET /api/v1/customers/1 returns 200 with Alice Tran and identical CustomerResponse mapped fields")
+    void getCustomerById_success_returnsCustomerWithAllFields() throws Exception {
+        mockMvc.perform(get("/api/v1/customers/1")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.fullName").value("Alice Tran"))
+                .andExpect(jsonPath("$.email").value("alice.tran@example.com"))
+                .andExpect(jsonPath("$.phone").value("0901111111"))
+                .andExpect(jsonPath("$.createdAt").exists());
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/customers/999 returns 404 ProblemDetail when customer not found")
+    void getCustomerById_notFound_returns404ProblemDetail() throws Exception {
+        mockMvc.perform(get("/api/v1/customers/999")
+                        .with(JwtMockFactory.user()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail").value("Customer not found with id: 999"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/customers/1 unauthenticated returns 401")
+    void getCustomerById_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(get("/api/v1/customers/1"))
+                .andExpect(status().isUnauthorized());
+    }
 }
