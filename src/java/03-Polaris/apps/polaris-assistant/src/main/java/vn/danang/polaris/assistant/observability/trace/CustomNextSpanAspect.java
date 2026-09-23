@@ -3,6 +3,7 @@ package vn.danang.polaris.assistant.observability.trace;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -31,7 +32,7 @@ import jakarta.annotation.Nullable;
  * <p>
  * Manages the distributed tracing span lifecycle (creation, tagging, activation, error capturing,
  * and completion) around annotated methods. Evaluates static values and dynamic SpEL expressions
- * bound to method arguments to attach context-rich tags to the span.
+ * bound to method arguments or execution results to attach context-rich tags to the span.
  *
  */
 @Aspect
@@ -40,6 +41,7 @@ import jakarta.annotation.Nullable;
 public class CustomNextSpanAspect {
 
     private static final Logger log = LoggerFactory.getLogger(CustomNextSpanAspect.class);
+    private static final Pattern RESULT_PATTERN = Pattern.compile("(#result|#returnObject)\\b");
 
     private final Optional<Tracer> tracer;
     private final ExpressionParser expressionParser = new SpelExpressionParser();
@@ -72,11 +74,18 @@ public class CustomNextSpanAspect {
         String spanName = resolveSpanName(customNextSpan, method);
 
         Span span = activeTracer.nextSpan().name(spanName);
-        applyTags(span, customNextSpan, method, joinPoint.getArgs(), joinPoint.getTarget());
+        StandardEvaluationContext context = buildEvaluationContext(method, joinPoint.getArgs(), joinPoint.getTarget());
+        applyPreExecutionTags(span, customNextSpan, method, joinPoint.getArgs(), context);
         span.start();
 
         try (Tracer.SpanInScope ws = activeTracer.withSpan(span)) {
-            return joinPoint.proceed();
+            Object result = joinPoint.proceed();
+            try {
+                applyPostExecutionTags(span, customNextSpan, result, context);
+            } catch (Exception e) {
+                log.debug("Failed to apply post-execution span tags: {}", e.getMessage(), e);
+            }
+            return result;
         } catch (Throwable ex) {
             span.error(ex);
             span.tag("error", "true");
@@ -113,13 +122,14 @@ public class CustomNextSpanAspect {
         return method.getDeclaringClass().getSimpleName() + "." + method.getName();
     }
 
-    private void applyTags(Span span, CustomNextSpan customNextSpan, Method method, Object[] args, Object target) {
-        StandardEvaluationContext context = buildEvaluationContext(method, args, target);
-
-        // 1. Method-level tags defined on @NextSpan(tags = { ... })
+    private void applyPreExecutionTags(Span span, CustomNextSpan customNextSpan, Method method, Object[] args, StandardEvaluationContext context) {
+        // 1. Method-level tags defined on @CustomNextSpan(tags = { ... }) that do not reference result
         SpanTag[] methodTags = customNextSpan.tags();
         if (methodTags != null) {
             for (SpanTag tag : methodTags) {
+                if (isResultExpression(tag.expression())) {
+                    continue;
+                }
                 String key = resolveKey(tag, null);
                 if (key == null || key.isBlank()) {
                     continue;
@@ -149,6 +159,51 @@ public class CustomNextSpanAspect {
                 }
             }
         }
+    }
+
+    private void applyPostExecutionTags(Span span, CustomNextSpan customNextSpan, @Nullable Object result, StandardEvaluationContext context) {
+        context.setVariable("result", result);
+        context.setVariable("returnObject", result);
+
+        // 1. Method-level tags in tags() that reference result
+        SpanTag[] methodTags = customNextSpan.tags();
+        if (methodTags != null) {
+            for (SpanTag tag : methodTags) {
+                if (!isResultExpression(tag.expression())) {
+                    continue;
+                }
+                String key = resolveKey(tag, null);
+                if (key == null || key.isBlank()) {
+                    continue;
+                }
+                String value = resolveResultTagValue(tag, result, context);
+                if (value != null && !value.isBlank()) {
+                    span.tag(key, value);
+                }
+            }
+        }
+
+        // 2. Result tags defined on @CustomNextSpan(resultTags = { ... })
+        SpanTag[] resultTags = customNextSpan.resultTags();
+        if (resultTags != null) {
+            for (SpanTag tag : resultTags) {
+                String key = resolveKey(tag, null);
+                if (key == null || key.isBlank()) {
+                    continue;
+                }
+                String value = resolveResultTagValue(tag, result, context);
+                if (value != null && !value.isBlank()) {
+                    span.tag(key, value);
+                }
+            }
+        }
+    }
+
+    private boolean isResultExpression(@Nullable String expression) {
+        if (expression == null || expression.isBlank()) {
+            return false;
+        }
+        return RESULT_PATTERN.matcher(expression).find();
     }
 
     private StandardEvaluationContext buildEvaluationContext(Method method, Object[] args, Object target) {
@@ -212,5 +267,22 @@ public class CustomNextSpanAspect {
             }
         }
         return argValue != null ? argValue.toString() : null;
+    }
+
+    private String resolveResultTagValue(SpanTag tag, @Nullable Object result, EvaluationContext context) {
+        if (tag.expression() != null && !tag.expression().isBlank()) {
+            try {
+                Expression expr = expressionParser.parseExpression(tag.expression());
+                Object val = (result != null) ? expr.getValue(context, result) : expr.getValue(context);
+                return val != null ? val.toString() : null;
+            } catch (Exception e) {
+                log.debug("Failed to evaluate SpEL expression '{}' on result: {}", tag.expression(), e.getMessage());
+                return null;
+            }
+        }
+        if (tag.key() != null && !tag.key().isBlank() && tag.value() != null && !tag.value().isBlank()) {
+            return tag.value();
+        }
+        return result != null ? result.toString() : null;
     }
 }

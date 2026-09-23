@@ -68,6 +68,37 @@ class ExternalMcpHubTest {
         }
 
         @Test
+        @DisplayName("Given ToolManager with CustomNextSpanAspect, when discovering tools, then tags span with mcp.tool_count")
+        void tags_span_with_mcp_tool_count_when_discovering_tools() {
+            io.micrometer.tracing.Span span = mock(io.micrometer.tracing.Span.class);
+            io.micrometer.tracing.Tracer tracer = mock(io.micrometer.tracing.Tracer.class);
+            io.micrometer.tracing.Tracer.SpanInScope spanInScope = mock(io.micrometer.tracing.Tracer.SpanInScope.class);
+            when(tracer.nextSpan()).thenReturn(span);
+            when(span.name(anyString())).thenReturn(span);
+            when(span.tag(anyString(), anyString())).thenReturn(span);
+            when(span.start()).thenReturn(span);
+            when(tracer.withSpan(span)).thenReturn(spanInScope);
+
+            org.springframework.aop.aspectj.annotation.AspectJProxyFactory factory =
+                    new org.springframework.aop.aspectj.annotation.AspectJProxyFactory(mcpHub);
+            factory.setProxyTargetClass(true);
+            factory.addAspect(new vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect(tracer));
+            ToolManager proxy = factory.getProxy();
+
+            Tool tool1 = Tool.builder("search_available_products").build();
+            Tool tool2 = Tool.builder("place_order").build();
+            when(polarisMcpClient.listAvailableTools()).thenReturn(List.of(tool1, tool2));
+
+            List<Tool> tools = proxy.discoverAllTools();
+
+            assertThat(tools).hasSize(2);
+            verify(span).name("mcp.polaris.discovery");
+            verify(span).tag("mcp.tool_count", "2");
+            verify(span).start();
+            verify(span).end();
+        }
+
+        @Test
         @DisplayName("Given valid tool call, when executed, then routes to client and returns content")
         void executes_tool_and_returns_content() {
             CallToolResult expected = new CallToolResult(

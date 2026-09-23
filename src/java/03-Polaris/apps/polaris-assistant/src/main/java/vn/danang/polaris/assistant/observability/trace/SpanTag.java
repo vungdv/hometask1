@@ -9,10 +9,11 @@ import java.lang.annotation.Target;
 /**
  * Defines a tag to be attached to a distributed tracing span managed by {@link CustomNextSpan}.
  * <p>
- * Can be declared within {@link CustomNextSpan#tags()} on a method, or directly on a method parameter:
+ * Can be declared within {@link CustomNextSpan#tags()} or {@link CustomNextSpan#resultTags()} on a method, or directly on a method parameter:
  * <ul>
  *   <li><b>Method-level static tag:</b> {@code @SpanTag(key = "service.name", value = "billing")}</li>
  *   <li><b>Method-level argument binding:</b> {@code @SpanTag(key = "order.id", expression = "#order.id")}</li>
+ *   <li><b>Method-level result binding:</b> {@code @SpanTag(key = "mcp.tool_count", expression = "#result?.size()")}</li>
  *   <li><b>Parameter-level tag:</b> {@code void doWork(@SpanTag("user.id") String userId)}</li>
  *   <li><b>Parameter-level expression:</b> {@code void doWork(@SpanTag(key = "user.id", expression = "id") User user)}</li>
  * </ul>
