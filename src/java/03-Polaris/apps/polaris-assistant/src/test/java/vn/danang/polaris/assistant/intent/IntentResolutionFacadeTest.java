@@ -33,8 +33,8 @@ class IntentResolutionFacadeTest {
         @DisplayName("Given configured McpHub, when resolve called with message, then discovers tools and returns filtered ResolvedIntent")
         void resolves_intent_and_filters_tools_using_configured_hub() {
             McpHub mockHub = mock(McpHub.class);
-            Tool searchTool = Tool.builder("search_available_products").build();
-            Tool orderTool = Tool.builder("place_order").build();
+            Tool searchTool = Tool.builder("search_available_products", Map.of()).build();
+            Tool orderTool = Tool.builder("place_order", Map.of()).build();
             when(mockHub.discoverAllTools()).thenReturn(List.of(searchTool, orderTool));
 
             IntentResolutionFacade facade = new IntentResolutionFacade(

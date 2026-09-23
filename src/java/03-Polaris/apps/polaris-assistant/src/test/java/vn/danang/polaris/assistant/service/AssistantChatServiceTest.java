@@ -359,7 +359,7 @@ class AssistantChatServiceTest {
         @Test
         @DisplayName("Given ReAct turn iteration and intent, when querying model client, then passes ModelRequestContext with iteration and intent details")
         void passes_model_request_context_with_iteration_and_intent_metadata() {
-            Tool tool = Tool.builder("search_available_products").description("Search catalog").build();
+            Tool tool = Tool.builder("search_available_products", Map.of()).description("Search catalog").build();
             ResolvedIntent resolved = new ResolvedIntent(
                     "catalog.product.search",
                     0.95,

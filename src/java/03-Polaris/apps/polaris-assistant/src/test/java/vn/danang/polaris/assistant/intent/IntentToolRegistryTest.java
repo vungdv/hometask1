@@ -1,6 +1,7 @@
 package vn.danang.polaris.assistant.intent;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,10 +50,10 @@ class IntentToolRegistryTest {
         @DisplayName("Given available tools list, when filtered by intent, then returns only tools allowed for that intent")
         void filters_available_tools_for_intent() {
             List<Tool> allTools = List.of(
-                    Tool.builder("search_available_products").build(),
-                    Tool.builder("get_product_by_sku").build(),
-                    Tool.builder("place_order").build(),
-                    Tool.builder("cancel_order").build()
+                    Tool.builder("search_available_products", Map.of()).build(),
+                    Tool.builder("get_product_by_sku", Map.of()).build(),
+                    Tool.builder("place_order", Map.of()).build(),
+                    Tool.builder("cancel_order", Map.of()).build()
             );
 
             List<Tool> searchTools = registry.allowedTools(IntentClassification.CATALOG_SEARCH, allTools);
@@ -92,8 +93,8 @@ class IntentToolRegistryTest {
         @DisplayName("Given confidence meets threshold, when resolveIntent called, then filters allowed tools and marks meetsThreshold true")
         void resolves_intent_with_filtered_tools_when_confidence_meets_threshold() {
             List<Tool> allTools = List.of(
-                    Tool.builder("search_available_products").build(),
-                    Tool.builder("place_order").build()
+                    Tool.builder("search_available_products", Map.of()).build(),
+                    Tool.builder("place_order", Map.of()).build()
             );
 
             IntentClassification classification = new IntentClassification(IntentClassification.CATALOG_SEARCH, 0.95);
@@ -177,8 +178,8 @@ class IntentToolRegistryTest {
         @DisplayName("Given general conversation intent, when filtering tools, then returns empty list")
         void returns_empty_tools_for_general_conversation() {
             List<Tool> allTools = List.of(
-                    Tool.builder("search_available_products").build(),
-                    Tool.builder("place_order").build()
+                    Tool.builder("search_available_products", Map.of()).build(),
+                    Tool.builder("place_order", Map.of()).build()
             );
 
             List<Tool> generalTools = registry.allowedTools(IntentClassification.GENERAL_CONVERSATION, allTools);
@@ -190,8 +191,8 @@ class IntentToolRegistryTest {
         @DisplayName("Given confidence below threshold, when resolveIntent called, then falls back to all available tools and marks meetsThreshold false")
         void resolves_intent_with_all_available_tools_when_confidence_below_threshold() {
             List<Tool> allTools = List.of(
-                    Tool.builder("search_available_products").build(),
-                    Tool.builder("place_order").build()
+                    Tool.builder("search_available_products", Map.of()).build(),
+                    Tool.builder("place_order", Map.of()).build()
             );
 
             IntentClassification classification = new IntentClassification(IntentClassification.ORDER_PLACE, 0.60);

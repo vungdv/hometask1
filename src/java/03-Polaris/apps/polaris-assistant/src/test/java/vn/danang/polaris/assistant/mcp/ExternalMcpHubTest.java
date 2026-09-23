@@ -54,7 +54,7 @@ class ExternalMcpHubTest {
         @Test
         @DisplayName("Given registered client, when discovering tools, then delegates to PolarisMcpClient")
         void delegates_tool_discovery_to_mcp_client() {
-            Tool tool = Tool.builder("search_available_products")
+            Tool tool = Tool.builder("search_available_products", Map.of())
                     .description("Search products")
                     .build();
             when(polarisMcpClient.listAvailableTools()).thenReturn(List.of(tool));
@@ -85,8 +85,8 @@ class ExternalMcpHubTest {
             factory.addAspect(new vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect(tracer));
             ToolManager proxy = factory.getProxy();
 
-            Tool tool1 = Tool.builder("search_available_products").build();
-            Tool tool2 = Tool.builder("place_order").build();
+            Tool tool1 = Tool.builder("search_available_products", Map.of()).build();
+            Tool tool2 = Tool.builder("place_order", Map.of()).build();
             when(polarisMcpClient.listAvailableTools()).thenReturn(List.of(tool1, tool2));
 
             List<Tool> tools = proxy.discoverAllTools();
@@ -102,7 +102,7 @@ class ExternalMcpHubTest {
         @DisplayName("Given valid tool call, when executed, then routes to client and returns content")
         void executes_tool_and_returns_content() {
             CallToolResult expected = new CallToolResult(
-                    List.of(new TextContent("Found 3 products")),
+                    List.of(TextContent.builder("Found 3 products").build()),
                     false,
                     null,
                     Map.of()
@@ -120,14 +120,14 @@ class ExternalMcpHubTest {
         @DisplayName("Given permitted tool call, when handled, then executes tool and returns success ToolResult")
         void handles_permitted_tool_calls_and_returns_turn_messages() {
             CallToolResult toolResult = new CallToolResult(
-                    List.of(new TextContent("Product found: Charger")),
+                    List.of(TextContent.builder("Product found: Charger").build()),
                     false,
                     null,
                     Map.of()
             );
             when(polarisMcpClient.callTool(eq("search_available_products"), any())).thenReturn(toolResult);
 
-            Tool tool = Tool.builder("search_available_products").build();
+            Tool tool = Tool.builder("search_available_products", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(tool)
             );
@@ -147,7 +147,7 @@ class ExternalMcpHubTest {
         @Test
         @DisplayName("Given valid authorized tool call, when checkPolicy evaluated, returns ok ToolPolicyCheckResult")
         void checkPolicy_returns_ok_for_valid_authorized_tool() {
-            Tool tool = Tool.builder("search_available_products").build();
+            Tool tool = Tool.builder("search_available_products", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(tool)
             );
@@ -173,7 +173,7 @@ class ExternalMcpHubTest {
         @Test
         @DisplayName("Given tool forbidden for current intent, when handled, then returns corrective error result without invoking client")
         void rejects_forbidden_tool_with_corrective_message_without_client_call() {
-            Tool allowedTool = Tool.builder("search_available_products").build();
+            Tool allowedTool = Tool.builder("search_available_products", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(allowedTool)
             );
@@ -201,7 +201,7 @@ class ExternalMcpHubTest {
                     polarisMcpClient, new ObjectMapper(), new IntentToolRegistry(), mockPolicy
             );
 
-            Tool tool = Tool.builder("place_order").build();
+            Tool tool = Tool.builder("place_order", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, "commerce.order.place", 0.95, true, List.of(tool)
             );
@@ -221,7 +221,7 @@ class ExternalMcpHubTest {
         @Test
         @DisplayName("Given tool forbidden for intent, when checkPolicy evaluated, returns rejected ToolPolicyCheckResult")
         void checkPolicy_returns_rejected_for_forbidden_tool() {
-            Tool allowedTool = Tool.builder("search_available_products").build();
+            Tool allowedTool = Tool.builder("search_available_products", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(allowedTool)
             );
@@ -245,7 +245,7 @@ class ExternalMcpHubTest {
                     polarisMcpClient, new ObjectMapper(), new IntentToolRegistry(), mockPolicy
             );
 
-            Tool tool = Tool.builder("place_order").build();
+            Tool tool = Tool.builder("place_order", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, "commerce.order.place", 0.95, true, List.of(tool)
             );
@@ -281,7 +281,7 @@ class ExternalMcpHubTest {
         @DisplayName("Given tool result with isError=true, when executed, then returns error result")
         void returns_error_when_tool_returns_error_result() {
             CallToolResult errorResult = new CallToolResult(
-                    List.of(new TextContent("Failed")),
+                    List.of(TextContent.builder("Failed").build()),
                     true,
                     null,
                     Map.of()
@@ -316,7 +316,7 @@ class ExternalMcpHubTest {
                 if (!unblocked) {
                     throw new IllegalStateException("Timeout waiting for search_promotions; calls did not execute concurrently");
                 }
-                return new CallToolResult(List.of(new TextContent("Charger")), false, null, Map.of());
+                return new CallToolResult(List.of(TextContent.builder("Charger").build()), false, null, Map.of());
             });
 
             when(polarisMcpClient.callTool(eq("search_promotions"), any())).thenAnswer(inv -> {
@@ -325,11 +325,11 @@ class ExternalMcpHubTest {
                 if (!unblocked) {
                     throw new IllegalStateException("Timeout waiting for search_available_products; calls did not execute concurrently");
                 }
-                return new CallToolResult(List.of(new TextContent("10% off")), false, null, Map.of());
+                return new CallToolResult(List.of(TextContent.builder("10% off").build()), false, null, Map.of());
             });
 
-            Tool t1 = Tool.builder("search_available_products").build();
-            Tool t2 = Tool.builder("search_promotions").build();
+            Tool t1 = Tool.builder("search_available_products", Map.of()).build();
+            Tool t2 = Tool.builder("search_promotions", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, "general.conversation", 0.95, false, List.of(t1, t2)
             );
@@ -364,10 +364,10 @@ class ExternalMcpHubTest {
                     if (currentAuth == null || !"user-test".equals(currentAuth.getName())) {
                         throw new IllegalStateException("SecurityContext not propagated to worker thread");
                     }
-                    return new CallToolResult(List.of(new TextContent("Auth OK")), false, null, Map.of());
+                    return new CallToolResult(List.of(TextContent.builder("Auth OK").build()), false, null, Map.of());
                 });
 
-                Tool t = Tool.builder("search_available_products").build();
+                Tool t = Tool.builder("search_available_products", Map.of()).build();
                 ToolExecutionContext context = new ToolExecutionContext(
                         "sess-1", "user-1", 1, "general.conversation", 0.95, false, List.of(t)
                 );
@@ -403,10 +403,10 @@ class ExternalMcpHubTest {
         @Test
         @DisplayName("Given mixed tool calls with policy violation and valid tool, when handled, marks violating tool done and executes valid tool concurrently")
         void handles_mixed_tool_calls_marking_forbidden_done_and_executing_valid_concurrently() {
-            CallToolResult validResult = new CallToolResult(List.of(new TextContent("Charger")), false, null, Map.of());
+            CallToolResult validResult = new CallToolResult(List.of(TextContent.builder("Charger").build()), false, null, Map.of());
             when(polarisMcpClient.callTool(eq("search_available_products"), any())).thenReturn(validResult);
 
-            Tool validTool = Tool.builder("search_available_products").build();
+            Tool validTool = Tool.builder("search_available_products", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(validTool)
             );

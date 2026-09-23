@@ -112,13 +112,13 @@ class GeminiAiModelClientTest {
             properties.setApiKey("test-api-key");
             properties.setModel("gemini-3.6-flash");
 
-            Tool tool = Tool.builder("search_available_products")
+            Map<String, Object> schema = Map.of(
+                    "type", "object",
+                    "properties", Map.of("query", Map.of("type", "string")),
+                    "required", List.of("query")
+            );
+            Tool tool = Tool.builder("search_available_products", schema)
                     .description("Search catalog products")
-                    .inputSchema(Map.of(
-                            "type", "object",
-                            "properties", Map.of("query", Map.of("type", "string")),
-                            "required", List.of("query")
-                    ))
                     .build();
 
             String mockResponseBody = """
@@ -271,7 +271,7 @@ class GeminiAiModelClientTest {
             when(traceContext.traceId()).thenReturn("4bf92f3577b34da6a3ce929d0e0e4736");
             when(traceContext.spanId()).thenReturn("00f067aa0ba902b7");
 
-            Tool tool = Tool.builder("search_available_products")
+            Tool tool = Tool.builder("search_available_products", Map.of())
                     .description("Search catalog products")
                     .build();
 

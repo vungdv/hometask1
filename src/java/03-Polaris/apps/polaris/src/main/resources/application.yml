@@ -10,6 +10,7 @@ spring:
     username: sa
     password:
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate   # Flyway owns the schema, Hibernate only validates it
     properties:
@@ -35,7 +36,10 @@ polaris:
     api-key: ${GEMINI_API_KEY:${POLARIS_AI_API_KEY:}}
     model: ${POLARIS_AI_MODEL:gemini-3.6-flash}
 springdoc:
+  api-docs:
+    enabled: true
   swagger-ui:
+    enabled: true
     oauth:
       client-id: ${SPRINGDOC_SWAGGER_UI_OAUTH_CLIENT_ID:polaris-local}
       use-pkce-with-authorization-code-grant: true

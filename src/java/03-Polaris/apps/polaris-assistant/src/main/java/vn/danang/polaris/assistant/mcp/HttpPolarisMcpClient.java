@@ -215,7 +215,7 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
                 log.error("Error executing MCP tool '{}'. HTTP Status: {}, Body: {}",
                         toolName, response.statusCode(), response.body());
                 return new CallToolResult(
-                        List.of(new TextContent("Error executing tool " + toolName + ": HTTP " + response.statusCode())),
+                        List.of(TextContent.builder("Error executing tool " + toolName + ": HTTP " + response.statusCode()).build()),
                         true,
                         null,
                         Map.of()
@@ -229,7 +229,7 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
                     log.error("MCP server returned error executing tool '{}': code={}, message={}",
                             toolName, rpcResponse.error().code(), errorMsg);
                     return new CallToolResult(
-                            List.of(new TextContent("Error executing tool " + toolName + ": " + errorMsg)),
+                            List.of(TextContent.builder("Error executing tool " + toolName + ": " + errorMsg).build()),
                             true,
                             null,
                             Map.of()
@@ -240,7 +240,7 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
                 }
             }
             return new CallToolResult(
-                    List.of(new TextContent("Error executing tool " + toolName + ": Invalid JSON-RPC response")),
+                    List.of(TextContent.builder("Error executing tool " + toolName + ": Invalid JSON-RPC response").build()),
                     true,
                     null,
                     Map.of()
@@ -249,7 +249,7 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
             Thread.currentThread().interrupt();
             log.error("Interrupted while executing MCP tool '{}': {}", toolName, e.getMessage());
             return new CallToolResult(
-                    List.of(new TextContent("Execution of tool " + toolName + " was interrupted")),
+                    List.of(TextContent.builder("Execution of tool " + toolName + " was interrupted").build()),
                     true,
                     null,
                     Map.of()
@@ -257,7 +257,7 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
         } catch (Exception e) {
             log.error("Error executing MCP tool '{}': {}", toolName, e.getMessage());
             return new CallToolResult(
-                    List.of(new TextContent("Error executing tool " + toolName + ": " + e.getMessage())),
+                    List.of(TextContent.builder("Error executing tool " + toolName + ": " + e.getMessage()).build()),
                     true,
                     null,
                     Map.of()

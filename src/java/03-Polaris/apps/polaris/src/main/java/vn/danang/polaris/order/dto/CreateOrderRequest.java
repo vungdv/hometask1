@@ -15,8 +15,7 @@ public record CreateOrderRequest(
 
     @Schema(description = "List of products and quantities to purchase", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotEmpty(message = "Order must contain at least one item")
-    @Valid
-    List<OrderItemRequest> items,
+    List<@Valid OrderItemRequest> items,
 
     @Schema(description = "Optional idempotency key to prevent duplicate orders during retries", example = "unique-key-123", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     String idempotencyKey

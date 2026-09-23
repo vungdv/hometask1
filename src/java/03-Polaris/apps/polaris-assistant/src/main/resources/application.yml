@@ -13,6 +13,7 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:sa}
     password: ${SPRING_DATASOURCE_PASSWORD:}
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: update
     properties:
@@ -157,7 +158,10 @@ polaris:
           mutating: true
 
 springdoc:
+  api-docs:
+    enabled: true
   swagger-ui:
+    enabled: true
     oauth:
       client-id: polaris-app
       use-pkce-with-authorization-code-grant: true
