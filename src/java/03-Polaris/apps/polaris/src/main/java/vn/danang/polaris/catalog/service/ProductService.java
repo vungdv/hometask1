@@ -3,6 +3,7 @@ package vn.danang.polaris.catalog.service;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+import org.mapstruct.factory.Mappers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -14,6 +15,7 @@ import vn.danang.polaris.catalog.dto.CreateProductRequest;
 import vn.danang.polaris.catalog.dto.ProductResponse;
 import vn.danang.polaris.catalog.entity.Category;
 import vn.danang.polaris.catalog.entity.Product;
+import vn.danang.polaris.catalog.mapper.ProductMapper;
 import vn.danang.polaris.catalog.repository.CategoryRepository;
 import vn.danang.polaris.catalog.repository.ProductRepository;
 import vn.danang.polaris.catalog.repository.ProductSpecifications;
@@ -26,11 +28,17 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
+    private final ProductMapper productMapper;
 
     @Autowired
-    public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository) {
+    public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository, ProductMapper productMapper) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
+        this.productMapper = productMapper;
+    }
+
+    public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository) {
+        this(productRepository, categoryRepository, Mappers.getMapper(ProductMapper.class));
     }
 
     public ProductService(ProductRepository productRepository) {
@@ -65,18 +73,18 @@ public class ProductService {
                 .and(ProductSpecifications.isAvailable(available));
 
         return productRepository.findAll(spec, pageable)
-                .map(ProductResponse::from);
+                .map(productMapper::toResponse);
     }
 
     public ProductResponse getProductById(Long id) {
         return productRepository.findById(id)
-                .map(ProductResponse::from)
+                .map(productMapper::toResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
     }
 
     public ProductResponse getProductBySku(String sku) {
         return productRepository.findBySkuIgnoreCase(sku)
-                .map(ProductResponse::from)
+                .map(productMapper::toResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
     }
 
@@ -118,7 +126,7 @@ public class ProductService {
         }
 
         Product saved = productRepository.save(product);
-        return ProductResponse.from(saved);
+        return productMapper.toResponse(saved);
     }
 
     @Transactional
