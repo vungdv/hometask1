@@ -13,9 +13,11 @@ import org.mapstruct.factory.Mappers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import vn.danang.polaris.order.dto.CustomerResponse;
 import vn.danang.polaris.order.dto.CustomerSummaryResponse;
+import vn.danang.polaris.order.dto.UpdateCustomerRequest;
 import vn.danang.polaris.order.entity.Customer;
 import vn.danang.polaris.order.mapper.CustomerMapper;
 import vn.danang.polaris.order.repository.CustomerRepository;
@@ -89,6 +91,25 @@ class CustomerServiceTest {
             assertThat(summaries.get(0).id()).isEqualTo(1L);
             assertThat(summaries.get(0).fullName()).isEqualTo("Alice Tran");
         }
+
+        @Test
+        @DisplayName("updateCustomer should update and return CustomerResponse when version matches")
+        void updateCustomer_validVersion_updatesAndReturnsCustomerResponse() {
+            Customer customer = createSampleCustomer(1L, "Alice Tran");
+            customer.setVersion(0L);
+            when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+            when(customerRepository.saveAndFlush(any(Customer.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            UpdateCustomerRequest request = UpdateCustomerRequest.of(0L, "Alice Tran New");
+
+            CustomerResponse response = customerService.updateCustomer(1L, request);
+
+            assertThat(response).isNotNull();
+            assertThat(response.id()).isEqualTo(1L);
+            assertThat(response.fullName()).isEqualTo("Alice Tran New");
+            verify(customerRepository).findById(1L);
+            verify(customerRepository).saveAndFlush(customer);
+        }
     }
 
     @Nested
@@ -101,6 +122,33 @@ class CustomerServiceTest {
             when(customerRepository.findById(999L)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> customerService.getCustomerById(999L))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("Customer not found with id: 999");
+
+            verify(customerRepository).findById(999L);
+        }
+
+        @Test
+        @DisplayName("updateCustomer should throw ObjectOptimisticLockingFailureException when version is stale")
+        void updateCustomer_staleVersion_throwsObjectOptimisticLockingFailureException() {
+            Customer customer = createSampleCustomer(1L, "Alice Tran");
+            customer.setVersion(1L);
+            when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+
+            UpdateCustomerRequest request = UpdateCustomerRequest.of(0L, "Alice Tran New");
+
+            assertThatThrownBy(() -> customerService.updateCustomer(1L, request))
+                    .isInstanceOf(ObjectOptimisticLockingFailureException.class);
+        }
+
+        @Test
+        @DisplayName("updateCustomer should throw ResourceNotFoundException when customer ID does not exist")
+        void updateCustomer_notFound_throwsResourceNotFoundException() {
+            when(customerRepository.findById(999L)).thenReturn(Optional.empty());
+
+            UpdateCustomerRequest request = UpdateCustomerRequest.of(0L, "Alice Tran New");
+
+            assertThatThrownBy(() -> customerService.updateCustomer(999L, request))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessageContaining("Customer not found with id: 999");
 
@@ -128,6 +176,25 @@ class CustomerServiceTest {
             assertThat(response.email()).isNull();
             assertThat(response.phone()).isNull();
             assertThat(response.createdAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("updateCustomer with partial fields should preserve existing entity fields")
+        void updateCustomer_partialFields_preservesExistingFields() {
+            Customer customer = createSampleCustomer(1L, "Alice Tran");
+            customer.setVersion(2L);
+            customer.setCompany("Danang Tech Solutions");
+            when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+            when(customerRepository.saveAndFlush(any(Customer.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            UpdateCustomerRequest request = UpdateCustomerRequest.of(2L, "Alice Renamed");
+
+            CustomerResponse response = customerService.updateCustomer(1L, request);
+
+            assertThat(response.fullName()).isEqualTo("Alice Renamed");
+            assertThat(response.company()).isEqualTo("Danang Tech Solutions");
+            assertThat(response.email()).isEqualTo("alice.tran@example.com");
+            assertThat(response.phone()).isEqualTo("0901234567");
         }
     }
 }

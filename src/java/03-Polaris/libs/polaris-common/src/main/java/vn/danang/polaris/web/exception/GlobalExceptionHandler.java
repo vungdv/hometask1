@@ -271,6 +271,21 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler({
+            org.springframework.orm.ObjectOptimisticLockingFailureException.class,
+            jakarta.persistence.OptimisticLockException.class
+    })
+    public ProblemDetail handleOptimisticLockingFailureException(Exception ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT,
+                "Resource has been modified concurrently by another transaction. Please reload and retry."
+        );
+        problem.setTitle("Optimistic Lock Conflict");
+        problem.setType(URI.create("https://polaris.local/errors/optimistic-lock-conflict"));
+        problem.setProperty("remedy", "Reload the latest resource representation and retry your update with the updated version.");
+        return problem;
+    }
+
     @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
     public ProblemDetail handleAccessDeniedException(org.springframework.security.access.AccessDeniedException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
