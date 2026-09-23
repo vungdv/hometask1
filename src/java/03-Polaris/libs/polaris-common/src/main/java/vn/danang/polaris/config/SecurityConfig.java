@@ -29,7 +29,7 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 // disable csrf for api as it uses jwt, not the cookies.
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/h2-console/**", "/api/**", "/mcp", "/mcp/**", "/chat/**"))
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/h2-console/**", "/api/**", "/mcp", "/mcp/**", "/chat/**", "/actuator/**"))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/h2-console/**",
@@ -41,7 +41,8 @@ public class SecurityConfig {
                                 "/chat/**",
                                 "/static/**",
                                 "/favicon.ico",
-                                "/api/v1/assistant/**"
+                                "/api/v1/assistant/**",
+                                "/actuator/**"
                         ).permitAll()
                         // permission enforcement per endpoint now happens via @PreAuthorize("hasAuthority('PERM_...')")
                         // on the controller methods themselves, so we just require authentication here.

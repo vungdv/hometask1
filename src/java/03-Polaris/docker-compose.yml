@@ -80,6 +80,12 @@ services:
         condition: service_started
       polaris-db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health/liveness && curl -f http://localhost:8080/actuator/health/readiness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - polaris-net
   polaris-assistant:
@@ -112,11 +118,17 @@ services:
       keycloak:
         condition: service_healthy
       polaris:
-        condition: service_started
+        condition: service_healthy
       polaris-db:
         condition: service_healthy
       otel-collector:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health/liveness && curl -f http://localhost:8081/actuator/health/readiness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - polaris-net
   polaris-db:

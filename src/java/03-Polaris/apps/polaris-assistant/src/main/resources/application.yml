@@ -167,6 +167,19 @@ springdoc:
       use-pkce-with-authorization-code-grant: true
 
 management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info # ,metrics,prometheus
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
   tracing:
     sampling:
       probability: 1.0
@@ -183,7 +196,3 @@ management:
       export:
         otlp:
           endpoint: ${MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT:http://localhost:4318/v1/logs}
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics,prometheus

@@ -194,6 +194,17 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ProblemDetail handleHttpRequestMethodNotSupportedException(org.springframework.web.HttpRequestMethodNotSupportedException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.METHOD_NOT_ALLOWED,
+                ex.getMessage()
+        );
+        problem.setTitle("Method Not Allowed");
+        problem.setType(URI.create("https://polaris.local/errors/method-not-allowed"));
+        return problem;
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleIllegalArgumentException(IllegalArgumentException ex, HttpServletRequest request) {
         String msg = ex.getMessage();
