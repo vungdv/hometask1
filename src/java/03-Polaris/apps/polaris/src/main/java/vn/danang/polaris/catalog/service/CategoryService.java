@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.mapstruct.factory.Mappers;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -15,6 +17,7 @@ import vn.danang.polaris.catalog.dto.CategoryResponse;
 import vn.danang.polaris.catalog.dto.ProductResponse;
 import vn.danang.polaris.catalog.entity.Category;
 import vn.danang.polaris.catalog.entity.Product;
+import vn.danang.polaris.catalog.mapper.CategoryMapper;
 import vn.danang.polaris.catalog.repository.CategoryRepository;
 import vn.danang.polaris.catalog.repository.ProductRepository;
 import vn.danang.polaris.catalog.repository.ProductSpecifications;
@@ -26,10 +29,17 @@ public class CategoryService {
 
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
+    private final CategoryMapper categoryMapper;
 
-    public CategoryService(CategoryRepository categoryRepository, ProductRepository productRepository) {
+    @Autowired
+    public CategoryService(CategoryRepository categoryRepository, ProductRepository productRepository, CategoryMapper categoryMapper) {
         this.categoryRepository = categoryRepository;
         this.productRepository = productRepository;
+        this.categoryMapper = categoryMapper;
+    }
+
+    public CategoryService(CategoryRepository categoryRepository, ProductRepository productRepository) {
+        this(categoryRepository, productRepository, Mappers.getMapper(CategoryMapper.class));
     }
 
     public List<CategoryResponse> getCategories(boolean rootOnly) {
@@ -98,9 +108,9 @@ public class CategoryService {
         long totalCount = directCount + childrenCount;
 
         List<CategoryResponse> childResponses = activeChildren.stream()
-                .map(c -> CategoryResponse.from(c, countsMap.getOrDefault(c.getId(), 0L), Collections.emptyList()))
+                .map(c -> categoryMapper.toResponse(c, countsMap.getOrDefault(c.getId(), 0L), Collections.emptyList()))
                 .toList();
 
-        return CategoryResponse.from(category, totalCount, childResponses);
+        return categoryMapper.toResponse(category, totalCount, childResponses);
     }
 }
