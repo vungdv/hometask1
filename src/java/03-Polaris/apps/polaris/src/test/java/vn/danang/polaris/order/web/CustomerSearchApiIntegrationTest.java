@@ -15,11 +15,15 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.context.annotation.Import;
+
+import vn.danang.polaris.TestcontainersConfiguration;
 import vn.danang.polaris.web.support.JwtMockFactory;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
+@Import(TestcontainersConfiguration.class)
 class CustomerSearchApiIntegrationTest {
 
     @Autowired

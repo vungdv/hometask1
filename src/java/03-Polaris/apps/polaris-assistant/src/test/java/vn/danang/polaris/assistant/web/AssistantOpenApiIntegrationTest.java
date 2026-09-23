@@ -15,12 +15,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.springframework.context.annotation.Import;
+
 import vn.danang.polaris.assistant.PolarisAssistantApp;
+import vn.danang.polaris.assistant.TestcontainersConfiguration;
 import vn.danang.polaris.assistant.mcp.PolarisMcpClient;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
 
 @SpringBootTest(classes = PolarisAssistantApp.class)
 @AutoConfigureMockMvc
+@Import(TestcontainersConfiguration.class)
 class AssistantOpenApiIntegrationTest {
 
     @Autowired

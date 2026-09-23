@@ -32,6 +32,9 @@ import vn.danang.polaris.order.entity.Order;
 import vn.danang.polaris.catalog.entity.Product;
 import vn.danang.polaris.order.repository.CustomerRepository;
 import vn.danang.polaris.order.repository.OrderRepository;
+import org.springframework.context.annotation.Import;
+
+import vn.danang.polaris.TestcontainersConfiguration;
 import vn.danang.polaris.catalog.repository.ProductRepository;
 import vn.danang.polaris.order.service.OrderService;
 import vn.danang.polaris.web.exception.InsufficientStockException;
@@ -39,6 +42,7 @@ import vn.danang.polaris.web.support.JwtMockFactory;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(TestcontainersConfiguration.class)
 public class OrderConcurrencyTest {
 
     @Autowired

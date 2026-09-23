@@ -25,6 +25,9 @@ import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
 import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
+import org.springframework.context.annotation.Import;
+
+import vn.danang.polaris.TestcontainersConfiguration;
 import vn.danang.polaris.order.entity.OrderStatus;
 import vn.danang.polaris.order.repository.OrderRepository;
 import vn.danang.polaris.web.support.JwtMockFactory;
@@ -32,6 +35,7 @@ import vn.danang.polaris.web.support.JwtMockFactory;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
+@Import(TestcontainersConfiguration.class)
 class McpServerTest {
 
     @Autowired

@@ -15,6 +15,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.context.annotation.Import;
+
+import vn.danang.polaris.TestcontainersConfiguration;
 import vn.danang.polaris.catalog.repository.ProductRepository;
 import vn.danang.polaris.web.support.JwtMockFactory;
 
@@ -31,6 +34,7 @@ import vn.danang.polaris.web.support.JwtMockFactory;
 // Should we avoid nested transactions in the service layer? 
 // Yes, we should avoid nested transactions in the service layer.
 @Transactional
+@Import(TestcontainersConfiguration.class)
 public class ProductApiIntegrationTest {
     @Autowired
     private MockMvc mockMvc;

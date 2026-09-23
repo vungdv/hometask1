@@ -14,6 +14,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.springframework.context.annotation.Import;
+
+import vn.danang.polaris.TestcontainersConfiguration;
 import vn.danang.polaris.order.entity.OrderStatus;
 import vn.danang.polaris.order.repository.OrderRepository;
 import vn.danang.polaris.web.support.JwtMockFactory;
@@ -21,6 +24,7 @@ import vn.danang.polaris.web.support.JwtMockFactory;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
+@Import(TestcontainersConfiguration.class)
 public class OrderApiIntegrationTest {
 
     @Autowired

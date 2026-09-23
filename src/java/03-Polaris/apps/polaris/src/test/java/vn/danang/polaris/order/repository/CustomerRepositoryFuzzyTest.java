@@ -10,13 +10,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.annotation.Transactional;
 
+import vn.danang.polaris.TestcontainersConfiguration;
 import vn.danang.polaris.order.entity.Customer;
 
 @SpringBootTest
 @Transactional
+@Import(TestcontainersConfiguration.class)
 class CustomerRepositoryFuzzyTest {
 
     @Autowired

@@ -12,6 +12,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.context.annotation.Import;
+
+import vn.danang.polaris.TestcontainersConfiguration;
 import vn.danang.polaris.catalog.entity.Product;
 import vn.danang.polaris.catalog.repository.CategoryRepository;
 import vn.danang.polaris.catalog.repository.ProductRepository;
@@ -19,6 +22,7 @@ import vn.danang.polaris.catalog.repository.ProductSpecifications;
 
 @SpringBootTest
 @Transactional
+@Import(TestcontainersConfiguration.class)
 public class ProductRepositoryTest {
 
     @Autowired
