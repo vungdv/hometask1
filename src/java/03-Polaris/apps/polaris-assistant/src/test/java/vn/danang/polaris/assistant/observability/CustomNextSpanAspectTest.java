@@ -1,6 +1,7 @@
 package vn.danang.polaris.assistant.observability;
 
 import java.lang.reflect.Method;
+import java.util.List;
 
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
@@ -122,6 +123,55 @@ class CustomNextSpanAspectTest {
 
             verify(span).name("DummySampleService.unnamedSpanMethod");
         }
+
+        @Test
+        @DisplayName("Given method returning collection with #result?.size() tag, when executed, then tags span with collection size")
+        void applies_result_expression_tag_to_span_from_tags_attribute() throws Throwable {
+            setupMethod("discoverToolsMethod");
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+
+            when(joinPoint.getArgs()).thenReturn(new Object[]{});
+            when(joinPoint.proceed()).thenReturn(List.of("search_products", "order_create"));
+
+            aspect.traceNextSpan(joinPoint);
+
+            verify(span).name("mcp.polaris.discovery");
+            verify(span).tag("mcp.tool_count", "2");
+            verify(span).end();
+        }
+
+        @Test
+        @DisplayName("Given method with resultTags expression, when executed, then tags span evaluating directly against result object")
+        void applies_result_tag_evaluating_directly_against_result_object() throws Throwable {
+            setupMethod("discoverToolsWithResultTagsMethod");
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+
+            when(joinPoint.getArgs()).thenReturn(new Object[]{});
+            when(joinPoint.proceed()).thenReturn(List.of("search_products", "order_create", "cancel_order"));
+
+            aspect.traceNextSpan(joinPoint);
+
+            verify(span).name("mcp.polaris.discovery.resultTags");
+            verify(span).tag("mcp.tool_count", "3");
+            verify(span).end();
+        }
+
+        @Test
+        @DisplayName("Given method combining argument and result in SpEL expression, when executed, then evaluates both")
+        void combines_method_arguments_and_result_in_post_execution_expression() throws Throwable {
+            setupMethod("calculateMethod", String.class);
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+
+            when(joinPoint.getArgs()).thenReturn(new Object[]{"user-77"});
+            when(joinPoint.proceed()).thenReturn(42);
+
+            aspect.traceNextSpan(joinPoint);
+
+            verify(span).name("service.calculate");
+            verify(span).tag("user.id", "user-77");
+            verify(span).tag("calc.result", "user-77:42");
+            verify(span).end();
+        }
     }
 
     // =========================================================================
@@ -147,6 +197,41 @@ class CustomNextSpanAspectTest {
             verify(span).error(ex);
             verify(span).tag("error", "true");
             verify(span, times(1)).end();
+        }
+
+        @Test
+        @DisplayName("Given target method throws exception, when executed, does not apply result tags to span")
+        void does_not_apply_result_tags_when_target_method_throws() throws Throwable {
+            setupMethod("discoverToolsMethod");
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+
+            when(joinPoint.getArgs()).thenReturn(new Object[]{});
+            RuntimeException ex = new RuntimeException("Discovery failed");
+            when(joinPoint.proceed()).thenThrow(ex);
+
+            assertThatThrownBy(() -> aspect.traceNextSpan(joinPoint))
+                    .isSameAs(ex);
+
+            verify(span).error(ex);
+            verify(span).tag("error", "true");
+            verify(span, never()).tag(eq("mcp.tool_count"), any());
+            verify(span).end();
+        }
+
+        @Test
+        @DisplayName("Given invalid SpEL expression on result tag, when executed, does not fail method execution")
+        void handles_invalid_spel_expression_on_result_without_failing_method_execution() throws Throwable {
+            setupMethod("badSpelMethod");
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+
+            when(joinPoint.getArgs()).thenReturn(new Object[]{});
+            when(joinPoint.proceed()).thenReturn("done");
+
+            Object result = aspect.traceNextSpan(joinPoint);
+
+            assertThat(result).isEqualTo("done");
+            verify(span, never()).tag(eq("invalid.key"), any());
+            verify(span).end();
         }
     }
 
@@ -208,6 +293,37 @@ class CustomNextSpanAspectTest {
 
             verify(tracer).nextSpan();
         }
+
+        @Test
+        @DisplayName("Given target method returns null, when null-safe result expression evaluated, safely omits tag")
+        void handles_null_result_safely_without_attaching_result_tag() throws Throwable {
+            setupMethod("discoverToolsMethod");
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+
+            when(joinPoint.getArgs()).thenReturn(new Object[]{});
+            when(joinPoint.proceed()).thenReturn(null);
+
+            Object result = aspect.traceNextSpan(joinPoint);
+
+            assertThat(result).isNull();
+            verify(span, never()).tag(eq("mcp.tool_count"), any());
+            verify(span).end();
+        }
+
+        @Test
+        @DisplayName("Given target method returns empty collection, when evaluated with #result?.size(), tags zero")
+        void tags_zero_when_result_is_empty_collection() throws Throwable {
+            setupMethod("discoverToolsMethod");
+            CustomNextSpanAspect aspect = new CustomNextSpanAspect(tracer);
+
+            when(joinPoint.getArgs()).thenReturn(new Object[]{});
+            when(joinPoint.proceed()).thenReturn(List.of());
+
+            aspect.traceNextSpan(joinPoint);
+
+            verify(span).tag("mcp.tool_count", "0");
+            verify(span).end();
+        }
     }
 
     // =========================================================================
@@ -241,6 +357,47 @@ class CustomNextSpanAspectTest {
         @CustomNextSpan
         public String unnamedSpanMethod() {
             return "ok";
+        }
+
+        @CustomNextSpan(
+                name = "mcp.polaris.discovery",
+                tags = {
+                    @SpanTag(key = "mcp.tool_count", expression = "#result?.size()")
+                }
+        )
+        public List<String> discoverToolsMethod() {
+            return List.of("search_products", "order_create");
+        }
+
+        @CustomNextSpan(
+                name = "mcp.polaris.discovery.resultTags",
+                resultTags = {
+                    @SpanTag(key = "mcp.tool_count", expression = "size()")
+                }
+        )
+        public List<String> discoverToolsWithResultTagsMethod() {
+            return List.of("search_products", "order_create", "cancel_order");
+        }
+
+        @CustomNextSpan(
+                name = "service.calculate",
+                tags = {
+                    @SpanTag(key = "user.id", expression = "#userId"),
+                    @SpanTag(key = "calc.result", expression = "#userId + ':' + #result")
+                }
+        )
+        public int calculateMethod(String userId) {
+            return 42;
+        }
+
+        @CustomNextSpan(
+                name = "result.bad.spel",
+                resultTags = {
+                    @SpanTag(key = "invalid.key", expression = "invalidSpelSyntax(()")
+                }
+        )
+        public String badSpelMethod() {
+            return "done";
         }
     }
 }

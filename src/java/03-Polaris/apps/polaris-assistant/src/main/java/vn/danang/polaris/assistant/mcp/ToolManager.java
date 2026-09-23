@@ -131,7 +131,10 @@ public class ToolManager implements McpHub, DisposableBean {
      */
     @Override
     @CustomNextSpan(
-            name = "mcp.polaris.discovery"
+            name = "mcp.polaris.discovery",
+            tags = {
+                    @SpanTag(key = "mcp.tool_count", expression = "#result?.size()")
+            }
     )
     public List<Tool> discoverAllTools() {
         return polarisMcpClient.listAvailableTools();
