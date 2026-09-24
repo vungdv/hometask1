@@ -237,7 +237,7 @@ public class ToolManager implements McpHub, DisposableBean {
 
         // 2. Policy engine authorization check: check requiredScope directly on IntentDefinition
         String requiredScope = intentDef != null ? intentDef.requiredScope() : null;
-        PolicyDecision decision = this.policyEngine.authorize(userId, requiredScope);
+        PolicyDecision decision = this.policyEngine.authorize(requiredScope);
         if (!decision.allowed()) {
             log.warn("Policy DENIED execution of tool '{}' for user '{}': {}", toolCall.name(), userId, decision.reason());
             String denialReason = decision.reason();

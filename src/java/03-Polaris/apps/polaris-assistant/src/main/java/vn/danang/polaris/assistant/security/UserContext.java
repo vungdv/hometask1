@@ -1,11 +1,12 @@
 package vn.danang.polaris.assistant.security;
 
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.AbstractOAuth2Token;
@@ -21,8 +22,7 @@ import vn.danang.polaris.assistant.mcp.PolarisMcpProperties;
  */
 @Component
 public class UserContext {
-
-    private static final Logger log = LoggerFactory.getLogger(UserContext.class);
+    private static final String PERMISSION_AUTHORITY_PREFIX = "PERM_";
 
     private final PolarisMcpProperties properties;
 
@@ -84,5 +84,57 @@ public class UserContext {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Indicates whether there is an active authentication in the current {@link SecurityContext}.
+     *
+     * @return true if an {@link Authentication} is present, false otherwise (e.g. unsecured execution)
+     */
+    public boolean isAuthenticated() {
+        return SecurityContextHolder.getContext().getAuthentication() != null;
+    }
+
+    /**
+     * Checks whether the current caller holds the given permission.
+     * Permissions are resolved from {@code PERM_}-prefixed granted authorities (e.g.
+     * {@code PERM_order.read} grants permission {@code order.read}).
+     *
+     * @param permission the permission to check (without the {@code PERM_} prefix), or null/blank if none required
+     * @return true if no permission is required or the caller holds it, false otherwise
+     */
+    public boolean hasPermission(String permission) {
+        if (permission == null || permission.isBlank()) {
+            return true;
+        }
+        return getPermissions().contains(permission);
+    }
+
+    /**
+     * Resolves the set of permissions held by the caller in the current execution context.
+     * Permissions are already mapped onto {@code PERM_}-prefixed {@link GrantedAuthority}s by
+     * {@code SecurityConfig}'s {@code JwtAuthenticationConverter}, so this only needs to read
+     * {@link Authentication#getAuthorities()}.
+     *
+     * @return the caller's permissions (with the {@code PERM_} authority prefix stripped)
+     */
+    public Set<String> getPermissions() {
+        Set<String> permissions = new HashSet<>();
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) {
+            return permissions;
+        }
+
+        for (GrantedAuthority authority : auth.getAuthorities()) {
+            if (authority.getAuthority() == null) {
+                continue;
+            }
+            String value = authority.getAuthority();
+            if (value.startsWith(PERMISSION_AUTHORITY_PREFIX)) {
+                permissions.add(value.substring(PERMISSION_AUTHORITY_PREFIX.length()));
+            }
+        }
+
+        return permissions;
     }
 }

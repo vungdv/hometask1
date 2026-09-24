@@ -115,7 +115,7 @@ class ExternalMcpHubTest {
             CallToolResult actual = mcpHub.executeTool("search_available_products", Map.of("query", "charger"));
 
             assertThat(actual.isError()).isFalse();
-            assertThat(((TextContent) actual.content().get(0)).text()).isEqualTo("Found 3 products");
+            assertThat(((TextContent) actual.content().getFirst()).text()).isEqualTo("Found 3 products");
             verify(polarisMcpClient, times(1)).callTool(eq("search_available_products"), any());
         }
 
@@ -144,10 +144,10 @@ class ExternalMcpHubTest {
             List<ToolResult> results = mcpHub.handleToolCalls(toolCalls, context);
 
             assertThat(results).hasSize(1);
-            ToolResult result = results.get(0);
+            ToolResult result = results.getFirst();
             assertThat(result.isSuccess()).isTrue();
             assertThat(result.status()).isEqualTo(ToolResult.Status.SUCCESS);
-            assertThat(result.toolCall()).isEqualTo(toolCalls.get(0));
+            assertThat(result.toolCall()).isEqualTo(toolCalls.getFirst());
             assertThat(result.result()).isEqualTo("Product found: Charger");
             assertThat(result.errorDescription()).isNull();
         }
@@ -200,7 +200,7 @@ class ExternalMcpHubTest {
             List<ToolResult> results = mcpHub.handleToolCalls(toolCalls, context);
 
             assertThat(results).hasSize(1);
-            ToolResult result = results.get(0);
+            ToolResult result = results.getFirst();
             assertThat(result.isError()).isTrue();
             assertThat(result.status()).isEqualTo(ToolResult.Status.ERROR);
             assertThat(result.result()).contains("not permitted for intent 'catalog.product.search'");
@@ -212,7 +212,7 @@ class ExternalMcpHubTest {
         @DisplayName("Given policy engine denies scope, when handled, then stops execution and returns denial reason")
         void stops_execution_and_returns_denial_when_policy_denies_scope() {
             PolicyEngine mockPolicy = mock(PolicyEngine.class);
-            when(mockPolicy.authorize(anyString(), eq("order.write")))
+            when(mockPolicy.authorize(eq("order.write")))
                     .thenReturn(PolicyDecision.deny("Missing scope order.write"));
 
             ToolManager hubWithPolicy = new ToolManager(polarisMcpClient, mockPolicy);
@@ -236,7 +236,7 @@ class ExternalMcpHubTest {
             List<ToolResult> results = hubWithPolicy.handleToolCalls(toolCalls, context);
 
             assertThat(results).hasSize(1);
-            ToolResult result = results.get(0);
+            ToolResult result = results.getFirst();
             assertThat(result.isDenied()).isTrue();
             assertThat(result.status()).isEqualTo(ToolResult.Status.DENIED);
             assertThat(result.result()).isEqualTo("Missing scope order.write");
@@ -262,6 +262,7 @@ class ExternalMcpHubTest {
 
             assertThat(checkResult.isOk()).isFalse();
             assertThat(checkResult.isRejected()).isTrue();
+            assert checkResult.rejection() != null;
             assertThat(checkResult.rejection().isError()).isTrue();
         }
 
@@ -269,7 +270,7 @@ class ExternalMcpHubTest {
         @DisplayName("Given policy engine denies scope, when checkPolicy evaluated, returns rejected ToolPolicyCheckResult with denied status")
         void checkPolicy_returns_rejected_when_policy_engine_denies() {
             PolicyEngine mockPolicy = mock(PolicyEngine.class);
-            when(mockPolicy.authorize(eq("user-1"), eq("order.write")))
+            when(mockPolicy.authorize(eq("order.write")))
                     .thenReturn(PolicyDecision.deny("Missing scope order.write"));
 
             ToolManager hubWithPolicy = new ToolManager(polarisMcpClient, mockPolicy);
@@ -294,6 +295,7 @@ class ExternalMcpHubTest {
 
             assertThat(checkResult.isOk()).isFalse();
             assertThat(checkResult.isRejected()).isTrue();
+            assert checkResult.rejection() != null;
             assertThat(checkResult.rejection().isDenied()).isTrue();
             assertThat(checkResult.rejection().status()).isEqualTo(ToolResult.Status.DENIED);
             assertThat(checkResult.rejection().result()).isEqualTo("Missing scope order.write");
@@ -305,7 +307,7 @@ class ExternalMcpHubTest {
         @DisplayName("Given ToolExecutionContext with custom IntentDefinition, when checkPolicy evaluated, retrieves requiredScope from IntentDefinition without registry")
         void checkPolicy_retrieves_requiredScope_from_intent_definition_in_context() {
             PolicyEngine mockPolicy = mock(PolicyEngine.class);
-            when(mockPolicy.authorize(eq("user-42"), eq("custom.scope")))
+            when(mockPolicy.authorize(eq("custom.scope")))
                     .thenReturn(PolicyDecision.allow());
 
             // Construct ToolManager with custom PolicyEngine
@@ -330,14 +332,14 @@ class ExternalMcpHubTest {
             ToolPolicyCheckResult checkResult = hubWithoutRegistry.checkPolicy(toolCall, context);
 
             assertThat(checkResult.isOk()).isTrue();
-            verify(mockPolicy).authorize("user-42", "custom.scope");
+            verify(mockPolicy).authorize("custom.scope");
         }
 
         @Test
         @DisplayName("Given ToolExecutionContext with mocked ResolvedIntent, retrieves scope from IntentDefinition correctly")
         void checkPolicy_retrieves_scope_from_resolved_intent_default_lookup() {
             PolicyEngine mockPolicy = mock(PolicyEngine.class);
-            when(mockPolicy.authorize(eq("user-43"), eq("order.write")))
+            when(mockPolicy.authorize(eq("order.write")))
                     .thenReturn(PolicyDecision.allow());
 
             ToolManager hub = new ToolManager(polarisMcpClient, mockPolicy);
@@ -359,7 +361,7 @@ class ExternalMcpHubTest {
             ToolPolicyCheckResult checkResult = hub.checkPolicy(toolCall, context);
 
             assertThat(checkResult.isOk()).isTrue();
-            verify(mockPolicy).authorize("user-43", "order.write");
+            verify(mockPolicy).authorize("order.write");
         }
     }
 
@@ -441,7 +443,7 @@ class ExternalMcpHubTest {
             List<ToolResult> results = mcpHub.handleToolCalls(toolCalls, context);
 
             assertThat(results).hasSize(2);
-            assertThat(results.get(0).toolCall().name()).isEqualTo("search_available_products");
+            assertThat(results.getFirst().toolCall().name()).isEqualTo("search_available_products");
             assertThat(results.get(0).result()).isEqualTo("Charger");
             assertThat(results.get(0).isSuccess()).isTrue();
             assertThat(results.get(1).toolCall().name()).isEqualTo("search_promotions");
@@ -477,7 +479,7 @@ class ExternalMcpHubTest {
                 );
 
                 assertThat(results).hasSize(1);
-                assertThat(results.get(0).result()).isEqualTo("Auth OK");
+                assertThat(results.getFirst().result()).isEqualTo("Auth OK");
             } finally {
                 org.springframework.security.core.context.SecurityContextHolder.clearContext();
             }
@@ -497,6 +499,7 @@ class ExternalMcpHubTest {
 
             assertThat(result.isOk()).isFalse();
             assertThat(result.isRejected()).isTrue();
+            assert result.rejection() != null;
             assertThat(result.rejection().isError()).isTrue();
         }
 
