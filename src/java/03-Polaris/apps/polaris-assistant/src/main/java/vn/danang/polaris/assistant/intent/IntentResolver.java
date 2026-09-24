@@ -2,16 +2,24 @@ package vn.danang.polaris.assistant.intent;
 
 import java.util.List;
 
+import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 
+/**
+ * Core interface for intent resolution and tool filtering.
+ * Single method interface implemented by {@link DefaultIntentResolver}.
+ */
+@FunctionalInterface
 public interface IntentResolver {
 
     /**
-     * Resolves user intent from the latest message and previous conversation context.
+     * Resolves user intent and computes accepted tools from the user message,
+     * conversation history, and available MCP tools.
      *
-     * @param userMessage the raw user utterance
-     * @param context conversation history in the current session
-     * @return IntentClassification containing the resolved intent ID and confidence score
+     * @param messageText raw user prompt
+     * @param history conversation context
+     * @param tools all available tools
+     * @return ResolvedIntent containing intent classification and accepted tools
      */
-    IntentClassification resolve(String userMessage, List<AssistantMessage> context);
+    ResolvedIntent resolve(String messageText, List<AssistantMessage> history, List<Tool> tools);
 }

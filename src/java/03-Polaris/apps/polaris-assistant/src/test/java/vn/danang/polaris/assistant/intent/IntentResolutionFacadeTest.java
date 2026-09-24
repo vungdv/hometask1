@@ -38,14 +38,14 @@ class IntentResolutionFacadeTest {
             when(mockHub.discoverAllTools()).thenReturn(List.of(searchTool, orderTool));
 
             IntentResolutionFacade facade = new IntentResolutionFacade(
-                    new DefaultIntentResolver(new IntentTaxonomyProperties()),
+                    new DefaultIntentResolver(),
                     new IntentToolRegistry(),
                     mockHub
             );
 
             ResolvedIntent resolved = facade.resolve("Find wireless chargers", List.of());
 
-            assertThat(resolved.intentId()).isEqualTo(IntentClassification.CATALOG_SEARCH);
+            assertThat(resolved.intentId()).isEqualTo("catalog.product.search");
             assertThat(resolved.confidence()).isGreaterThanOrEqualTo(0.80);
             assertThat(resolved.meetsThreshold()).isTrue();
             assertThat(resolved.acceptedTools())
@@ -54,6 +54,25 @@ class IntentResolutionFacadeTest {
             assertThat(resolved.tools()).isEqualTo(resolved.acceptedTools());
             assertThat(resolved.acceptedTools()).isEqualTo(resolved.acceptedTools());
             verify(mockHub).discoverAllTools();
+        }
+
+        @Test
+        @DisplayName("Given IntentResolver interface mock, when resolve called, delegates directly via the interface")
+        void delegates_resolution_directly_via_intent_resolver_interface() {
+            McpHub mockHub = mock(McpHub.class);
+            IntentResolver mockResolver = mock(IntentResolver.class);
+            Tool testTool = Tool.builder("search_available_products", Map.of()).build();
+            List<Tool> tools = List.of(testTool);
+            when(mockHub.discoverAllTools()).thenReturn(tools);
+
+            ResolvedIntent expectedIntent = new ResolvedIntent("catalog.product.search", 0.95, true, tools);
+            when(mockResolver.resolve(eq("Find chargers"), any(), eq(tools))).thenReturn(expectedIntent);
+
+            IntentResolutionFacade facade = new IntentResolutionFacade(mockResolver, mockHub);
+            ResolvedIntent actual = facade.resolve("Find chargers", List.of());
+
+            assertThat(actual).isEqualTo(expectedIntent);
+            verify(mockResolver).resolve(eq("Find chargers"), any(), eq(tools));
         }
 
         @Test
@@ -68,7 +87,7 @@ class IntentResolutionFacadeTest {
             when(mockHub.handleToolCalls(eq(List.of(toolCall)), eq(context))).thenReturn(expectedResults);
 
             IntentResolutionFacade facade = new IntentResolutionFacade(
-                    new DefaultIntentResolver(new IntentTaxonomyProperties()),
+                    new DefaultIntentResolver(),
                     new IntentToolRegistry(),
                     mockHub
             );
@@ -91,7 +110,7 @@ class IntentResolutionFacadeTest {
             when(mockHub.handleToolCalls(eq(List.of(toolCall)), eq(context))).thenReturn(expectedResults);
 
             IntentResolutionFacade facade = new IntentResolutionFacade(
-                    new DefaultIntentResolver(new IntentTaxonomyProperties()),
+                    new DefaultIntentResolver(),
                     new IntentToolRegistry(),
                     mockHub
             );
@@ -122,7 +141,7 @@ class IntentResolutionFacadeTest {
             when(mockHub.handleToolCalls(eq(List.of(toolCall)), eq(context))).thenReturn(deniedResults);
 
             IntentResolutionFacade facade = new IntentResolutionFacade(
-                    new DefaultIntentResolver(new IntentTaxonomyProperties()),
+                    new DefaultIntentResolver(),
                     new IntentToolRegistry(),
                     mockHub
             );
@@ -157,7 +176,7 @@ class IntentResolutionFacadeTest {
         void returns_empty_list_when_tool_calls_null_or_empty() {
             McpHub mockHub = mock(McpHub.class);
             IntentResolutionFacade facade = new IntentResolutionFacade(
-                    new DefaultIntentResolver(new IntentTaxonomyProperties()),
+                    new DefaultIntentResolver(),
                     new IntentToolRegistry(),
                     mockHub
             );
@@ -173,7 +192,7 @@ class IntentResolutionFacadeTest {
         @DisplayName("Given null McpHub, when executeToolCalls called, then returns empty list gracefully")
         void returns_empty_list_when_mcp_hub_is_null() {
             IntentResolutionFacade facade = new IntentResolutionFacade(
-                    new DefaultIntentResolver(new IntentTaxonomyProperties()),
+                    new DefaultIntentResolver(),
                     new IntentToolRegistry(),
                     null
             );

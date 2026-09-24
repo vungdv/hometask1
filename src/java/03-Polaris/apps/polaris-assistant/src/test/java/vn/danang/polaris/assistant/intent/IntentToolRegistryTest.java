@@ -19,8 +19,7 @@ class IntentToolRegistryTest {
 
     @BeforeEach
     void setUp() {
-        IntentTaxonomyProperties properties = new IntentTaxonomyProperties();
-        registry = new IntentToolRegistry(properties);
+        registry = new IntentToolRegistry();
     }
 
     // =========================================================================
@@ -56,7 +55,7 @@ class IntentToolRegistryTest {
                     Tool.builder("cancel_order", Map.of()).build()
             );
 
-            List<Tool> searchTools = registry.allowedTools(IntentClassification.CATALOG_SEARCH, allTools);
+            List<Tool> searchTools = registry.allowedTools("catalog.product.search", allTools);
 
             assertThat(searchTools)
                     .extracting(Tool::name)
@@ -97,10 +96,10 @@ class IntentToolRegistryTest {
                     Tool.builder("place_order", Map.of()).build()
             );
 
-            IntentClassification classification = new IntentClassification(IntentClassification.CATALOG_SEARCH, 0.95);
+            IntentClassification classification = new IntentClassification("catalog.product.search", 0.95);
             ResolvedIntent resolved = registry.resolveIntent(classification, allTools);
 
-            assertThat(resolved.intentId()).isEqualTo(IntentClassification.CATALOG_SEARCH);
+            assertThat(resolved.intentId()).isEqualTo("catalog.product.search");
             assertThat(resolved.confidence()).isEqualTo(0.95);
             assertThat(resolved.meetsThreshold()).isTrue();
             assertThat(resolved.acceptedTools())
@@ -182,7 +181,7 @@ class IntentToolRegistryTest {
                     Tool.builder("place_order", Map.of()).build()
             );
 
-            List<Tool> generalTools = registry.allowedTools(IntentClassification.GENERAL_CONVERSATION, allTools);
+            List<Tool> generalTools = registry.allowedTools("general.conversation", allTools);
 
             assertThat(generalTools).isEmpty();
         }
@@ -195,10 +194,10 @@ class IntentToolRegistryTest {
                     Tool.builder("place_order", Map.of()).build()
             );
 
-            IntentClassification classification = new IntentClassification(IntentClassification.ORDER_PLACE, 0.60);
+            IntentClassification classification = new IntentClassification("commerce.order.place", 0.60);
             ResolvedIntent resolved = registry.resolveIntent(classification, allTools);
 
-            assertThat(resolved.intentId()).isEqualTo(IntentClassification.ORDER_PLACE);
+            assertThat(resolved.intentId()).isEqualTo("commerce.order.place");
             assertThat(resolved.confidence()).isEqualTo(0.60);
             assertThat(resolved.meetsThreshold()).isFalse();
             assertThat(resolved.acceptedTools()).isEqualTo(allTools);
@@ -209,7 +208,7 @@ class IntentToolRegistryTest {
         void resolves_intent_gracefully_with_null_inputs() {
             ResolvedIntent resolvedNull = registry.resolveIntent((IntentClassification) null, null);
 
-            assertThat(resolvedNull.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
+            assertThat(resolvedNull.intentId()).isEqualTo("general.conversation");
             assertThat(resolvedNull.confidence()).isEqualTo(1.0);
             assertThat(resolvedNull.meetsThreshold()).isTrue();
             assertThat(resolvedNull.acceptedTools()).isEmpty();

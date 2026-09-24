@@ -62,7 +62,7 @@ class AssistantChatServiceTest {
 
         when(intentResolutionFacade.resolve(anyString(), anyList()))
                 .thenReturn(new ResolvedIntent(
-                        IntentClassification.GENERAL_CONVERSATION,
+                        "general.conversation",
                         1.0,
                         true,
                         List.of()

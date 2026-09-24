@@ -23,17 +23,24 @@ import vn.danang.polaris.assistant.ai.ToolCall;
 public class IntentResolutionFacade {
 
     private final IntentResolver intentResolver;
-    private final IntentToolRegistry intentToolRegistry;
     private final McpHub mcpHub;
 
     @Autowired
     public IntentResolutionFacade(
             IntentResolver intentResolver,
-            IntentToolRegistry intentToolRegistry,
             McpHub mcpHub) {
         this.intentResolver = intentResolver;
-        this.intentToolRegistry = intentToolRegistry;
         this.mcpHub = mcpHub;
+    }
+
+    /**
+     * Backward-compatible constructor accepting legacy {@link IntentToolRegistry}.
+     */
+    public IntentResolutionFacade(
+            IntentResolver intentResolver,
+            IntentToolRegistry intentToolRegistry,
+            McpHub mcpHub) {
+        this(intentResolver, mcpHub);
     }
 
     /**
@@ -45,9 +52,8 @@ public class IntentResolutionFacade {
      */
     public ResolvedIntent resolve(String messageText, List<AssistantMessage> history) {
         List<AssistantMessage> context = history != null ? new ArrayList<>(history) : new ArrayList<>();
-        var availableTools = this.mcpHub.discoverAllTools();
-        IntentClassification classification = intentResolver.resolve(messageText, context);
-        return intentToolRegistry.resolveIntent(classification, availableTools);
+        List<Tool> availableTools = this.mcpHub != null ? this.mcpHub.discoverAllTools() : List.of();
+        return this.intentResolver.resolve(messageText, context, availableTools);
     }
 
     /**
