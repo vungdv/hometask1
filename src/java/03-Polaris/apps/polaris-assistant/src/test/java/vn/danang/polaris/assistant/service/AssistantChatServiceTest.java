@@ -30,8 +30,6 @@ import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
-import vn.danang.polaris.assistant.intent.IntentClassification;
-import vn.danang.polaris.assistant.intent.IntentResolutionFacade;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
 import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
 import vn.danang.polaris.assistant.mcp.ToolResult;

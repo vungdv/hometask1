@@ -1,5 +1,6 @@
 package vn.danang.polaris.assistant.intent;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -13,13 +14,23 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import vn.danang.polaris.assistant.entity.AssistantMessage;
+
+/**
+ * Verifies DefaultIntentResolver's orchestration: blank-input short-circuiting, delegation
+ * to {@link IntentClassifier}, threshold-based tool gating, and JSON taxonomy loading.
+ * The semantic quality of classification itself belongs to {@link IntentClassifier}
+ * implementations (see {@link TypeSafeIntentClassifierTest}), not this class.
+ */
 class DefaultIntentResolverTest {
 
+    private StubIntentClassifier classifier;
     private DefaultIntentResolver resolver;
 
     @BeforeEach
     void setUp() {
-        resolver = new DefaultIntentResolver();
+        classifier = new StubIntentClassifier();
+        resolver = new DefaultIntentResolver(classifier);
     }
 
     // =========================================================================
@@ -29,138 +40,23 @@ class DefaultIntentResolverTest {
     @DisplayName("1. Happy path")
     class HappyPath {
 
-        @ParameterizedTest(name = "Query \"{0}\" resolves to CATALOG_SEARCH")
-        @ValueSource(strings = {
-                "show me running shoes under $100",
-                "find chargers in stock",
-                "browse electronics catalog",
-                "search for wireless headphones"
-        })
-        @DisplayName("Given catalog search queries, when resolved, then classifies as CATALOG_SEARCH with high confidence")
-        void resolves_catalog_search_for_product_search_queries(String query) {
-            IntentClassification result = resolver.resolve(query, List.of());
+        @Test
+        @DisplayName("Given a non-blank query, when resolved, then delegates to the IntentClassifier and returns its classification")
+        void delegates_classification_to_intent_classifier() {
+            classifier.nextResult = new IntentClassification("catalog.product.search", 0.93);
+
+            IntentClassification result = resolver.resolve("find chargers in stock", List.of());
 
             assertThat(result.intentId()).isEqualTo("catalog.product.search");
-            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.80);
-        }
-
-        @ParameterizedTest(name = "Query \"{0}\" resolves to CATALOG_LOOKUP")
-        @ValueSource(strings = {
-                "tell me more about SM-PH-001",
-                "is SKU NG-CHARGER-02 in stock",
-                "product details for AP-MACBOOK-16"
-        })
-        @DisplayName("Given specific SKU mentions, when resolved, then classifies as CATALOG_LOOKUP with high confidence")
-        void resolves_catalog_lookup_for_sku_queries(String query) {
-            IntentClassification result = resolver.resolve(query, List.of());
-
-            assertThat(result.intentId()).isEqualTo("catalog.product.lookup");
-            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.85);
-        }
-
-        @ParameterizedTest(name = "Query \"{0}\" resolves to ORDER_STATUS")
-        @ValueSource(strings = {
-                "where is my order ORD-1001",
-                "status of order 1234",
-                "track order ORD-5555"
-        })
-        @DisplayName("Given order tracking queries, when resolved, then classifies as ORDER_STATUS")
-        void resolves_order_status_for_tracking_queries(String query) {
-            IntentClassification result = resolver.resolve(query, List.of());
-
-            assertThat(result.intentId()).isEqualTo("information.lookup.order.status");
-            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.85);
-        }
-
-        @ParameterizedTest(name = "Query \"{0}\" resolves to ORDER_DETAILS")
-        @ValueSource(strings = {
-                "what did I order in ORD-1001",
-                "show me the full details of my last order",
-                "order contents for ORD-1001"
-        })
-        @DisplayName("Given order breakdown queries, when resolved, then classifies as ORDER_DETAILS")
-        void resolves_order_details_for_item_breakdown_queries(String query) {
-            IntentClassification result = resolver.resolve(query, List.of());
-
-            assertThat(result.intentId()).isEqualTo("information.lookup.order.details");
-            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.85);
-        }
-
-        @ParameterizedTest(name = "Query \"{0}\" resolves to ORDER_HISTORY")
-        @ValueSource(strings = {
-                "show my order history",
-                "list my cancelled orders",
-                "previous purchases"
-        })
-        @DisplayName("Given order history queries, when resolved, then classifies as ORDER_HISTORY")
-        void resolves_order_history_for_past_purchase_queries(String query) {
-            IntentClassification result = resolver.resolve(query, List.of());
-
-            assertThat(result.intentId()).isEqualTo("information.lookup.order.history");
-            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.80);
-        }
-
-        @ParameterizedTest(name = "Query \"{0}\" resolves to ORDER_PLACE")
-        @ValueSource(strings = {
-                "order 2 of NG-EARBUD-01",
-                "buy the wireless earbuds",
-                "place order for Alice Tran",
-                "order 2 of NG-EARBUD-01 for Alice"
-        })
-        @DisplayName("Given purchasing queries, when resolved, then classifies as ORDER_PLACE")
-        void resolves_order_place_for_purchase_queries(String query) {
-            IntentClassification result = resolver.resolve(query, List.of());
-
-            assertThat(result.intentId()).isEqualTo("commerce.order.place");
-            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.92);
-        }
-
-        @ParameterizedTest(name = "Query \"{0}\" resolves to ORDER_CANCEL")
-        @ValueSource(strings = {
-                "cancel my order ORD-1001",
-                "I want to cancel that last order",
-                "abort order ORD-999"
-        })
-        @DisplayName("Given cancellation queries, when resolved, then classifies as ORDER_CANCEL")
-        void resolves_order_cancel_for_cancellation_requests(String query) {
-            IntentClassification result = resolver.resolve(query, List.of());
-
-            assertThat(result.intentId()).isEqualTo("commerce.order.cancel");
-            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.92);
-        }
-
-        @ParameterizedTest(name = "Query \"{0}\" resolves to CUSTOMER_LOOKUP")
-        @ValueSource(strings = {
-                "find customer Alice",
-                "who is customer Chi",
-                "my name is Alice Tran"
-        })
-        @DisplayName("Given customer identification queries, when resolved, then classifies as CUSTOMER_LOOKUP")
-        void resolves_customer_lookup_for_customer_queries(String query) {
-            IntentClassification result = resolver.resolve(query, List.of());
-
-            assertThat(result.intentId()).isEqualTo("customer.lookup.by_name");
-            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.85);
-        }
-
-        @ParameterizedTest(name = "Query \"{0}\" resolves to GENERAL_CONVERSATION")
-        @ValueSource(strings = {
-                "hello",
-                "hi there",
-                "who are you?",
-                "what can you do"
-        })
-        @DisplayName("Given conversational greetings and help queries, when resolved, then classifies as GENERAL_CONVERSATION")
-        void resolves_general_conversation_for_greetings(String query) {
-            IntentClassification result = resolver.resolve(query, List.of());
-
-            assertThat(result.intentId()).isEqualTo("general.conversation");
-            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.90);
+            assertThat(result.confidence()).isEqualTo(0.93);
+            assertThat(classifier.lastQuery).isEqualTo("find chargers in stock");
+            assertThat(classifier.invocationCount).isEqualTo(1);
         }
 
         @Test
-        @DisplayName("Given catalog search query and available tools, when resolve called, then returns ResolvedIntent with filtered accepted tools")
+        @DisplayName("Given classification result and available tools, when resolve called, then returns ResolvedIntent with filtered accepted tools")
         void resolves_intent_and_filters_accepted_tools() {
+            classifier.nextResult = new IntentClassification("catalog.product.search", 0.93);
             Tool searchTool = Tool.builder("search_available_products", Map.of()).build();
             Tool orderTool = Tool.builder("place_order", Map.of()).build();
             List<Tool> allTools = List.of(searchTool, orderTool);
@@ -168,9 +64,21 @@ class DefaultIntentResolverTest {
             ResolvedIntent resolved = resolver.resolve("search for wireless headphones", List.of(), allTools);
 
             assertThat(resolved.intentId()).isEqualTo("catalog.product.search");
-            assertThat(resolved.confidence()).isGreaterThanOrEqualTo(0.80);
+            assertThat(resolved.confidence()).isEqualTo(0.93);
             assertThat(resolved.meetsThreshold()).isTrue();
             assertThat(resolved.acceptedTools()).extracting(Tool::name).containsExactly("search_available_products");
+        }
+
+        @Test
+        @DisplayName("Given non-blank query, when resolved, then classifier receives the full loaded intent taxonomy")
+        void passes_full_taxonomy_to_classifier() {
+            classifier.nextResult = new IntentClassification("general.conversation", 0.9);
+
+            resolver.resolve("hello", List.of());
+
+            assertThat(classifier.lastIntents)
+                    .extracting(IntentDefinition::id)
+                    .contains("general.conversation", "catalog.product.search", "commerce.order.place");
         }
     }
 
@@ -181,15 +89,16 @@ class DefaultIntentResolverTest {
     @DisplayName("2. Invalid input")
     class InvalidInput {
 
-        @ParameterizedTest(name = "Blank query \"{0}\" resolves to GENERAL_CONVERSATION")
+        @ParameterizedTest(name = "Blank query \"{0}\" resolves to GENERAL_CONVERSATION without calling the classifier")
         @NullAndEmptySource
         @ValueSource(strings = {" ", "   ", "\t", "\n"})
-        @DisplayName("Given null, empty, or whitespace-only queries, when resolved, then returns GENERAL_CONVERSATION with full confidence")
+        @DisplayName("Given null, empty, or whitespace-only queries, when resolved, then short-circuits to GENERAL_CONVERSATION with full confidence")
         void resolves_null_empty_or_whitespace_as_general_conversation(String blankQuery) {
             IntentClassification result = resolver.resolve(blankQuery, List.of());
 
             assertThat(result.intentId()).isEqualTo("general.conversation");
             assertThat(result.confidence()).isEqualTo(1.0);
+            assertThat(classifier.invocationCount).isZero();
         }
 
         @Test
@@ -199,80 +108,76 @@ class DefaultIntentResolverTest {
 
             assertThat(resolved.intentId()).isEqualTo("general.conversation");
             assertThat(resolved.acceptedTools()).isEmpty();
+            assertThat(classifier.invocationCount).isZero();
         }
     }
 
     // =========================================================================
-    // 3. Edge cases — boundaries, order vs SKU disambiguation, unknown queries
+    // 3. Edge cases — classifier fallback behavior, history extraction
     // =========================================================================
     @Nested
     @DisplayName("3. Edge cases")
     class EdgeCases {
 
         @Test
-        @DisplayName("Given order identifier ORD-1001, when resolving inquiry, then does not classify as CATALOG_LOOKUP")
-        void does_not_treat_order_number_as_catalog_lookup() {
-            IntentClassification result = resolver.resolve("sku ORD-1001", List.of());
+        @DisplayName("Given blank messageText but non-empty history, when resolved, then extracts the last user message from history and classifies it")
+        void resolves_from_history_when_message_text_is_blank() {
+            classifier.nextResult = new IntentClassification("information.lookup.order.status", 0.9);
+            AssistantMessage historyMsg = AssistantMessage.of("track order ORD-5555");
 
-            assertThat(result.intentId()).isNotEqualTo("catalog.product.lookup");
+            IntentClassification result = resolver.resolve("", List.of(historyMsg));
+
+            assertThat(result.intentId()).isEqualTo("information.lookup.order.status");
+            assertThat(classifier.lastQuery).isEqualTo("track order ORD-5555");
         }
 
         @Test
-        @DisplayName("Given completely unknown query, when resolved, then falls back to GENERAL_CONVERSATION with low confidence")
-        void falls_back_to_general_conversation_with_low_confidence_for_unknown_input() {
-            IntentClassification result = resolver.resolve("xyzzy qwerty foobar 98765", List.of());
+        @DisplayName("Given the classifier throws, when resolved, then fails closed to GENERAL_CONVERSATION with zero confidence")
+        void falls_back_to_general_conversation_when_classifier_throws() {
+            classifier.shouldThrow = true;
+
+            IntentClassification result = resolver.resolve("anything at all", List.of());
 
             assertThat(result.intentId()).isEqualTo("general.conversation");
-            assertThat(result.confidence()).isLessThan(0.50);
+            assertThat(result.confidence()).isEqualTo(0.0);
         }
 
         @Test
-        @DisplayName("Given mixed case greeting query, when resolved, then correctly classifies as GENERAL_CONVERSATION")
-        void handles_case_insensitive_greetings() {
-            IntentClassification result = resolver.resolve("hElLo ThErE", List.of());
+        @DisplayName("Given the classifier returns a blank intentId, when resolved, then fails closed to GENERAL_CONVERSATION")
+        void falls_back_when_classifier_returns_blank_intent() {
+            classifier.nextResult = new IntentClassification("  ", 0.9);
+
+            IntentClassification result = resolver.resolve("anything at all", List.of());
 
             assertThat(result.intentId()).isEqualTo("general.conversation");
-            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.90);
+            assertThat(result.confidence()).isEqualTo(0.0);
         }
 
         @Test
-        @DisplayName("Given default constructor without explicit properties, when instantiated, then resolves intents correctly")
-        void operates_correctly_with_default_constructor() {
+        @DisplayName("Given the classifier returns null, when resolved, then fails closed to GENERAL_CONVERSATION")
+        void falls_back_when_classifier_returns_null() {
+            classifier.nextResult = null;
+
+            IntentClassification result = resolver.resolve("anything at all", List.of());
+
+            assertThat(result.intentId()).isEqualTo("general.conversation");
+            assertThat(result.confidence()).isEqualTo(0.0);
+        }
+
+        @Test
+        @DisplayName("Given default constructor with no TypeSafe API key configured, when resolved, then fails closed instead of calling the network")
+        void operates_safely_with_default_constructor_and_no_api_key_configured() {
             DefaultIntentResolver defaultResolver = new DefaultIntentResolver();
+
             IntentClassification result = defaultResolver.resolve("hello", List.of());
 
             assertThat(result.intentId()).isEqualTo("general.conversation");
         }
 
         @Test
-        @DisplayName("Given blank messageText but non-empty history, when resolved, then extracts and matches user message from history")
-        void resolves_from_history_when_message_text_is_blank() {
-            vn.danang.polaris.assistant.entity.AssistantMessage historyMsg =
-                    vn.danang.polaris.assistant.entity.AssistantMessage.of("track order ORD-5555");
-            IntentClassification result = resolver.resolve("", List.of(historyMsg));
-
-            assertThat(result.intentId()).isEqualTo("information.lookup.order.status");
-            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.85);
-        }
-
-        @Test
-        @DisplayName("Given multiple candidate intents with equal match score, when resolved, then returns the first highest match")
-        void returns_first_highest_score_matching() {
-            List<IntentDefinition> customIntents = List.of(
-                    new IntentDefinition("first.intent", "First", List.of("same utterance"), List.of(), null, 0.80, false),
-                    new IntentDefinition("second.intent", "Second", List.of("same utterance"), List.of(), null, 0.80, false)
-            );
-            DefaultIntentResolver customResolver = new DefaultIntentResolver(customIntents);
-
-            IntentClassification result = customResolver.resolve("same utterance", List.of());
-
-            assertThat(result.intentId()).isEqualTo("first.intent");
-            assertThat(result.confidence()).isEqualTo(1.0);
-        }
-
-        @Test
-        @DisplayName("Given low confidence query below threshold, when resolve called with tools, then falls back to all available tools")
+        @DisplayName("Given a low-confidence classification below threshold, when resolve called with tools, then falls back to all available tools")
         void resolves_with_all_tools_when_confidence_below_threshold() {
+            classifier.nextResult = new IntentClassification("general.conversation", 0.1);
             Tool tool1 = Tool.builder("tool_one", Map.of()).build();
             Tool tool2 = Tool.builder("tool_two", Map.of()).build();
             List<Tool> allTools = List.of(tool1, tool2);
@@ -282,6 +187,22 @@ class DefaultIntentResolverTest {
             assertThat(resolved.intentId()).isEqualTo("general.conversation");
             assertThat(resolved.meetsThreshold()).isFalse();
             assertThat(resolved.acceptedTools()).containsExactlyElementsOf(allTools);
+        }
+
+        @Test
+        @DisplayName("Given a custom taxonomy and classifier choice, when resolved, then returns exactly what the classifier chose")
+        void returns_exactly_what_classifier_chose_for_custom_taxonomy() {
+            List<IntentDefinition> customIntents = List.of(
+                    new IntentDefinition("first.intent", "First", List.of("same utterance"), List.of(), null, 0.80, false),
+                    new IntentDefinition("second.intent", "Second", List.of("same utterance"), List.of(), null, 0.80, false)
+            );
+            classifier.nextResult = new IntentClassification("first.intent", 1.0);
+            DefaultIntentResolver customResolver = new DefaultIntentResolver(classifier, customIntents);
+
+            IntentClassification result = customResolver.resolve("same utterance", List.of());
+
+            assertThat(result.intentId()).isEqualTo("first.intent");
+            assertThat(result.confidence()).isEqualTo(1.0);
         }
     }
 
@@ -382,7 +303,7 @@ class DefaultIntentResolverTest {
         @Test
         @DisplayName("Given reloadFromJson with new JSON string, then registry updates to new intents")
         void reloads_from_json_string() {
-            DefaultIntentResolver customResolver = new DefaultIntentResolver();
+            DefaultIntentResolver customResolver = new DefaultIntentResolver(classifier, List.of());
             String customJson = """
                     [
                       {
@@ -398,5 +319,23 @@ class DefaultIntentResolverTest {
             assertThat(customResolver.getAllIntents()).hasSize(1);
         }
     }
-}
 
+    private static class StubIntentClassifier implements IntentClassifier {
+        IntentClassification nextResult = new IntentClassification(DefaultIntentResolver.DEFAULT_INTENT, 1.0);
+        boolean shouldThrow = false;
+        String lastQuery;
+        Collection<IntentDefinition> lastIntents;
+        int invocationCount = 0;
+
+        @Override
+        public IntentClassification classify(String query, List<AssistantMessage> history, Collection<IntentDefinition> intents) {
+            invocationCount++;
+            lastQuery = query;
+            lastIntents = intents;
+            if (shouldThrow) {
+                throw new RuntimeException("stub classifier failure");
+            }
+            return nextResult;
+        }
+    }
+}

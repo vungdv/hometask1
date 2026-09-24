@@ -19,6 +19,7 @@ import vn.danang.polaris.assistant.mcp.McpHub;
 import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
 import vn.danang.polaris.assistant.mcp.ToolResult;
 import vn.danang.polaris.assistant.ai.ToolCall;
+import vn.danang.polaris.assistant.service.IntentResolutionFacade;
 
 class IntentResolutionFacadeTest {
 
@@ -37,8 +38,10 @@ class IntentResolutionFacadeTest {
             Tool orderTool = Tool.builder("place_order", Map.of()).build();
             when(mockHub.discoverAllTools()).thenReturn(List.of(searchTool, orderTool));
 
+            IntentClassifier stubClassifier = (query, history, intents) ->
+                    new IntentClassification("catalog.product.search", 0.93);
             IntentResolutionFacade facade = new IntentResolutionFacade(
-                    new DefaultIntentResolver(),
+                    new DefaultIntentResolver(stubClassifier),
                     mockHub
             );
 

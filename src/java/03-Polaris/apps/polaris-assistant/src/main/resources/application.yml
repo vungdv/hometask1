@@ -37,6 +37,11 @@ polaris:
     model: ${POLARIS_AI_MODEL:gemini-3.6-flash}
     base-url: ${POLARIS_AI_BASE_URL:https://generativelanguage.googleapis.com}
     timeout-seconds: ${POLARIS_AI_TIMEOUT_SECONDS:30}
+  typesafe:
+    api-key: ${TYPESAFE_API_KEY:${POLARIS_TYPESAFE_API_KEY:}}
+    model: ${POLARIS_TYPESAFE_MODEL:jev-latest}
+    base-url: ${POLARIS_TYPESAFE_BASE_URL:https://api.typesafe.ai}
+    timeout-seconds: ${POLARIS_TYPESAFE_TIMEOUT_SECONDS:15}
   mcp:
     core:
       url: ${POLARIS_CORE_MCP_URL:http://localhost:8080/mcp}

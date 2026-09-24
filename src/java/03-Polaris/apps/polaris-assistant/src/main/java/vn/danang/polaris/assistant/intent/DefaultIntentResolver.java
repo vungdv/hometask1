@@ -3,15 +3,12 @@ package vn.danang.polaris.assistant.intent;
 import java.io.InputStream;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-import org.apache.commons.text.similarity.CosineSimilarity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,14 +18,15 @@ import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import vn.danang.polaris.assistant.config.AssistantTypeSafeProperties;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
 
 /**
  * Merged intent resolver and tool registry.
- * Implements {@link IntentResolver} to resolve user intent via Apache Commons Text
- * {@link CosineSimilarity} matching against dynamically loaded intents, and to filter
- * available MCP tools based on intent policy and confidence thresholds.
+ * Implements {@link IntentResolver} to resolve user intent via an {@link IntentClassifier}
+ * (backed by TypeSafe's Jev Choice primitive) matched against dynamically loaded intents,
+ * and to filter available MCP tools based on intent policy and confidence thresholds.
  */
 @Component
 @Primary
@@ -38,19 +36,31 @@ public class DefaultIntentResolver implements IntentResolver {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     public static final String DEFAULT_INTENT = "general.conversation";
-    private static final String CATALOG_LOOKUP_INTENT = "catalog.product.lookup";
 
-    private final CosineSimilarity cosineSimilarity = new CosineSimilarity();
+    private final IntentClassifier intentClassifier;
     private final Map<String, IntentDefinition> intentMap = new ConcurrentHashMap<>();
     private final Map<String, String> toolToScopeMap = new ConcurrentHashMap<>();
 
     @Autowired
+    public DefaultIntentResolver(IntentClassifier intentClassifier) {
+        this(intentClassifier, loadDefaultIntents());
+    }
+
     public DefaultIntentResolver() {
-        this(loadDefaultIntents());
+        this(defaultClassifier(), loadDefaultIntents());
     }
 
     public DefaultIntentResolver(Collection<IntentDefinition> intents) {
+        this(defaultClassifier(), intents);
+    }
+
+    public DefaultIntentResolver(IntentClassifier intentClassifier, Collection<IntentDefinition> intents) {
+        this.intentClassifier = intentClassifier != null ? intentClassifier : defaultClassifier();
         initRegistry(intents);
+    }
+
+    private static IntentClassifier defaultClassifier() {
+        return new TypeSafeIntentClassifier(new AssistantTypeSafeProperties());
     }
 
     private void initRegistry(Collection<IntentDefinition> definitions) {
@@ -83,7 +93,7 @@ public class DefaultIntentResolver implements IntentResolver {
     }
 
     /**
-     * Matches user message and history against intent examples using Apache Commons Text CosineSimilarity.
+     * Classifies user message and history against the intent taxonomy via {@link IntentClassifier}.
      *
      * @param userMessage raw user prompt
      * @param context conversation history
@@ -105,67 +115,23 @@ public class DefaultIntentResolver implements IntentResolver {
             return new IntentClassification(DEFAULT_INTENT, 1.0);
         }
 
-        String lowerQuery = query.toLowerCase(Locale.ROOT);
-        Map<CharSequence, Integer> qTokens = toTokens(lowerQuery);
-
-        IntentDefinition bestIntent = null;
-        double highestScore = -1.0;
-
         List<IntentDefinition> intents = !intentMap.isEmpty()
                 ? List.copyOf(intentMap.values())
                 : loadDefaultIntents();
 
-        for (IntentDefinition def : intents) {
-            // Guard: order numbers (e.g. ORD-1001) are not product catalog SKUs
-            if (lowerQuery.contains("ord-") && CATALOG_LOOKUP_INTENT.equals(def.id())) {
-                continue;
+        try {
+            IntentClassification classification = intentClassifier.classify(query, context, intents);
+            if (classification != null && classification.intentId() != null && !classification.intentId().isBlank()) {
+                log.debug("Resolved intent [{}] with confidence [{}] for query [{}]",
+                        classification.intentId(), classification.confidence(), query);
+                return classification;
             }
-
-            double intentScore = 0.0;
-            for (String example : def.examples()) {
-                if (example == null || example.isBlank()) {
-                    continue;
-                }
-                String lowerEx = example.trim().toLowerCase(Locale.ROOT);
-                Map<CharSequence, Integer> exTokens = toTokens(lowerEx);
-
-                double score;
-                if (lowerQuery.equals(lowerEx)) {
-                    score = 1.0;
-                } else if (lowerQuery.contains(lowerEx)) {
-                    double cos = 0.0;
-                    try {
-                        cos = cosineSimilarity.cosineSimilarity(qTokens, exTokens);
-                    } catch (Exception ignored) {
-                    }
-                    score = Math.max(0.95, cos);
-                } else {
-                    try {
-                        score = cosineSimilarity.cosineSimilarity(qTokens, exTokens);
-                    } catch (Exception ignored) {
-                        score = 0.0;
-                    }
-                }
-
-                if (score > intentScore) {
-                    intentScore = score;
-                }
-            }
-
-            // Return first highest score matching
-            if (intentScore > highestScore) {
-                highestScore = intentScore;
-                bestIntent = def;
-            }
+            log.warn("IntentClassifier returned no usable classification for query [{}]; falling back to {}", query, DEFAULT_INTENT);
+        } catch (Exception e) {
+            log.error("Intent classification failed for query [{}]: {}", query, e.getMessage(), e);
         }
 
-        if (bestIntent != null && highestScore >= 0.50) {
-            log.debug("Resolved intent [{}] with confidence [{}] for query [{}]", bestIntent.id(), highestScore, query);
-            return new IntentClassification(bestIntent.id(), highestScore);
-        }
-
-        log.debug("No confident intent found (score: [{}]). Falling back to general.conversation", highestScore);
-        return new IntentClassification(DEFAULT_INTENT, Math.max(0.0, highestScore));
+        return new IntentClassification(DEFAULT_INTENT, 0.0);
     }
 
     // =========================================================================
@@ -371,16 +337,5 @@ public class DefaultIntentResolver implements IntentResolver {
             log.error("Failed to parse intent JSON string: {}", e.getMessage(), e);
             return null;
         }
-    }
-
-    private Map<CharSequence, Integer> toTokens(String text) {
-        Map<CharSequence, Integer> map = new HashMap<>();
-        String[] words = text.replaceAll("[^a-zA-Z0-9\\s-]", " ").split("\\s+");
-        for (String w : words) {
-            if (!w.isBlank()) {
-                map.merge(w, 1, Integer::sum);
-            }
-        }
-        return map;
     }
 }

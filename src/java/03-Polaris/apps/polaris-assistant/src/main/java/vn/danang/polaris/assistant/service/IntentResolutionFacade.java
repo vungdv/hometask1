@@ -1,14 +1,15 @@
-package vn.danang.polaris.assistant.intent;
+package vn.danang.polaris.assistant.service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
+import vn.danang.polaris.assistant.intent.IntentResolver;
+import vn.danang.polaris.assistant.intent.ResolvedIntent;
 import vn.danang.polaris.assistant.mcp.McpHub;
 import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
 import vn.danang.polaris.assistant.mcp.ToolResult;
