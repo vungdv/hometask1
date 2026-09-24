@@ -1,16 +1,23 @@
 package vn.danang.polaris.assistant.intent;
 
+import lombok.Setter;
+
 import java.util.ArrayList;
 import java.util.List;
 
 public class IntentDefinition {
 
+    @Setter
     private String id;
+    @Setter
     private String description;
     private List<String> examples = new ArrayList<>();
     private List<String> allowedTools = new ArrayList<>();
+    @Setter
     private String requiredScope;
+    @Setter
     private double confidenceThreshold = 0.80;
+    @Setter
     private boolean mutating = false;
 
     public IntentDefinition() {
@@ -37,16 +44,8 @@ public class IntentDefinition {
         return id;
     }
 
-    public void setId(String id) {
-        this.id = id;
-    }
-
     public String getDescription() {
         return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
     }
 
     public List<String> getExamples() {
@@ -69,23 +68,12 @@ public class IntentDefinition {
         return requiredScope;
     }
 
-    public void setRequiredScope(String requiredScope) {
-        this.requiredScope = requiredScope;
-    }
-
     public double getConfidenceThreshold() {
         return confidenceThreshold;
-    }
-
-    public void setConfidenceThreshold(double confidenceThreshold) {
-        this.confidenceThreshold = confidenceThreshold;
     }
 
     public boolean isMutating() {
         return mutating;
     }
 
-    public void setMutating(boolean mutating) {
-        this.mutating = mutating;
-    }
 }

@@ -147,4 +147,20 @@ public class IntentToolRegistry {
     public Map<String, IntentDefinition> getAllIntents() {
         return Collections.unmodifiableMap(intentMap);
     }
+
+    public void reload(List<IntentDefinition> newIntents) {
+        intentMap.clear();
+        toolToScopeMap.clear();
+        if (newIntents != null) {
+            for (IntentDefinition def : newIntents) {
+                registerIntent(def);
+            }
+        }
+    }
+
+    public void reload(IntentTaxonomyProperties properties) {
+        if (properties != null) {
+            reload(properties.getIntents());
+        }
+    }
 }

@@ -44,7 +44,10 @@ public class IntentResolutionFacade {
      * @return ResolvedIntent containing resolved intent metadata and accepted tools
      */
     public ResolvedIntent resolve(String messageText, List<AssistantMessage> history) {
-        return resolve(messageText, history, this.mcpHub);
+        List<AssistantMessage> context = history != null ? new ArrayList<>(history) : new ArrayList<>();
+        var availableTools = this.mcpHub.discoverAllTools();
+        IntentClassification classification = intentResolver.resolve(messageText, context);
+        return intentToolRegistry.resolveIntent(classification, availableTools);
     }
 
     /**
@@ -66,18 +69,4 @@ public class IntentResolutionFacade {
         }
         return this.mcpHub.handleToolCalls(toolCalls, context);
     }
-
-    private ResolvedIntent resolve(String messageText, List<AssistantMessage> history, McpHub hub) {
-        List<Tool> availableTools = Optional.ofNullable(hub)
-                .map(McpHub::discoverAllTools)
-                .orElseGet(List::of);
-        return resolve(messageText, history, availableTools);
-    }
-
-    private ResolvedIntent resolve(String messageText, List<AssistantMessage> history, List<Tool> availableTools) {
-        List<AssistantMessage> context = history != null ? new ArrayList<>(history) : new ArrayList<>();
-        IntentClassification classification = intentResolver.resolve(messageText, context);
-        return intentToolRegistry.resolveIntent(classification, availableTools);
-    }
-
 }

@@ -218,5 +218,32 @@ class DefaultIntentResolverTest {
 
             assertThat(result.intentId()).isEqualTo(IntentClassification.GENERAL_CONVERSATION);
         }
+
+        @Test
+        @DisplayName("Given blank messageText but non-empty history, when resolved, then extracts and matches user message from history")
+        void resolves_from_history_when_message_text_is_blank() {
+            vn.danang.polaris.assistant.entity.AssistantMessage historyMsg =
+                    vn.danang.polaris.assistant.entity.AssistantMessage.of("track order ORD-5555");
+            IntentClassification result = resolver.resolve("", List.of(historyMsg));
+
+            assertThat(result.intentId()).isEqualTo(IntentClassification.ORDER_STATUS);
+            assertThat(result.confidence()).isGreaterThanOrEqualTo(0.85);
+        }
+
+        @Test
+        @DisplayName("Given multiple candidate intents with equal match score, when resolved, then returns the first highest match")
+        void returns_first_highest_score_matching() {
+            IntentTaxonomyProperties customTaxonomy = new IntentTaxonomyProperties();
+            customTaxonomy.setIntents(List.of(
+                    new IntentDefinition("first.intent", "First", List.of("same utterance"), List.of(), null, 0.80, false),
+                    new IntentDefinition("second.intent", "Second", List.of("same utterance"), List.of(), null, 0.80, false)
+            ));
+            DefaultIntentResolver customResolver = new DefaultIntentResolver(customTaxonomy);
+
+            IntentClassification result = customResolver.resolve("same utterance", List.of());
+
+            assertThat(result.intentId()).isEqualTo("first.intent");
+            assertThat(result.confidence()).isEqualTo(1.0);
+        }
     }
 }
