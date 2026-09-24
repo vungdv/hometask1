@@ -79,8 +79,9 @@ class IntentResolutionFacadeTest {
         void delegates_tool_execution_to_configured_mcp_hub() {
             McpHub mockHub = mock(McpHub.class);
             ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
+            ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of()
+                    "sess-1", "user-1", 1, mockResolvedIntent
             );
             List<ToolResult> expectedResults = List.of(ToolResult.success(toolCall, "Found product"));
             when(mockHub.handleToolCalls(eq(List.of(toolCall)), eq(context))).thenReturn(expectedResults);
@@ -101,8 +102,9 @@ class IntentResolutionFacadeTest {
         void handle_tool_calls_alias_delegates_identically() {
             McpHub mockHub = mock(McpHub.class);
             ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
+            ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of()
+                    "sess-1", "user-1", 1, mockResolvedIntent
             );
             List<ToolResult> expectedResults = List.of(ToolResult.success(toolCall, "Found product"));
             when(mockHub.handleToolCalls(eq(List.of(toolCall)), eq(context))).thenReturn(expectedResults);
@@ -131,8 +133,9 @@ class IntentResolutionFacadeTest {
         void propagates_policy_denial_from_mcp_hub() {
             McpHub mockHub = mock(McpHub.class);
             ToolCall toolCall = new ToolCall("place_order", Map.of("sku", "PROD-1"));
+            ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-no-scope", 1, "order.place", 0.95, true, List.of()
+                    "sess-1", "user-no-scope", 1, mockResolvedIntent
             );
             List<ToolResult> deniedResults = List.of(ToolResult.denied(toolCall, "Missing scope order.write"));
             when(mockHub.handleToolCalls(eq(List.of(toolCall)), eq(context))).thenReturn(deniedResults);
@@ -175,8 +178,9 @@ class IntentResolutionFacadeTest {
                     new DefaultIntentResolver(),
                     mockHub
             );
+            ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of()
+                    "sess-1", "user-1", 1, mockResolvedIntent
             );
 
             assertThat(facade.executeToolCalls(null, context)).isEmpty();
@@ -191,8 +195,9 @@ class IntentResolutionFacadeTest {
                     null
             );
             ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
+            ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of()
+                    "sess-1", "user-1", 1, mockResolvedIntent
             );
 
             assertThat(facade.executeToolCalls(List.of(toolCall), context)).isEmpty();

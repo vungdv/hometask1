@@ -21,10 +21,11 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import jakarta.annotation.Nullable;
-import vn.danang.polaris.assistant.intent.DefaultPolicyEngine;
 import vn.danang.polaris.assistant.intent.IntentDefinition;
-import vn.danang.polaris.assistant.intent.PolicyDecision;
-import vn.danang.polaris.assistant.intent.PolicyEngine;
+import vn.danang.polaris.assistant.intent.ResolvedIntent;
+import vn.danang.polaris.assistant.policy.DefaultPolicyEngine;
+import vn.danang.polaris.assistant.policy.PolicyDecision;
+import vn.danang.polaris.assistant.policy.PolicyEngine;
 import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
@@ -115,8 +116,8 @@ public class ToolManager implements McpHub, DisposableBean {
     @CustomNextSpan(
             name = "mcp.polaris.execute",
             tags = {
-                    @SpanTag(key = "mcp.itent_id", expression = "#context?.intentId()"),
-                    @SpanTag(key = "mcp.itent_confidence", expression = "#context?.confidence()"),
+                    @SpanTag(key = "mcp.itent_id", expression = "#context?.resolvedIntent()?.intentId()"),
+                    @SpanTag(key = "mcp.itent_confidence", expression = "#context?.resolvedIntent()?.confidence()"),
             }
     )
     public List<ToolResult> handleToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context) {
@@ -186,10 +187,11 @@ public class ToolManager implements McpHub, DisposableBean {
         }
 
         String userId = context != null && context.userId() != null ? context.userId() : "anonymous";
-        String intentId = context != null && context.resolvedIntent().intentId() != null ? context.resolvedIntent().intentId() : "general.conversation";
-        boolean meetsThreshold = context != null && context.resolvedIntent().meetsThreshold();
-        List<Tool> filteredTools = context != null && context.resolvedIntent().filteredTools() != null ? context.resolvedIntent().filteredTools() : List.of();
-        IntentDefinition intentDef = context != null ? context.resolvedIntent().intentDefinition() : null;
+        ResolvedIntent resolvedIntent = context != null ? context.resolvedIntent() : null;
+        String intentId = resolvedIntent != null && resolvedIntent.intentId() != null ? resolvedIntent.intentId() : "general.conversation";
+        boolean meetsThreshold = resolvedIntent != null && resolvedIntent.meetsThreshold();
+        List<Tool> filteredTools = resolvedIntent != null && resolvedIntent.filteredTools() != null ? resolvedIntent.filteredTools() : List.of();
+        IntentDefinition intentDef = resolvedIntent != null ? resolvedIntent.intentDefinition() : null;
 
         log.info("Model requested tool call: '{}' with arguments: {}", toolCall.name(), toolCall.arguments());
 

@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.intent;
+package vn.danang.polaris.assistant.policy;
 
 import java.util.List;
 

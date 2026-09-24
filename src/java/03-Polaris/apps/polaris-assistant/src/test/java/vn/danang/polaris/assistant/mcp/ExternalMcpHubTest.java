@@ -28,9 +28,10 @@ import org.springframework.beans.factory.ObjectProvider;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import vn.danang.polaris.assistant.intent.PolicyDecision;
-import vn.danang.polaris.assistant.intent.PolicyEngine;
+import vn.danang.polaris.assistant.intent.IntentDefinition;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
+import vn.danang.polaris.assistant.policy.PolicyDecision;
+import vn.danang.polaris.assistant.policy.PolicyEngine;
 import vn.danang.polaris.assistant.ai.ToolCall;
 
 @ExtendWith(MockitoExtension.class)
@@ -130,8 +131,13 @@ class ExternalMcpHubTest {
             when(polarisMcpClient.callTool(eq("search_available_products"), any())).thenReturn(toolResult);
 
             Tool tool = Tool.builder("search_available_products", Map.of()).build();
+            ResolvedIntent resolvedIntent = mock(ResolvedIntent.class);
+            when(resolvedIntent.intentId()).thenReturn("catalog.product.search");
+            when(resolvedIntent.meetsThreshold()).thenReturn(true);
+            when(resolvedIntent.filteredTools()).thenReturn(List.of(tool));
+
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(tool)
+                    "sess-1", "user-1", 1, resolvedIntent
             );
             List<ToolCall> toolCalls = List.of(new ToolCall("search_available_products", Map.of("query", "charger"), "sig-123"));
 
@@ -150,8 +156,13 @@ class ExternalMcpHubTest {
         @DisplayName("Given valid authorized tool call, when checkPolicy evaluated, returns ok ToolPolicyCheckResult")
         void checkPolicy_returns_ok_for_valid_authorized_tool() {
             Tool tool = Tool.builder("search_available_products", Map.of()).build();
+            ResolvedIntent resolvedIntent = mock(ResolvedIntent.class);
+            when(resolvedIntent.intentId()).thenReturn("catalog.product.search");
+            when(resolvedIntent.meetsThreshold()).thenReturn(true);
+            when(resolvedIntent.filteredTools()).thenReturn(List.of(tool));
+
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(tool)
+                    "sess-1", "user-1", 1, resolvedIntent
             );
             ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
 
@@ -176,8 +187,13 @@ class ExternalMcpHubTest {
         @DisplayName("Given tool forbidden for current intent, when handled, then returns corrective error result without invoking client")
         void rejects_forbidden_tool_with_corrective_message_without_client_call() {
             Tool allowedTool = Tool.builder("search_available_products", Map.of()).build();
+            ResolvedIntent resolvedIntent = mock(ResolvedIntent.class);
+            when(resolvedIntent.intentId()).thenReturn("catalog.product.search");
+            when(resolvedIntent.meetsThreshold()).thenReturn(true);
+            when(resolvedIntent.filteredTools()).thenReturn(List.of(allowedTool));
+
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(allowedTool)
+                    "sess-1", "user-1", 1, resolvedIntent
             );
             List<ToolCall> toolCalls = List.of(new ToolCall("cancel_order", Map.of("order_id", "123")));
 
@@ -202,8 +218,18 @@ class ExternalMcpHubTest {
             ToolManager hubWithPolicy = new ToolManager(polarisMcpClient, mockPolicy);
 
             Tool tool = Tool.builder("place_order", Map.of()).build();
+            IntentDefinition intentDef = mock(IntentDefinition.class);
+            when(intentDef.allowedTools()).thenReturn(List.of("place_order"));
+            when(intentDef.requiredScope()).thenReturn("order.write");
+
+            ResolvedIntent resolvedIntent = mock(ResolvedIntent.class);
+            when(resolvedIntent.intentId()).thenReturn("commerce.order.place");
+            when(resolvedIntent.meetsThreshold()).thenReturn(true);
+            when(resolvedIntent.filteredTools()).thenReturn(List.of(tool));
+            when(resolvedIntent.intentDefinition()).thenReturn(intentDef);
+
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "commerce.order.place", 0.95, true, List.of(tool)
+                    "sess-1", "user-1", 1, resolvedIntent
             );
             List<ToolCall> toolCalls = List.of(new ToolCall("place_order", Map.of("sku", "PROD-1")));
 
@@ -222,8 +248,13 @@ class ExternalMcpHubTest {
         @DisplayName("Given tool forbidden for intent, when checkPolicy evaluated, returns rejected ToolPolicyCheckResult")
         void checkPolicy_returns_rejected_for_forbidden_tool() {
             Tool allowedTool = Tool.builder("search_available_products", Map.of()).build();
+            ResolvedIntent resolvedIntent = mock(ResolvedIntent.class);
+            when(resolvedIntent.intentId()).thenReturn("catalog.product.search");
+            when(resolvedIntent.meetsThreshold()).thenReturn(true);
+            when(resolvedIntent.filteredTools()).thenReturn(List.of(allowedTool));
+
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(allowedTool)
+                    "sess-1", "user-1", 1, resolvedIntent
             );
             ToolCall toolCall = new ToolCall("cancel_order", Map.of());
 
@@ -244,8 +275,18 @@ class ExternalMcpHubTest {
             ToolManager hubWithPolicy = new ToolManager(polarisMcpClient, mockPolicy);
 
             Tool tool = Tool.builder("place_order", Map.of()).build();
+            IntentDefinition intentDef = mock(IntentDefinition.class);
+            when(intentDef.allowedTools()).thenReturn(List.of("place_order"));
+            when(intentDef.requiredScope()).thenReturn("order.write");
+
+            ResolvedIntent resolvedIntent = mock(ResolvedIntent.class);
+            when(resolvedIntent.intentId()).thenReturn("commerce.order.place");
+            when(resolvedIntent.meetsThreshold()).thenReturn(true);
+            when(resolvedIntent.filteredTools()).thenReturn(List.of(tool));
+            when(resolvedIntent.intentDefinition()).thenReturn(intentDef);
+
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "commerce.order.place", 0.95, true, List.of(tool)
+                    "sess-1", "user-1", 1, resolvedIntent
             );
             ToolCall toolCall = new ToolCall("place_order", Map.of("sku", "PROD-1"));
 
@@ -270,24 +311,17 @@ class ExternalMcpHubTest {
             // Construct ToolManager with custom PolicyEngine
             ToolManager hubWithoutRegistry = new ToolManager(polarisMcpClient, mockPolicy);
 
-            vn.danang.polaris.assistant.intent.IntentDefinition customIntent = new vn.danang.polaris.assistant.intent.IntentDefinition(
-                    "custom.intent",
-                    "Custom intent description",
-                    List.of("run custom tool"),
-                    List.of("custom_tool"),
-                    "custom.scope",
-                    0.80,
-                    false
-            );
-
             Tool tool = Tool.builder("custom_tool", Map.of()).build();
-            ResolvedIntent resolvedIntent = new ResolvedIntent(
-                    customIntent.id(),
-                    0.90,
-                    true,
-                    List.of(tool),
-                    customIntent
-            );
+            IntentDefinition customIntent = mock(IntentDefinition.class);
+            when(customIntent.allowedTools()).thenReturn(List.of("custom_tool"));
+            when(customIntent.requiredScope()).thenReturn("custom.scope");
+
+            ResolvedIntent resolvedIntent = mock(ResolvedIntent.class);
+            when(resolvedIntent.intentId()).thenReturn("custom.intent");
+            when(resolvedIntent.meetsThreshold()).thenReturn(true);
+            when(resolvedIntent.filteredTools()).thenReturn(List.of(tool));
+            when(resolvedIntent.intentDefinition()).thenReturn(customIntent);
+
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-42", "user-42", 1, resolvedIntent
             );
@@ -300,7 +334,7 @@ class ExternalMcpHubTest {
         }
 
         @Test
-        @DisplayName("Given ToolExecutionContext with ResolvedIntent containing default intent lookup, retrieves scope correctly")
+        @DisplayName("Given ToolExecutionContext with mocked ResolvedIntent, retrieves scope from IntentDefinition correctly")
         void checkPolicy_retrieves_scope_from_resolved_intent_default_lookup() {
             PolicyEngine mockPolicy = mock(PolicyEngine.class);
             when(mockPolicy.authorize(eq("user-43"), eq("order.write")))
@@ -309,8 +343,16 @@ class ExternalMcpHubTest {
             ToolManager hub = new ToolManager(polarisMcpClient, mockPolicy);
             Tool tool = Tool.builder("place_order", Map.of()).build();
 
-            // ResolvedIntent without explicit IntentDefinition relies on ToolExecutionContext default intent lookup
-            ResolvedIntent resolvedIntent = new ResolvedIntent("commerce.order.place", 0.95, true, List.of(tool));
+            IntentDefinition intentDef = mock(IntentDefinition.class);
+            when(intentDef.allowedTools()).thenReturn(List.of("place_order"));
+            when(intentDef.requiredScope()).thenReturn("order.write");
+
+            ResolvedIntent resolvedIntent = mock(ResolvedIntent.class);
+            when(resolvedIntent.intentId()).thenReturn("commerce.order.place");
+            when(resolvedIntent.meetsThreshold()).thenReturn(true);
+            when(resolvedIntent.filteredTools()).thenReturn(List.of(tool));
+            when(resolvedIntent.intentDefinition()).thenReturn(intentDef);
+
             ToolExecutionContext context = new ToolExecutionContext("sess-43", "user-43", 1, resolvedIntent);
             ToolCall toolCall = new ToolCall("place_order", Map.of());
 
@@ -389,7 +431,7 @@ class ExternalMcpHubTest {
             Tool t1 = Tool.builder("search_available_products", Map.of()).build();
             Tool t2 = Tool.builder("search_promotions", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "general.conversation", 0.95, false, List.of(t1, t2)
+                    "sess-1", "user-1", 1, new ResolvedIntent("general.conversation", 0.95, false, List.of(t1, t2))
             );
             List<ToolCall> toolCalls = List.of(
                     new ToolCall("search_available_products", Map.of("query", "charger"), "sig-1"),
@@ -427,7 +469,7 @@ class ExternalMcpHubTest {
 
                 Tool t = Tool.builder("search_available_products", Map.of()).build();
                 ToolExecutionContext context = new ToolExecutionContext(
-                        "sess-1", "user-1", 1, "general.conversation", 0.95, false, List.of(t)
+                    "sess-1", "user-1", 1, new ResolvedIntent("general.conversation", 0.95, false, List.of(t))
                 );
                 List<ToolResult> results = mcpHub.handleToolCalls(
                         List.of(new ToolCall("search_available_products", Map.of("query", "charger"), "sig-1")),
@@ -466,7 +508,7 @@ class ExternalMcpHubTest {
 
             Tool validTool = Tool.builder("search_available_products", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, "catalog.product.search", 0.95, true, List.of(validTool)
+                    "sess-1", "user-1", 1, new ResolvedIntent("catalog.product.search", 0.95, true, List.of(validTool))
             );
             List<ToolCall> toolCalls = List.of(
                     new ToolCall("unauthorized_action", Map.of()),
