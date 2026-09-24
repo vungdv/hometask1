@@ -6,14 +6,25 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 
 /**
  * Encapsulates the resolved intent along with its confidence, threshold evaluation,
- * and the accepted tools for the current conversation turn.
+ * accepted tools, and the underlying intent definition for the current conversation turn.
  */
 public record ResolvedIntent(
         String intentId,
         double confidence,
         boolean meetsThreshold,
-        List<Tool> acceptedTools
+        List<Tool> acceptedTools,
+        IntentDefinition intentDefinition
 ) {
+
+    public ResolvedIntent(
+            String intentId,
+            double confidence,
+            boolean meetsThreshold,
+            List<Tool> acceptedTools
+    ) {
+        this(intentId, confidence, meetsThreshold, acceptedTools, null);
+    }
+
     public ResolvedIntent {
         acceptedTools = acceptedTools != null ? List.copyOf(acceptedTools) : List.of();
     }

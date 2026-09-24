@@ -189,10 +189,7 @@ public class AssistantChatService {
                 sessionId,
                 userId,
                 iteration,
-                resolvedIntent.intentId(),
-                resolvedIntent.confidence(),
-                resolvedIntent.meetsThreshold(),
-                resolvedIntent.acceptedTools()
+                resolvedIntent
         );
 
         List<ToolResult> toolResults = intentResolutionFacade.executeToolCalls(toolCalls, toolContext);

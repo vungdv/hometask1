@@ -2,6 +2,9 @@ package vn.danang.polaris.assistant.mcp;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -20,15 +23,14 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.ObjectProvider;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import vn.danang.polaris.assistant.intent.IntentToolRegistry;
 import vn.danang.polaris.assistant.intent.PolicyDecision;
 import vn.danang.polaris.assistant.intent.PolicyEngine;
+import vn.danang.polaris.assistant.intent.ResolvedIntent;
 import vn.danang.polaris.assistant.ai.ToolCall;
 
 @ExtendWith(MockitoExtension.class)
@@ -197,9 +199,7 @@ class ExternalMcpHubTest {
             when(mockPolicy.authorize(anyString(), eq("order.write")))
                     .thenReturn(PolicyDecision.deny("Missing scope order.write"));
 
-            ToolManager hubWithPolicy = new ToolManager(
-                    polarisMcpClient, new ObjectMapper(), new IntentToolRegistry(), mockPolicy
-            );
+            ToolManager hubWithPolicy = new ToolManager(polarisMcpClient, mockPolicy);
 
             Tool tool = Tool.builder("place_order", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
@@ -241,9 +241,7 @@ class ExternalMcpHubTest {
             when(mockPolicy.authorize(eq("user-1"), eq("order.write")))
                     .thenReturn(PolicyDecision.deny("Missing scope order.write"));
 
-            ToolManager hubWithPolicy = new ToolManager(
-                    polarisMcpClient, new ObjectMapper(), new IntentToolRegistry(), mockPolicy
-            );
+            ToolManager hubWithPolicy = new ToolManager(polarisMcpClient, mockPolicy);
 
             Tool tool = Tool.builder("place_order", Map.of()).build();
             ToolExecutionContext context = new ToolExecutionContext(
@@ -260,6 +258,66 @@ class ExternalMcpHubTest {
             assertThat(checkResult.rejection().result()).isEqualTo("Missing scope order.write");
             assertThat(checkResult.rejection().errorDescription())
                     .isEqualTo("Policy authorization denied execution of tool 'place_order' for user 'user-1': Missing scope order.write");
+        }
+
+        @Test
+        @DisplayName("Given ToolExecutionContext with custom IntentDefinition, when checkPolicy evaluated, retrieves requiredScope from IntentDefinition without registry")
+        void checkPolicy_retrieves_requiredScope_from_intent_definition_in_context() {
+            PolicyEngine mockPolicy = mock(PolicyEngine.class);
+            when(mockPolicy.authorize(eq("user-42"), eq("custom.scope")))
+                    .thenReturn(PolicyDecision.allow());
+
+            // Construct ToolManager with custom PolicyEngine
+            ToolManager hubWithoutRegistry = new ToolManager(polarisMcpClient, mockPolicy);
+
+            vn.danang.polaris.assistant.intent.IntentDefinition customIntent = new vn.danang.polaris.assistant.intent.IntentDefinition(
+                    "custom.intent",
+                    "Custom intent description",
+                    List.of("run custom tool"),
+                    List.of("custom_tool"),
+                    "custom.scope",
+                    0.80,
+                    false
+            );
+
+            Tool tool = Tool.builder("custom_tool", Map.of()).build();
+            ResolvedIntent resolvedIntent = new ResolvedIntent(
+                    customIntent.id(),
+                    0.90,
+                    true,
+                    List.of(tool),
+                    customIntent
+            );
+            ToolExecutionContext context = new ToolExecutionContext(
+                    "sess-42", "user-42", 1, resolvedIntent
+            );
+            ToolCall toolCall = new ToolCall("custom_tool", Map.of());
+
+            ToolPolicyCheckResult checkResult = hubWithoutRegistry.checkPolicy(toolCall, context);
+
+            assertThat(checkResult.isOk()).isTrue();
+            verify(mockPolicy).authorize("user-42", "custom.scope");
+        }
+
+        @Test
+        @DisplayName("Given ToolExecutionContext with ResolvedIntent containing default intent lookup, retrieves scope correctly")
+        void checkPolicy_retrieves_scope_from_resolved_intent_default_lookup() {
+            PolicyEngine mockPolicy = mock(PolicyEngine.class);
+            when(mockPolicy.authorize(eq("user-43"), eq("order.write")))
+                    .thenReturn(PolicyDecision.allow());
+
+            ToolManager hub = new ToolManager(polarisMcpClient, mockPolicy);
+            Tool tool = Tool.builder("place_order", Map.of()).build();
+
+            // ResolvedIntent without explicit IntentDefinition relies on ToolExecutionContext default intent lookup
+            ResolvedIntent resolvedIntent = new ResolvedIntent("commerce.order.place", 0.95, true, List.of(tool));
+            ToolExecutionContext context = new ToolExecutionContext("sess-43", "user-43", 1, resolvedIntent);
+            ToolCall toolCall = new ToolCall("place_order", Map.of());
+
+            ToolPolicyCheckResult checkResult = hub.checkPolicy(toolCall, context);
+
+            assertThat(checkResult.isOk()).isTrue();
+            verify(mockPolicy).authorize("user-43", "order.write");
         }
     }
 
@@ -424,6 +482,59 @@ class ExternalMcpHubTest {
             assertThat(results.get(1).result()).isEqualTo("Charger");
             verify(polarisMcpClient, times(1)).callTool(eq("search_available_products"), any());
             verify(polarisMcpClient, never()).callTool(eq("unauthorized_action"), any());
+        }
+
+        @Test
+        @DisplayName("Given ToolManager with managed executor, when destroyed, then shuts down executor")
+        void shuts_down_managed_executor_on_destroy() {
+            ToolManager manager = new ToolManager(polarisMcpClient);
+            manager.destroy();
+            // calling destroy again is safe and idempotent
+            manager.destroy();
+        }
+
+        @Test
+        @DisplayName("Given ToolManager with custom unmanaged executor, when destroyed, does not shut down custom executor")
+        void does_not_shut_down_custom_executor_on_destroy() {
+            ExecutorService customExecutor = Executors.newSingleThreadExecutor();
+            try {
+                ToolManager manager = new ToolManager(polarisMcpClient, null, customExecutor);
+                manager.destroy();
+                assertThat(customExecutor.isShutdown()).isFalse();
+            } finally {
+                customExecutor.shutdown();
+            }
+        }
+
+        @Test
+        @DisplayName("Given ToolManager with custom ObjectProviders, initializes with provided beans")
+        @SuppressWarnings("unchecked")
+        void initializes_with_provided_beans_from_object_providers() {
+            ObjectProvider<PolicyEngine> policyProvider = mock(ObjectProvider.class);
+            ObjectProvider<Executor> executorProvider = mock(ObjectProvider.class);
+            PolicyEngine customPolicy = mock(PolicyEngine.class);
+            ExecutorService customExecutor = Executors.newSingleThreadExecutor();
+
+            when(policyProvider.getIfAvailable()).thenReturn(customPolicy);
+            when(executorProvider.getIfAvailable()).thenReturn(customExecutor);
+
+            ToolManager manager = new ToolManager(polarisMcpClient, policyProvider, executorProvider);
+
+            try {
+                manager.destroy();
+                assertThat(customExecutor.isShutdown()).isFalse();
+            } finally {
+                customExecutor.shutdown();
+            }
+        }
+
+        @Test
+        @DisplayName("Given null ObjectProviders in constructor, falls back to defaults safely")
+        void falls_back_to_defaults_when_providers_null() {
+            ObjectProvider<PolicyEngine> nullPolicyProvider = null;
+            ObjectProvider<Executor> nullExecutorProvider = null;
+            ToolManager manager = new ToolManager(polarisMcpClient, nullPolicyProvider, nullExecutorProvider);
+            manager.destroy();
         }
     }
 }

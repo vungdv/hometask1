@@ -1,6 +1,5 @@
 package vn.danang.polaris.assistant.intent;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collection;
 import java.util.Collections;
@@ -19,8 +18,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.modelcontextprotocol.spec.McpSchema.Tool;
@@ -38,6 +35,7 @@ import vn.danang.polaris.assistant.entity.MessageRole;
 public class DefaultIntentResolver implements IntentResolver {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultIntentResolver.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     public static final String DEFAULT_INTENT = "general.conversation";
     private static final String CATALOG_LOOKUP_INTENT = "catalog.product.lookup";
@@ -259,7 +257,9 @@ public class DefaultIntentResolver implements IntentResolver {
                 ? tools
                 : allowedTools(effectiveIntentId, tools);
 
-        return new ResolvedIntent(effectiveIntentId, confidence, meetsThreshold, acceptedTools);
+        IntentDefinition def = intentMap.get(effectiveIntentId);
+
+        return new ResolvedIntent(effectiveIntentId, confidence, meetsThreshold, acceptedTools, def);
     }
 
     public ResolvedIntent resolve(IntentClassification classification, List<Tool> availableTools) {
@@ -316,7 +316,7 @@ public class DefaultIntentResolver implements IntentResolver {
     /**
      * Deserializes intents from an {@link InputStream}.
      *
-     * @param inputStream the stream containing JSON array or object
+     * @param inputStream the stream containing JSON array
      * @return unmodifiable list of loaded {@link IntentDefinition}s
      */
     public static List<IntentDefinition> loadIntents(InputStream inputStream) {
@@ -324,8 +324,8 @@ public class DefaultIntentResolver implements IntentResolver {
             return List.of();
         }
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            return parseJsonNode(mapper, mapper.readTree(inputStream));
+            IntentDefinition[] array = OBJECT_MAPPER.readValue(inputStream, IntentDefinition[].class);
+            return array != null ? List.of(array) : List.of();
         } catch (Exception e) {
             log.error("Failed to parse intents from InputStream: {}", e.getMessage(), e);
             return List.of();
@@ -343,27 +343,34 @@ public class DefaultIntentResolver implements IntentResolver {
             return List.of();
         }
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            return parseJsonNode(mapper, mapper.readTree(jsonContent));
+            if (jsonContent.trim().startsWith("[")) {
+                IntentDefinition[] array = OBJECT_MAPPER.readValue(jsonContent, IntentDefinition[].class);
+                return array != null ? List.of(array) : List.of();
+            }
+            IntentDefinition single = OBJECT_MAPPER.readValue(jsonContent, IntentDefinition.class);
+            return single != null ? List.of(single) : List.of();
         } catch (Exception e) {
             log.error("Failed to parse intents JSON string: {}", e.getMessage(), e);
             return List.of();
         }
     }
 
-    private static List<IntentDefinition> parseJsonNode(ObjectMapper mapper, JsonNode root) throws IOException {
-        if (root == null) {
-            return List.of();
+    /**
+     * Deserializes a single intent from a JSON string.
+     *
+     * @param jsonContent the JSON string content
+     * @return loaded {@link IntentDefinition}, or null on failure
+     */
+    public static IntentDefinition loadIntentFromJson(String jsonContent) {
+        if (jsonContent == null || jsonContent.isBlank()) {
+            return null;
         }
-        JsonNode intentsArray = root.isArray() ? root : root.get("intents");
-        if (intentsArray == null || !intentsArray.isArray()) {
-            return List.of();
+        try {
+            return OBJECT_MAPPER.readValue(jsonContent, IntentDefinition.class);
+        } catch (Exception e) {
+            log.error("Failed to parse intent JSON string: {}", e.getMessage(), e);
+            return null;
         }
-        List<IntentDefinition> list = mapper.readValue(
-                intentsArray.traverse(mapper),
-                new TypeReference<List<IntentDefinition>>() {}
-        );
-        return list != null ? List.copyOf(list) : List.of();
     }
 
     private Map<CharSequence, Integer> toTokens(String text) {

@@ -323,24 +323,25 @@ class DefaultIntentResolverTest {
         }
 
         @Test
-        @DisplayName("Given valid JSON object with intents array wrapper, when loaded, then parses correctly")
-        void loads_intents_from_wrapped_json_object() {
+        @DisplayName("Given valid single IntentDefinition JSON object, when loaded, then parses correctly")
+        void loads_single_intent_from_json_object() {
             String json = """
                     {
-                      "intents": [
-                        {
-                          "id": "wrapped.intent",
-                          "description": "Wrapped test intent",
-                          "examples": ["example one"]
-                        }
-                      ]
+                      "id": "single.intent",
+                      "description": "Single test intent",
+                      "examples": ["example one"]
                     }
                     """;
 
-            List<IntentDefinition> intents = DefaultIntentResolver.loadIntentsFromJson(json);
+            IntentDefinition def = DefaultIntentResolver.loadIntentFromJson(json);
 
-            assertThat(intents).hasSize(1);
-            assertThat(intents.get(0).id()).isEqualTo("wrapped.intent");
+            assertThat(def).isNotNull();
+            assertThat(def.id()).isEqualTo("single.intent");
+            assertThat(def.description()).isEqualTo("Single test intent");
+            assertThat(def.examples()).containsExactly("example one");
+
+            IntentDefinition fromMethod = IntentDefinition.fromJson(json);
+            assertThat(fromMethod).isEqualTo(def);
         }
 
         @Test
