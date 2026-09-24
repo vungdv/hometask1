@@ -118,6 +118,15 @@ public class ToolManager implements McpHub, DisposableBean {
             tags = {
                     @SpanTag(key = "mcp.itent_id", expression = "#context?.resolvedIntent()?.intentId()"),
                     @SpanTag(key = "mcp.itent_confidence", expression = "#context?.resolvedIntent()?.confidence()"),
+            },
+            resultTags = {
+                    @SpanTag(key = "mcp.tool_call.count", expression = "T(vn.danang.polaris.assistant.mcp.ToolResultsSummary).summarize(#result).total()"),
+                    @SpanTag(key = "mcp.tool_call.success_count", expression = "T(vn.danang.polaris.assistant.mcp.ToolResultsSummary).summarize(#result).successCount()"),
+                    @SpanTag(key = "mcp.tool_call.denied_count", expression = "T(vn.danang.polaris.assistant.mcp.ToolResultsSummary).summarize(#result).deniedCount()"),
+                    @SpanTag(key = "mcp.tool_call.error_count", expression = "T(vn.danang.polaris.assistant.mcp.ToolResultsSummary).summarize(#result).errorCount()"),
+                    @SpanTag(key = "mcp.tool_call.outcome", expression = "T(vn.danang.polaris.assistant.mcp.ToolResultsSummary).summarize(#result).outcome()"),
+                    @SpanTag(key = "mcp.tool_call.failure_reason", expression = "T(vn.danang.polaris.assistant.mcp.ToolResultsSummary).summarize(#result).failureReason()"),
+                    @SpanTag(key = "mcp.tool_call.failed_tools", expression = "T(vn.danang.polaris.assistant.mcp.ToolResultsSummary).summarize(#result).failedTools()"),
             }
     )
     public List<ToolResult> handleToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context) {
@@ -157,9 +166,23 @@ public class ToolManager implements McpHub, DisposableBean {
             throw new RuntimeException("Concurrent tool execution failed", cause);
         }
 
-        return futures.stream()
+        List<ToolResult> results = futures.stream()
                 .map(CompletableFuture::join)
                 .toList();
+        logOutcome(results);
+        return results;
+    }
+
+    private void logOutcome(List<ToolResult> results) {
+        ToolResultsSummary summary = ToolResultsSummary.summarize(results);
+        if (summary.deniedCount() > 0 || summary.errorCount() > 0) {
+            log.warn("Tool call batch outcome '{}': {} succeeded, {} denied, {} error (of {}); reason: {}",
+                    summary.outcome(), summary.successCount(), summary.deniedCount(), summary.errorCount(),
+                    summary.total(), summary.failureReason());
+        } else {
+            log.info("Tool call batch outcome '{}': {}/{} succeeded",
+                    summary.outcome(), summary.successCount(), summary.total());
+        }
     }
 
     /**

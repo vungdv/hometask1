@@ -69,19 +69,21 @@ public class TypeSafeIntentClassifier implements IntentClassifier {
             },
             resultTags = {
                     @SpanTag(key = "typesafe.intent.result", expression = "intentId()"),
-                    @SpanTag(key = "typesafe.intent.confidence", expression = "confidence()")
+                    @SpanTag(key = "typesafe.intent.confidence", expression = "confidence()"),
+                    @SpanTag(key = "typesafe.intent.fallback", expression = "fallback()"),
+                    @SpanTag(key = "typesafe.intent.fallback_reason", expression = "fallbackReason()")
             }
     )
     public IntentClassification classify(String query, List<AssistantMessage> history, Collection<IntentDefinition> intents) {
         if (intents == null || intents.isEmpty()) {
             log.warn("No intent taxonomy available; cannot classify query.");
-            return fallback();
+            return fallback("empty_taxonomy");
         }
 
         String apiKey = properties.getApiKey();
         if (apiKey == null || apiKey.isBlank() || (apiKey.startsWith("${") && apiKey.endsWith("}"))) {
             log.warn("TypeSafe API key is not configured; falling back to default intent for query classification.");
-            return fallback();
+            return fallback("missing_api_key");
         }
 
         try {
@@ -91,13 +93,13 @@ public class TypeSafeIntentClassifier implements IntentClassifier {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("TypeSafe intent classification request interrupted", e);
-            return fallback();
+            return fallback("interrupted");
         } catch (IOException e) {
             log.error("TypeSafe intent classification I/O error: {}", e.getMessage(), e);
-            return fallback();
+            return fallback("io_error");
         } catch (RuntimeException e) {
             log.error("Unexpected error classifying intent via TypeSafe: {}", e.getMessage(), e);
-            return fallback();
+            return fallback("unexpected_error");
         }
     }
 
@@ -164,27 +166,31 @@ public class TypeSafeIntentClassifier implements IntentClassifier {
     private IntentClassification parseResponse(HttpResponse<String> response) throws IOException {
         if (response.statusCode() != 200) {
             log.error("TypeSafe API error status: {} body: {}", response.statusCode(), response.body());
-            return fallback();
+            return fallback("http_status_" + response.statusCode());
         }
 
         JsonNode root = objectMapper.readTree(response.body());
         JsonNode answer = root.path("answers").path(QUESTION_ID);
         if (answer.isMissingNode()) {
             log.warn("TypeSafe response missing '{}' answer: {}", QUESTION_ID, response.body());
-            return fallback();
+            return fallback("missing_answer");
         }
 
         String choice = answer.hasNonNull("choice") ? answer.path("choice").asText() : null;
         if (choice == null || choice.isBlank()) {
             log.warn("TypeSafe response returned no choice: {}", response.body());
-            return fallback();
+            return fallback("blank_choice");
         }
 
         double confidence = answer.path("confidence").asDouble(0.0);
         return new IntentClassification(choice, confidence);
     }
 
-    private IntentClassification fallback() {
-        return new IntentClassification(DefaultIntentResolver.DEFAULT_INTENT, 0.0);
+    /**
+     * Builds a fail-safe classification result, tagged with {@code reason} so tracing and logs
+     * can distinguish "the model wasn't consulted" from a genuine low-confidence judgment.
+     */
+    private IntentClassification fallback(String reason) {
+        return IntentClassification.fallback(DefaultIntentResolver.DEFAULT_INTENT, reason);
     }
 }

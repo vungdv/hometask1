@@ -10,9 +10,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullAndEmptySource;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 
@@ -83,87 +80,11 @@ class DefaultIntentResolverTest {
     }
 
     // =========================================================================
-    // 2. Invalid input — common validation and boundary cases
-    // =========================================================================
-    @Nested
-    @DisplayName("2. Invalid input")
-    class InvalidInput {
-
-        @ParameterizedTest(name = "Blank query \"{0}\" resolves to GENERAL_CONVERSATION without calling the classifier")
-        @NullAndEmptySource
-        @ValueSource(strings = {" ", "   ", "\t", "\n"})
-        @DisplayName("Given null, empty, or whitespace-only queries, when resolved, then short-circuits to GENERAL_CONVERSATION with full confidence")
-        void resolves_null_empty_or_whitespace_as_general_conversation(String blankQuery) {
-            IntentClassification result = resolver.resolve(blankQuery, List.of());
-
-            assertThat(result.intentId()).isEqualTo("general.conversation");
-            assertThat(result.confidence()).isEqualTo(1.0);
-            assertThat(classifier.invocationCount).isZero();
-        }
-
-        @Test
-        @DisplayName("Given all null arguments, when resolve called, then returns GENERAL_CONVERSATION with empty accepted tools safely")
-        void resolves_safely_when_all_arguments_are_null() {
-            ResolvedIntent resolved = resolver.resolve(null, null, null);
-
-            assertThat(resolved.intentId()).isEqualTo("general.conversation");
-            assertThat(resolved.acceptedTools()).isEmpty();
-            assertThat(classifier.invocationCount).isZero();
-        }
-    }
-
-    // =========================================================================
     // 3. Edge cases — classifier fallback behavior, history extraction
     // =========================================================================
     @Nested
     @DisplayName("3. Edge cases")
     class EdgeCases {
-
-        @Test
-        @DisplayName("Given blank messageText but non-empty history, when resolved, then extracts the last user message from history and classifies it")
-        void resolves_from_history_when_message_text_is_blank() {
-            classifier.nextResult = new IntentClassification("information.lookup.order.status", 0.9);
-            AssistantMessage historyMsg = AssistantMessage.of("track order ORD-5555");
-
-            IntentClassification result = resolver.resolve("", List.of(historyMsg));
-
-            assertThat(result.intentId()).isEqualTo("information.lookup.order.status");
-            assertThat(classifier.lastQuery).isEqualTo("track order ORD-5555");
-        }
-
-        @Test
-        @DisplayName("Given the classifier throws, when resolved, then fails closed to GENERAL_CONVERSATION with zero confidence")
-        void falls_back_to_general_conversation_when_classifier_throws() {
-            classifier.shouldThrow = true;
-
-            IntentClassification result = resolver.resolve("anything at all", List.of());
-
-            assertThat(result.intentId()).isEqualTo("general.conversation");
-            assertThat(result.confidence()).isEqualTo(0.0);
-        }
-
-        @Test
-        @DisplayName("Given the classifier returns a blank intentId, when resolved, then fails closed to GENERAL_CONVERSATION")
-        void falls_back_when_classifier_returns_blank_intent() {
-            classifier.nextResult = new IntentClassification("  ", 0.9);
-
-            IntentClassification result = resolver.resolve("anything at all", List.of());
-
-            assertThat(result.intentId()).isEqualTo("general.conversation");
-            assertThat(result.confidence()).isEqualTo(0.0);
-        }
-
-        @Test
-        @DisplayName("Given the classifier returns null, when resolved, then fails closed to GENERAL_CONVERSATION")
-        void falls_back_when_classifier_returns_null() {
-            classifier.nextResult = null;
-
-            IntentClassification result = resolver.resolve("anything at all", List.of());
-
-            assertThat(result.intentId()).isEqualTo("general.conversation");
-            assertThat(result.confidence()).isEqualTo(0.0);
-        }
-
         @Test
         @DisplayName("Given default constructor with no TypeSafe API key configured, when resolved, then fails closed instead of calling the network")
         void operates_safely_with_default_constructor_and_no_api_key_configured() {

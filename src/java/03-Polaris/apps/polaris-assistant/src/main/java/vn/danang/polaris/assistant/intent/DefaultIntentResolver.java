@@ -20,7 +20,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.config.AssistantTypeSafeProperties;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
-import vn.danang.polaris.assistant.entity.MessageRole;
 
 /**
  * Merged intent resolver and tool registry.
@@ -100,38 +99,8 @@ public class DefaultIntentResolver implements IntentResolver {
      * @return IntentClassification with intentId and confidence score
      */
     public IntentClassification resolveClassification(String userMessage, List<AssistantMessage> context) {
-        String query = userMessage != null ? userMessage.trim() : "";
-        if (query.isBlank() && context != null && !context.isEmpty()) {
-            for (int i = context.size() - 1; i >= 0; i--) {
-                AssistantMessage msg = context.get(i);
-                if (msg != null && msg.getRole() == MessageRole.USER && msg.getContent() != null && !msg.getContent().isBlank()) {
-                    query = msg.getContent().trim();
-                    break;
-                }
-            }
-        }
-
-        if (query.isBlank()) {
-            return new IntentClassification(DEFAULT_INTENT, 1.0);
-        }
-
-        List<IntentDefinition> intents = !intentMap.isEmpty()
-                ? List.copyOf(intentMap.values())
-                : loadDefaultIntents();
-
-        try {
-            IntentClassification classification = intentClassifier.classify(query, context, intents);
-            if (classification != null && classification.intentId() != null && !classification.intentId().isBlank()) {
-                log.debug("Resolved intent [{}] with confidence [{}] for query [{}]",
-                        classification.intentId(), classification.confidence(), query);
-                return classification;
-            }
-            log.warn("IntentClassifier returned no usable classification for query [{}]; falling back to {}", query, DEFAULT_INTENT);
-        } catch (Exception e) {
-            log.error("Intent classification failed for query [{}]: {}", query, e.getMessage(), e);
-        }
-
-        return new IntentClassification(DEFAULT_INTENT, 0.0);
+        List<IntentDefinition> intents = List.copyOf(intentMap.values());
+        return intentClassifier.classify(userMessage, context, intents);
     }
 
     // =========================================================================
@@ -175,28 +144,6 @@ public class DefaultIntentResolver implements IntentResolver {
                 .collect(Collectors.toList());
     }
 
-    public boolean isValid(String intentId, String toolName) {
-        if (toolName == null) {
-            return false;
-        }
-        IntentDefinition def = intentMap.get(intentId);
-        if (def == null) {
-            return false;
-        }
-        return def.allowedTools() != null && def.allowedTools().contains(toolName);
-    }
-
-    public String getRequiredScope(String toolName) {
-        if (toolName == null) {
-            return null;
-        }
-        return toolToScopeMap.get(toolName);
-    }
-
-    public boolean isMutating(String intentId) {
-        IntentDefinition def = intentMap.get(intentId);
-        return def != null && def.mutating();
-    }
 
     public double getConfidenceThreshold(String intentId) {
         IntentDefinition def = intentMap.get(intentId);
@@ -250,9 +197,6 @@ public class DefaultIntentResolver implements IntentResolver {
         }
     }
 
-    public void reload() {
-        reload(loadDefaultIntents());
-    }
 
     public void reloadFromJson(String jsonContent) {
         reload(loadIntentsFromJson(jsonContent));
