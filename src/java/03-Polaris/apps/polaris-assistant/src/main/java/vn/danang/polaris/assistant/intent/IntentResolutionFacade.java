@@ -15,8 +15,7 @@ import vn.danang.polaris.assistant.mcp.ToolResult;
 import vn.danang.polaris.assistant.ai.ToolCall;
 
 /**
- * Facade that orchestrates tool discovery from {@link McpHub}, intent classification
- * via {@link IntentResolver}, and tool filtering through {@link IntentToolRegistry}.
+ * Facade that orchestrates tool discovery from {@link McpHub}, intent classification via {@link IntentResolver}
  * Consolidates the intent and tool resolution workflow into a single unified operation.
  */
 @Component
@@ -31,16 +30,6 @@ public class IntentResolutionFacade {
             McpHub mcpHub) {
         this.intentResolver = intentResolver;
         this.mcpHub = mcpHub;
-    }
-
-    /**
-     * Backward-compatible constructor accepting legacy {@link IntentToolRegistry}.
-     */
-    public IntentResolutionFacade(
-            IntentResolver intentResolver,
-            IntentToolRegistry intentToolRegistry,
-            McpHub mcpHub) {
-        this(intentResolver, mcpHub);
     }
 
     /**

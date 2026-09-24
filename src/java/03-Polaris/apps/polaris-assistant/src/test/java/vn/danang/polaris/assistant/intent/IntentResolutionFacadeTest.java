@@ -39,7 +39,6 @@ class IntentResolutionFacadeTest {
 
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),
-                    new IntentToolRegistry(),
                     mockHub
             );
 
@@ -88,7 +87,6 @@ class IntentResolutionFacadeTest {
 
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),
-                    new IntentToolRegistry(),
                     mockHub
             );
 
@@ -111,7 +109,6 @@ class IntentResolutionFacadeTest {
 
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),
-                    new IntentToolRegistry(),
                     mockHub
             );
 
@@ -142,7 +139,6 @@ class IntentResolutionFacadeTest {
 
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),
-                    new IntentToolRegistry(),
                     mockHub
             );
 
@@ -177,7 +173,6 @@ class IntentResolutionFacadeTest {
             McpHub mockHub = mock(McpHub.class);
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),
-                    new IntentToolRegistry(),
                     mockHub
             );
             ToolExecutionContext context = new ToolExecutionContext(
@@ -193,7 +188,6 @@ class IntentResolutionFacadeTest {
         void returns_empty_list_when_mcp_hub_is_null() {
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),
-                    new IntentToolRegistry(),
                     null
             );
             ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
