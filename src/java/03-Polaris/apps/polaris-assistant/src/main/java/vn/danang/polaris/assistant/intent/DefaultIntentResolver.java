@@ -1,285 +1,91 @@
 package vn.danang.polaris.assistant.intent;
 
-import java.io.InputStream;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.config.AssistantTypeSafeProperties;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 
 /**
- * Merged intent resolver and tool registry.
- * Implements {@link IntentResolver} to resolve user intent via an {@link IntentClassifier}
- * (backed by TypeSafe's Jev Choice primitive) matched against dynamically loaded intents,
- * and to filter available MCP tools based on intent policy and confidence thresholds.
+ * Forwards classification requests to an {@link IntentClassifier}, turning its result into a
+ * {@link ResolvedIntent} scoped to the matched {@link IntentDefinition}. The intent taxonomy
+ * itself is provided by an {@link IntentManager}, which abstracts over where intents actually
+ * live (local classpath resource by default, a remote store in other implementations).
  */
 @Component
 @Primary
 public class DefaultIntentResolver implements IntentResolver {
-
-    private static final Logger log = LoggerFactory.getLogger(DefaultIntentResolver.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
     public static final String DEFAULT_INTENT = "general.conversation";
 
     private final IntentClassifier intentClassifier;
-    private final Map<String, IntentDefinition> intentMap = new ConcurrentHashMap<>();
-    private final Map<String, String> toolToScopeMap = new ConcurrentHashMap<>();
+    private final IntentManager intentManager;
 
     @Autowired
+    public DefaultIntentResolver(IntentClassifier intentClassifier, IntentManager intentManager) {
+        this.intentClassifier = intentClassifier != null ? intentClassifier : defaultClassifier();
+        this.intentManager = intentManager != null ? intentManager : defaultIntentManager();
+    }
+
     public DefaultIntentResolver(IntentClassifier intentClassifier) {
-        this(intentClassifier, loadDefaultIntents());
+        this(intentClassifier, defaultIntentManager());
     }
 
     public DefaultIntentResolver() {
-        this(defaultClassifier(), loadDefaultIntents());
-    }
-
-    public DefaultIntentResolver(Collection<IntentDefinition> intents) {
-        this(defaultClassifier(), intents);
+        this(defaultClassifier(), defaultIntentManager());
     }
 
     public DefaultIntentResolver(IntentClassifier intentClassifier, Collection<IntentDefinition> intents) {
-        this.intentClassifier = intentClassifier != null ? intentClassifier : defaultClassifier();
-        initRegistry(intents);
+        this(intentClassifier, new DefaultIntentManager(intents != null ? List.copyOf(intents) : List.of()));
     }
 
     private static IntentClassifier defaultClassifier() {
         return new TypeSafeIntentClassifier(new AssistantTypeSafeProperties());
     }
 
-    private void initRegistry(Collection<IntentDefinition> definitions) {
-        if (definitions != null) {
-            for (IntentDefinition def : definitions) {
-                registerIntent(def);
-            }
-        }
+    private static IntentManager defaultIntentManager() {
+        return new DefaultIntentManager();
     }
-
-    // =========================================================================
-    // Core Resolution: IntentResolver Implementation
-    // =========================================================================
 
     @Override
     public ResolvedIntent resolve(String messageText, List<AssistantMessage> history, List<Tool> tools) {
-        IntentClassification classification = resolveClassification(messageText, history);
-        return resolveIntent(classification, tools);
+        List<IntentDefinition> intents = intentManager.listIntents();
+        IntentClassification classification = intentClassifier.classify(messageText, history, intents);
+        String intentId = classification.intentId();
+
+        IntentDefinition definition = intentManager.getIntent(intentId).orElse(IntentDefinition.empty());
+
+        double confidence = classification.confidence();
+        double threshold = definition.confidenceThreshold();
+        boolean meetsThreshold = confidence >= threshold;
+
+        List<Tool> acceptedTools = meetsThreshold ? filterTools(definition, tools) : tools;
+
+        return new ResolvedIntent(intentId, confidence, meetsThreshold, acceptedTools, definition);
     }
 
     /**
-     * Resolves user intent classification without tool filtering.
-     *
-     * @param userMessage the raw user utterance
-     * @param context conversation history in the current session
-     * @return IntentClassification containing the resolved intent ID and confidence score
+     * Classifies user message and history against the loaded intent taxonomy, without any
+     * tool filtering.
      */
-    public IntentClassification resolve(String userMessage, List<AssistantMessage> context) {
-        return resolveClassification(userMessage, context);
+    public IntentClassification resolve(String messageText, List<AssistantMessage> history) {
+        return intentClassifier.classify(messageText, history, intentManager.listIntents());
     }
 
-    /**
-     * Classifies user message and history against the intent taxonomy via {@link IntentClassifier}.
-     *
-     * @param userMessage raw user prompt
-     * @param context conversation history
-     * @return IntentClassification with intentId and confidence score
-     */
-    public IntentClassification resolveClassification(String userMessage, List<AssistantMessage> context) {
-        List<IntentDefinition> intents = List.copyOf(intentMap.values());
-        return intentClassifier.classify(userMessage, context, intents);
-    }
-
-    // =========================================================================
-    // Tool Registry & Policy Mapping Methods
-    // =========================================================================
-
-    public void registerIntent(IntentDefinition def) {
-        if (def != null && def.id() != null) {
-            intentMap.put(def.id(), def);
-            if (def.allowedTools() != null) {
-                for (String tool : def.allowedTools()) {
-                    if (def.requiredScope() != null) {
-                        toolToScopeMap.putIfAbsent(tool, def.requiredScope());
-                    }
-                }
-            }
-        }
-    }
-
-    public Optional<IntentDefinition> getIntent(String intentId) {
-        if (intentId == null) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(intentMap.get(intentId));
-    }
-
-    public List<Tool> allowedTools(String intentId, List<Tool> availableTools) {
-        if (availableTools == null || availableTools.isEmpty()) {
-            return List.of();
-        }
-        IntentDefinition def = intentMap.get(intentId);
-        if (def == null) {
+    private List<Tool> filterTools(IntentDefinition definition, List<Tool> availableTools) {
+        if (definition == null) {
             return availableTools;
         }
-        List<String> permitted = def.allowedTools();
+        List<String> permitted = definition.allowedTools();
         if (permitted == null || permitted.isEmpty()) {
             return List.of();
         }
         return availableTools.stream()
                 .filter(t -> permitted.contains(t.name()))
-                .collect(Collectors.toList());
-    }
-
-
-    public double getConfidenceThreshold(String intentId) {
-        IntentDefinition def = intentMap.get(intentId);
-        return def != null ? def.confidenceThreshold() : 0.80;
-    }
-
-    public ResolvedIntent resolveIntent(IntentClassification classification, List<Tool> availableTools) {
-        String intentId = classification != null && classification.intentId() != null && !classification.intentId().isBlank()
-                ? classification.intentId()
-                : DEFAULT_INTENT;
-        double confidence = classification != null ? classification.confidence() : 1.0;
-        return resolveIntent(intentId, confidence, availableTools);
-    }
-
-    public ResolvedIntent resolveIntent(String intentId, double confidence, List<Tool> availableTools) {
-        String effectiveIntentId = (intentId != null && !intentId.isBlank())
-                ? intentId
-                : DEFAULT_INTENT;
-        double threshold = getConfidenceThreshold(effectiveIntentId);
-        boolean meetsThreshold = confidence >= threshold;
-
-        List<Tool> tools = (availableTools != null) ? availableTools : List.of();
-        List<Tool> acceptedTools = !meetsThreshold
-                ? tools
-                : allowedTools(effectiveIntentId, tools);
-
-        IntentDefinition def = intentMap.get(effectiveIntentId);
-
-        return new ResolvedIntent(effectiveIntentId, confidence, meetsThreshold, acceptedTools, def);
-    }
-
-    public ResolvedIntent resolve(IntentClassification classification, List<Tool> availableTools) {
-        return resolveIntent(classification, availableTools);
-    }
-
-    public ResolvedIntent resolve(String intentId, double confidence, List<Tool> availableTools) {
-        return resolveIntent(intentId, confidence, availableTools);
-    }
-
-    public Map<String, IntentDefinition> getAllIntents() {
-        return Collections.unmodifiableMap(intentMap);
-    }
-
-    public void reload(Collection<IntentDefinition> newIntents) {
-        intentMap.clear();
-        toolToScopeMap.clear();
-        if (newIntents != null) {
-            for (IntentDefinition def : newIntents) {
-                registerIntent(def);
-            }
-        }
-    }
-
-
-    public void reloadFromJson(String jsonContent) {
-        reload(loadIntentsFromJson(jsonContent));
-    }
-
-    // =========================================================================
-    // JSON Deserialization Functions
-    // =========================================================================
-
-    /**
-     * Loads default intents from the classpath {@code intents.json} resource.
-     *
-     * @return unmodifiable list of default {@link IntentDefinition}s
-     */
-    public static List<IntentDefinition> loadDefaultIntents() {
-        try (InputStream is = DefaultIntentResolver.class.getClassLoader().getResourceAsStream("intents.json")) {
-            if (is != null) {
-                return loadIntents(is);
-            }
-            log.warn("Classpath resource [intents.json] not found");
-        } catch (Exception e) {
-            log.error("Failed to load default intents from classpath:intents.json: {}", e.getMessage(), e);
-        }
-        return List.of();
-    }
-
-    /**
-     * Deserializes intents from an {@link InputStream}.
-     *
-     * @param inputStream the stream containing JSON array
-     * @return unmodifiable list of loaded {@link IntentDefinition}s
-     */
-    public static List<IntentDefinition> loadIntents(InputStream inputStream) {
-        if (inputStream == null) {
-            return List.of();
-        }
-        try {
-            IntentDefinition[] array = OBJECT_MAPPER.readValue(inputStream, IntentDefinition[].class);
-            return array != null ? List.of(array) : List.of();
-        } catch (Exception e) {
-            log.error("Failed to parse intents from InputStream: {}", e.getMessage(), e);
-            return List.of();
-        }
-    }
-
-    /**
-     * Deserializes intents from a raw JSON string.
-     *
-     * @param jsonContent the JSON string content
-     * @return unmodifiable list of loaded {@link IntentDefinition}s
-     */
-    public static List<IntentDefinition> loadIntentsFromJson(String jsonContent) {
-        if (jsonContent == null || jsonContent.isBlank()) {
-            return List.of();
-        }
-        try {
-            if (jsonContent.trim().startsWith("[")) {
-                IntentDefinition[] array = OBJECT_MAPPER.readValue(jsonContent, IntentDefinition[].class);
-                return array != null ? List.of(array) : List.of();
-            }
-            IntentDefinition single = OBJECT_MAPPER.readValue(jsonContent, IntentDefinition.class);
-            return single != null ? List.of(single) : List.of();
-        } catch (Exception e) {
-            log.error("Failed to parse intents JSON string: {}", e.getMessage(), e);
-            return List.of();
-        }
-    }
-
-    /**
-     * Deserializes a single intent from a JSON string.
-     *
-     * @param jsonContent the JSON string content
-     * @return loaded {@link IntentDefinition}, or null on failure
-     */
-    public static IntentDefinition loadIntentFromJson(String jsonContent) {
-        if (jsonContent == null || jsonContent.isBlank()) {
-            return null;
-        }
-        try {
-            return OBJECT_MAPPER.readValue(jsonContent, IntentDefinition.class);
-        } catch (Exception e) {
-            log.error("Failed to parse intent JSON string: {}", e.getMessage(), e);
-            return null;
-        }
+                .toList();
     }
 }

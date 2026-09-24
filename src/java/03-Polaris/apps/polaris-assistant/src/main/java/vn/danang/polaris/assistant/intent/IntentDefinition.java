@@ -3,7 +3,6 @@ package vn.danang.polaris.assistant.intent;
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * Plain immutable record representing an intent definition in the assistant taxonomy.
@@ -18,7 +17,6 @@ public record IntentDefinition(
         double confidenceThreshold,
         boolean mutating
 ) {
-
     public IntentDefinition {
         examples = examples != null ? List.copyOf(examples) : List.of();
         allowedTools = allowedTools != null ? List.copyOf(allowedTools) : List.of();
@@ -34,40 +32,7 @@ public record IntentDefinition(
     /**
      * Convenience deserializer for a single IntentDefinition JSON string.
      */
-    public static IntentDefinition fromJson(String json) {
-        try {
-            return new ObjectMapper().readValue(json, IntentDefinition.class);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to parse IntentDefinition from JSON", e);
-        }
-    }
-
-    // Compatibility getter aliases matching standard JavaBean conventions
-    public String getId() {
-        return id;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public List<String> getExamples() {
-        return examples;
-    }
-
-    public List<String> getAllowedTools() {
-        return allowedTools;
-    }
-
-    public String getRequiredScope() {
-        return requiredScope;
-    }
-
-    public double getConfidenceThreshold() {
-        return confidenceThreshold;
-    }
-
-    public boolean isMutating() {
-        return mutating;
+    public static IntentDefinition empty(){
+        return new IntentDefinition("", "", List.of());
     }
 }
