@@ -23,6 +23,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import vn.danang.polaris.assistant.config.AssistantTypeSafeProperties;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
+import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
+import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
 /**
  * Classifies user intent using TypeSafe's Jev System One model (Choice primitive)
@@ -57,6 +59,19 @@ public class TypeSafeIntentClassifier implements IntentClassifier {
     }
 
     @Override
+    @CustomNextSpan(
+            name = "typesafe.intent.classify",
+            tags = {
+                    @SpanTag(key = "gen_ai.system", value = "typesafe"),
+                    @SpanTag(key = "gen_ai.operation.name", value = "classify"),
+                    @SpanTag(key = "typesafe.intents.count", expression = "#intents != null ? #intents.size() : 0"),
+                    @SpanTag(key = "typesafe.history.count", expression = "#history != null ? #history.size() : 0")
+            },
+            resultTags = {
+                    @SpanTag(key = "typesafe.intent.result", expression = "intentId()"),
+                    @SpanTag(key = "typesafe.intent.confidence", expression = "confidence()")
+            }
+    )
     public IntentClassification classify(String query, List<AssistantMessage> history, Collection<IntentDefinition> intents) {
         if (intents == null || intents.isEmpty()) {
             log.warn("No intent taxonomy available; cannot classify query.");

@@ -32,6 +32,8 @@ import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.config.AssistantAiProperties;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
+import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
+import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
 @Component
 public class GeminiAiModelClient implements AssistantModelClient {
@@ -84,6 +86,20 @@ public class GeminiAiModelClient implements AssistantModelClient {
     }
 
     @Override
+    @CustomNextSpan(
+            name = "gemini.generate_content",
+            tags = {
+                    @SpanTag(key = "gen_ai.system", value = "gemini"),
+                    @SpanTag(key = "gen_ai.operation.name", value = "chat"),
+                    @SpanTag(key = "gen_ai.client", value = "GeminiAiModelClient"),
+                    @SpanTag(key = "peer.service", value = "generativelanguage.googleapis.com"),
+                    @SpanTag(key = "gemini.tools.count", expression = "#tools != null && !#tools.isEmpty() ? #tools.size() : null"),
+                    @SpanTag(key = "agent.iteration", expression = "#context?.iteration()"),
+                    @SpanTag(key = "agent.intent_id", expression = "#context != null ? (#context.intentId() ?: 'unknown') : null"),
+                    @SpanTag(key = "agent.intent_confidence", expression = "#context?.intentConfidence()"),
+                    @SpanTag(key = "agent.tools_offered_count", expression = "#context?.toolsOfferedCount()")
+            }
+    )
     public ModelResponse generateResponse(List<AssistantMessage> messages, List<Tool> tools, @Nullable ModelRequestContext context) {
         String apiKey = aiModelConfig.getApiKey();
         if (apiKey == null) {
@@ -102,34 +118,12 @@ public class GeminiAiModelClient implements AssistantModelClient {
             return new ModelResponse("I am Polaris Assistant! (Live AI Model key is not configured. Set GEMINI_API_KEY or polaris.ai.api-key to connect to live Gemini. Echo: \"" + lastUserMessage + "\")");
         }
 
-        if (this.tracer == null) {
-            return executeAndParse(messages, tools, null);
+        Span span = this.tracer != null ? this.tracer.currentSpan() : null;
+        if (span != null) {
+            String model = Optional.ofNullable(aiModelConfig.getModel()).filter(s -> !s.isBlank()).orElse("unknown");
+            span.tag("gen_ai.request.model", model);
         }
-
-        String model = Optional.ofNullable(aiModelConfig.getModel()).filter(s -> !s.isBlank()).orElse("unknown");
-        String spanName = "gemini.generate_content %s".formatted(model);
-        Span span = this.tracer.nextSpan().name(spanName);
-        span.tag("gen_ai.system", "gemini");
-        span.tag("gen_ai.request.model", model);
-        span.tag("gen_ai.operation.name", "chat");
-        span.tag("gen_ai.client", "GeminiAiModelClient");
-        span.tag("peer.service", "generativelanguage.googleapis.com");
-        if (tools != null && !tools.isEmpty()) {
-            span.tag("gemini.tools.count", String.valueOf(tools.size()));
-        }
-        if (context != null) {
-            span.tag("agent.iteration", String.valueOf(context.iteration()));
-            span.tag("agent.intent_id", context.intentId() != null ? context.intentId() : "unknown");
-            span.tag("agent.intent_confidence", String.valueOf(context.intentConfidence()));
-            span.tag("agent.tools_offered_count", String.valueOf(context.toolsOfferedCount()));
-        }
-        span.start();
-
-        try (Tracer.SpanInScope ws = this.tracer.withSpan(span)) {
-            return executeAndParse(messages, tools, span);
-        } finally {
-            span.end();
-        }
+        return executeAndParse(messages, tools, span);
     }
 
     private ModelResponse executeAndParse(List<AssistantMessage> messages, List<Tool> tools, @Nullable Span span) {

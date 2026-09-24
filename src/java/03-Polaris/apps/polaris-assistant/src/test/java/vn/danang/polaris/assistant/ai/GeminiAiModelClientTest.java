@@ -23,6 +23,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
 import org.springframework.beans.factory.ObjectProvider;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,6 +35,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.config.AssistantAiProperties;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
+import vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect;
 
 class GeminiAiModelClientTest {
 
@@ -266,6 +268,7 @@ class GeminiAiModelClientTest {
             TraceContext traceContext = mock(TraceContext.class);
 
             when(tracer.nextSpan()).thenReturn(span);
+            when(tracer.currentSpan()).thenReturn(span);
             when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
             when(span.context()).thenReturn(traceContext);
             when(traceContext.traceId()).thenReturn("4bf92f3577b34da6a3ce929d0e0e4736");
@@ -298,17 +301,19 @@ class GeminiAiModelClientTest {
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                     .thenReturn(mockResponse);
 
-            GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+            GeminiAiModelClient clientWithTracer = withTracing(
+                    new GeminiAiModelClient(properties, httpClient, objectMapper, tracer), tracer);
 
             ModelResponse response = clientWithTracer.generateResponse(
                     List.of(createUserMessage("Find products")),
-                    List.of(tool)
+                    List.of(tool),
+                    ModelRequestContext.empty()
             );
 
             assertThat(response.text()).isEqualTo("Products found");
 
             verify(tracer).nextSpan();
-            verify(span).name("gemini.generate_content gemini-3.6-flash");
+            verify(span).name("gemini.generate_content");
             verify(span).tag("gen_ai.system", "gemini");
             verify(span).tag("gen_ai.request.model", "gemini-3.6-flash");
             verify(span).tag("gen_ai.operation.name", "chat");
@@ -336,6 +341,7 @@ class GeminiAiModelClientTest {
             Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
 
             when(tracer.nextSpan()).thenReturn(span);
+            when(tracer.currentSpan()).thenReturn(span);
             when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
 
             String mockResponseBody = """
@@ -369,9 +375,11 @@ class GeminiAiModelClientTest {
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                     .thenReturn(mockResponse);
 
-            GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+            GeminiAiModelClient clientWithTracer = withTracing(
+                    new GeminiAiModelClient(properties, httpClient, objectMapper, tracer), tracer);
 
-            ModelResponse response = clientWithTracer.generateResponse(List.of(createUserMessage("Find chargers")), List.of());
+            ModelResponse response = clientWithTracer.generateResponse(
+                    List.of(createUserMessage("Find chargers")), List.of(), ModelRequestContext.empty());
 
             assertThat(response.hasToolCalls()).isTrue();
             verify(span).tag("gen_ai.usage.input_tokens", "28");
@@ -517,6 +525,7 @@ class GeminiAiModelClientTest {
             Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
 
             when(tracer.nextSpan()).thenReturn(span);
+            when(tracer.currentSpan()).thenReturn(span);
             when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
 
             String mockResponseBody = """
@@ -547,11 +556,13 @@ class GeminiAiModelClientTest {
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                     .thenReturn(mockResponse);
 
-            GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+            GeminiAiModelClient clientWithTracer = withTracing(
+                    new GeminiAiModelClient(properties, httpClient, objectMapper, tracer), tracer);
 
             ModelResponse response = clientWithTracer.generateResponse(
                     List.of(createUserMessage("Check stock")),
-                    List.of()
+                    List.of(),
+                    ModelRequestContext.empty()
             );
 
             assertThat(response.text()).isEqualTo("The inventory has 5 items available.");
@@ -573,6 +584,7 @@ class GeminiAiModelClientTest {
             Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
 
             when(tracer.nextSpan()).thenReturn(span);
+            when(tracer.currentSpan()).thenReturn(span);
             when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
 
             String mockResponseBody = """
@@ -601,7 +613,8 @@ class GeminiAiModelClientTest {
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                     .thenReturn(mockResponse);
 
-            GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+            GeminiAiModelClient clientWithTracer = withTracing(
+                    new GeminiAiModelClient(properties, httpClient, objectMapper, tracer), tracer);
 
             ModelResponse response = clientWithTracer.generateResponse(
                     List.of(createUserMessage("Find keyboard")),
@@ -623,6 +636,7 @@ class GeminiAiModelClientTest {
             Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
 
             when(tracer.nextSpan()).thenReturn(span);
+            when(tracer.currentSpan()).thenReturn(span);
             when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
 
             String mockResponseBody = """
@@ -648,7 +662,8 @@ class GeminiAiModelClientTest {
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                     .thenReturn(mockResponse);
 
-            GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+            GeminiAiModelClient clientWithTracer = withTracing(
+                    new GeminiAiModelClient(properties, httpClient, objectMapper, tracer), tracer);
             ModelRequestContext context = new ModelRequestContext(2, "catalog.product.search", 0.95, 3);
 
             ModelResponse response = clientWithTracer.generateResponse(
@@ -740,6 +755,7 @@ class GeminiAiModelClientTest {
             Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
 
             when(tracer.nextSpan()).thenReturn(span);
+            when(tracer.currentSpan()).thenReturn(span);
             when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
 
             HttpResponse<String> mockResponse = mock(HttpResponse.class);
@@ -748,9 +764,11 @@ class GeminiAiModelClientTest {
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                     .thenReturn(mockResponse);
 
-            GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+            GeminiAiModelClient clientWithTracer = withTracing(
+                    new GeminiAiModelClient(properties, httpClient, objectMapper, tracer), tracer);
 
-            ModelResponse response = clientWithTracer.generateResponse(List.of(createUserMessage("Hello")), List.of());
+            ModelResponse response = clientWithTracer.generateResponse(
+                    List.of(createUserMessage("Hello")), List.of(), ModelRequestContext.empty());
 
             assertThat(response.text()).contains("Unable to get response from AI Model (Bad Request).");
             verify(span).tag("http.status_code", "400");
@@ -826,13 +844,16 @@ class GeminiAiModelClientTest {
             Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
 
             when(tracer.nextSpan()).thenReturn(span);
+            when(tracer.currentSpan()).thenReturn(span);
             when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                     .thenThrow(new IOException("Connection reset"));
 
-            GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+            GeminiAiModelClient clientWithTracer = withTracing(
+                    new GeminiAiModelClient(properties, httpClient, objectMapper, tracer), tracer);
 
-            ModelResponse response = clientWithTracer.generateResponse(List.of(createUserMessage("Hello")), List.of());
+            ModelResponse response = clientWithTracer.generateResponse(
+                    List.of(createUserMessage("Hello")), List.of(), ModelRequestContext.empty());
 
             assertThat(response.text()).contains("Failed to communicate with AI Model: Connection reset");
             verify(span).error(any(IOException.class));
@@ -1029,6 +1050,7 @@ class GeminiAiModelClientTest {
             Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
 
             when(tracer.nextSpan()).thenReturn(span);
+            when(tracer.currentSpan()).thenReturn(span);
             when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
 
             String sensitiveUserPrompt = "My password is superSecret123 and credit card is 4111222233334444";
@@ -1064,7 +1086,8 @@ class GeminiAiModelClientTest {
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                     .thenReturn(mockResponse);
 
-            GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+            GeminiAiModelClient clientWithTracer = withTracing(
+                    new GeminiAiModelClient(properties, httpClient, objectMapper, tracer), tracer);
             ModelRequestContext context = new ModelRequestContext(1, "catalog.search", 0.99, 1);
 
             ModelResponse response = clientWithTracer.generateResponse(
@@ -1152,6 +1175,7 @@ class GeminiAiModelClientTest {
             Span span = mock(Span.class, org.mockito.Mockito.RETURNS_SELF);
 
             when(tracer.nextSpan()).thenReturn(span);
+            when(tracer.currentSpan()).thenReturn(span);
             when(tracer.withSpan(span)).thenReturn(mock(Tracer.SpanInScope.class));
 
             HttpResponse<String> mockResponse = mock(HttpResponse.class);
@@ -1160,7 +1184,8 @@ class GeminiAiModelClientTest {
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                     .thenReturn(mockResponse);
 
-            GeminiAiModelClient clientWithTracer = new GeminiAiModelClient(properties, httpClient, objectMapper, tracer);
+            GeminiAiModelClient clientWithTracer = withTracing(
+                    new GeminiAiModelClient(properties, httpClient, objectMapper, tracer), tracer);
 
             ModelResponse response = clientWithTracer.generateResponse(
                     List.of(createUserMessage("Hello")),
@@ -1201,6 +1226,13 @@ class GeminiAiModelClientTest {
             }
         });
         return flowSubscriber.getBody().toCompletableFuture().join();
+    }
+
+    private GeminiAiModelClient withTracing(GeminiAiModelClient target, Tracer tracer) {
+        AspectJProxyFactory factory = new AspectJProxyFactory(target);
+        factory.setProxyTargetClass(true);
+        factory.addAspect(new CustomNextSpanAspect(tracer));
+        return factory.getProxy();
     }
 
     private AssistantMessage createUserMessage(String content) {
