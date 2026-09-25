@@ -105,6 +105,8 @@ services:
       SPRING_DATASOURCE_PASSWORD: polaris
       POLARIS_MCP_CORE_URL: http://polaris:8080/mcp
       POLARIS_MCP_CORE_MESSAGE_ENDPOINT: http://polaris:8080/mcp
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
       SPRINGDOC_SWAGGER-UI_OAUTH_CLIENT-ID: "polaris-app"
@@ -126,6 +128,8 @@ services:
         condition: service_healthy
       polaris-db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       otel-collector:
         condition: service_started
     healthcheck:
@@ -138,6 +142,18 @@ services:
       start_period: 30s
     networks:
       - polaris-net
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - polaris-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   polaris-db:
     image: postgres:16
     container_name: polaris-postgres

@@ -41,5 +41,9 @@ management:
       enabled: false
     polarisMcp:
       enabled: false
+    # Same reasoning as above: this suite doesn't start a real Redis, so the auto-configured
+    # redis health contributor would always report DOWN and drag down the aggregate status.
+    redis:
+      enabled: false
 
 

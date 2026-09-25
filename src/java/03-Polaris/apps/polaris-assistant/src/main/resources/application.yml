@@ -24,6 +24,11 @@ spring:
     console:
       enabled: true
       path: /h2-console
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
   security:
     oauth2:
       resourceserver:
@@ -49,6 +54,11 @@ polaris:
   assistant:
     intent:
       file: ${POLARIS_ASSISTANT_INTENT_FILE:classpath:intents.json}
+      redis:
+        key: ${POLARIS_ASSISTANT_INTENT_REDIS_KEY:polaris:assistant:intents}
+        local-cache-ttl: ${POLARIS_ASSISTANT_INTENT_REDIS_LOCAL_CACHE_TTL:30s}
+        fallback-retry-interval: ${POLARIS_ASSISTANT_INTENT_REDIS_FALLBACK_RETRY_INTERVAL:5s}
+        seed-if-missing: ${POLARIS_ASSISTANT_INTENT_REDIS_SEED_IF_MISSING:true}
 
 springdoc:
   api-docs:
