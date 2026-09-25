@@ -68,6 +68,7 @@ services:
       # LOGGING_LEVEL_IO_OPENTELEMETRY: DEBUG
       # LOGGING_LEVEL_IO_OPENTELEMETRY_EXPORTER_OTLP: DEBUG
       LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND: DEBUG
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW-DETAILS: always
       SPRING_JPA_SHOW-SQL: true
     ports:
       - "8080:8080"
@@ -113,6 +114,9 @@ services:
       MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
       MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/logs
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW-DETAILS: always
+    ports:
+      - "8081:8081"
     volumes:
       - ./docker/nginx/truststore.jks:/certs/truststore.jks:ro
     depends_on:
@@ -125,9 +129,11 @@ services:
       otel-collector:
         condition: service_started
     healthcheck:
+      # readiness now probes Gemini, TypeSafe and the Polaris Core MCP server (up to 2s each,
+      # run sequentially), so the timeout allows for that worst case plus the liveness call.
       test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health/liveness && curl -f http://localhost:8081/actuator/health/readiness || exit 1"]
       interval: 10s
-      timeout: 5s
+      timeout: 8s
       retries: 5
       start_period: 30s
     networks:

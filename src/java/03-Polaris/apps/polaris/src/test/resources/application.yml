@@ -19,6 +19,12 @@ management:
     health:
       probes:
         enabled: true
+      # Mirrors the production group so this suite actually exercises "readiness requires a
+      # working DB": Testcontainers gives this suite a real, live Postgres, so "db" is
+      # genuinely up here rather than being a dependency this suite needs to fake or disable.
+      group:
+        readiness:
+          include: readinessState,db
   endpoints:
     web:
       exposure:

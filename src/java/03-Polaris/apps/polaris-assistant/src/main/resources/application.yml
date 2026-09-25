@@ -64,6 +64,14 @@ management:
     health:
       probes:
         enabled: true
+      # Readiness reflects whether this instance can actually serve the assistant: it needs
+      # Gemini, TypeSafe and the Polaris Core MCP server all reachable, on top of the base
+      # readinessState. Liveness stays untouched by these, since a dependency outage should
+      # take the pod out of load-balancing (not ready), not restart a process that is otherwise
+      # healthy (live).
+      group:
+        readiness:
+          include: readinessState,gemini,typeSafe,polarisMcp
   endpoints:
     web:
       exposure:

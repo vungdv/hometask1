@@ -54,6 +54,13 @@ management:
     health:
       probes:
         enabled: true
+      # Readiness reflects whether this instance can actually serve traffic, which requires a
+      # working database connection on top of the base readinessState. "db" is the id Spring
+      # Boot auto-assigns to the DataSourceHealthIndicator it creates for the configured
+      # DataSource (Postgres in docker/prod, H2 locally) - no extra wiring needed.
+      group:
+        readiness:
+          include: readinessState,db
   endpoints:
     web:
       exposure:

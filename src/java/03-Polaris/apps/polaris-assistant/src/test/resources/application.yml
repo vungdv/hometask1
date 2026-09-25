@@ -28,5 +28,18 @@ management:
       enabled: true
     readinessstate:
       enabled: true
+    # This suite boots the full application context (@SpringBootTest) with no real Gemini/
+    # TypeSafe credentials and no running Polaris Core MCP server, so the dependency probes
+    # would always and correctly report down here. That's expected in this sandbox, not a bug,
+    # but it's not what these tests are about (probe wiring/security exposure) - dependency-down
+    # behavior is covered directly by GeminiHealthIndicatorTest, TypeSafeHealthIndicatorTest and
+    # PolarisMcpHealthIndicatorTest instead. Disable the indicators here so this suite keeps
+    # exercising a plain, dependency-free health surface.
+    gemini:
+      enabled: false
+    typeSafe:
+      enabled: false
+    polarisMcp:
+      enabled: false
 
 
