@@ -24,6 +24,11 @@ spring:
     console:
       enabled: true
       path: /h2-console
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
   security:
     oauth2:
       resourceserver:
@@ -35,6 +40,11 @@ polaris:
     provider: gemini
     api-key: ${GEMINI_API_KEY:${POLARIS_AI_API_KEY:}}
     model: ${POLARIS_AI_MODEL:gemini-3.6-flash}
+  cache:
+    products:
+      local-ttl: ${POLARIS_CACHE_PRODUCTS_LOCAL_TTL:30s}
+      local-max-size: ${POLARIS_CACHE_PRODUCTS_LOCAL_MAX_SIZE:5000}
+      remote-ttl: ${POLARIS_CACHE_PRODUCTS_REMOTE_TTL:10m}
 springdoc:
   api-docs:
     enabled: true

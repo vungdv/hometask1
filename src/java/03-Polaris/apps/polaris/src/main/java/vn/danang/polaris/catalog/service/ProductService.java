@@ -5,6 +5,10 @@ import java.time.Instant;
 
 import org.mapstruct.factory.Mappers;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -19,6 +23,7 @@ import vn.danang.polaris.catalog.mapper.ProductMapper;
 import vn.danang.polaris.catalog.repository.CategoryRepository;
 import vn.danang.polaris.catalog.repository.ProductRepository;
 import vn.danang.polaris.catalog.repository.ProductSpecifications;
+import vn.danang.polaris.config.CacheConfig;
 import vn.danang.polaris.web.exception.DuplicateSkuException;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
 
@@ -76,19 +81,30 @@ public class ProductService {
                 .map(productMapper::toResponse);
     }
 
+    @Cacheable(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "#id")
     public ProductResponse getProductById(Long id) {
         return productRepository.findById(id)
                 .map(productMapper::toResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
     }
 
+    // SKU lookups share the "products" cache with id lookups, so their key is prefixed
+    // ("sku:<lowercased-sku>") to keep it distinct from the plain numeric id keys.
+    @Cacheable(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #sku.toLowerCase()")
     public ProductResponse getProductBySku(String sku) {
         return productRepository.findBySkuIgnoreCase(sku)
                 .map(productMapper::toResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
     }
 
+    // Primes the cache with the newly created product (by id and by SKU) instead of evicting,
+    // since there's nothing stale to invalidate for a brand-new id - this just saves the very
+    // next getProductById/getProductBySku call (a common create-then-fetch pattern) a round trip.
     @Transactional
+    @Caching(put = {
+            @CachePut(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "#result.id()"),
+            @CachePut(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #result.sku().toLowerCase()")
+    })
     public ProductResponse createProduct(CreateProductRequest request) {
         String trimmedSku = request.sku() != null ? request.sku().trim() : "";
         if (productRepository.existsBySkuIgnoreCase(trimmedSku)) {
@@ -129,13 +145,21 @@ public class ProductService {
         return productMapper.toResponse(saved);
     }
 
+    // @CacheEvict rather than @CachePut: this returns the Product entity, not the ProductResponse
+    // the "products" cache stores, so putting #result straight back in would poison the cache
+    // with the wrong type. Evicting both keys (id and sku) forces the next read of either to
+    // repopulate from the DB with a correctly mapped ProductResponse.
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "#id"),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #result.getSku().toLowerCase()")
+    })
     public Product adjustInventoryById(Long id, int delta) {
         // Pessimistic write lock (SELECT ... FOR UPDATE via LockModeType.PESSIMISTIC_WRITE)
         // prevents race conditions and lost updates during concurrent delta adjustments (ADR-0007).
         Product product = productRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
-        int current = product.getStockQty() != null ? product.getStockQty() : 0;
+        int current = product.getStockQty();
         int target = current + delta;
         if (target < 0) {
             throw new IllegalArgumentException("Cannot adjust stock below 0. Current: " + current + ", delta: " + delta);
@@ -145,6 +169,10 @@ public class ProductService {
     }
 
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "#result.getId()"),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #sku.toLowerCase()")
+    })
     public Product adjustInventory(String sku, int delta) {
         // Pessimistic write lock (SELECT ... FOR UPDATE via LockModeType.PESSIMISTIC_WRITE)
         // prevents race conditions and lost updates during concurrent delta adjustments (ADR-0007).
@@ -160,6 +188,10 @@ public class ProductService {
     }
 
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "#result.getId()"),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #sku.toLowerCase()")
+    })
     public Product deductStock(String sku, int quantity) {
         Product product = productRepository.findBySkuIgnoreCaseForUpdate(sku)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
@@ -172,6 +204,10 @@ public class ProductService {
     }
 
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "#result.getId()"),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #sku.toLowerCase()")
+    })
     public Product restoreStock(String sku, int quantity) {
         Product product = productRepository.findBySkuIgnoreCaseForUpdate(sku)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with SKU: " + sku));
