@@ -64,8 +64,15 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
         this.policyEngine = policyEngineProvider != null && policyEngineProvider.getIfAvailable() != null
                 ? policyEngineProvider.getIfAvailable()
                 : new DefaultPolicyEngine();
-        if (executorProvider != null && executorProvider.getIfAvailable() != null) {
-            this.executor = executorProvider.getIfAvailable();
+        // getIfUnique() (not getIfAvailable()): once WO-021 enables @EnableScheduling, Spring Boot
+        // also registers its own "taskScheduler" bean, which is itself an Executor - making this
+        // provider ambiguous rather than empty. getIfAvailable() throws on ambiguity;
+        // getIfUnique() just falls through to this class's own dedicated virtual-thread executor,
+        // which is the correct outcome here regardless - this component was never meant to share
+        // the application's general-purpose executor, only to accept a caller-supplied override.
+        Executor providedExecutor = executorProvider != null ? executorProvider.getIfUnique() : null;
+        if (providedExecutor != null) {
+            this.executor = providedExecutor;
             this.managedExecutor = false;
         } else {
             this.executor = Executors.newVirtualThreadPerTaskExecutor();

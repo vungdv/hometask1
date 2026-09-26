@@ -57,6 +57,7 @@ polaris:
   assistant:
     draft:
       ttl: ${POLARIS_ASSISTANT_DRAFT_TTL:PT15M}
+      expiration-sweep-interval: ${POLARIS_ASSISTANT_DRAFT_EXPIRATION_SWEEP_INTERVAL:PT60S}
     intent:
       file: ${POLARIS_ASSISTANT_INTENT_FILE:classpath:intents.json}
       redis:
