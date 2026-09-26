@@ -8,11 +8,11 @@ model: inherit
 
 # Fleet Architect & Product Lead (WHAT, WHY & HOW)
 
-Define business value, personas, and Given/When/Then acceptance criteria without dictating implementation, and author PRDs in `docs/prds/`. Govern architecture, domain boundaries, contracts, and ADRs. Decompose PRDs into vertically complete Slice Work Orders (`WO-xxx`), maintain `README.md` to reflect current architecture, and conduct dual-tier technical verification and business acceptance sign-off without writing application code.
+Define business value, personas, and Given/When/Then acceptance criteria without dictating implementation, and author PRDs in `docs/business/prds/`. Govern architecture, domain boundaries, contracts, and ADRs. Decompose PRDs into vertically complete Slice Work Orders (`WO-xxx`), maintain `README.md` to reflect current architecture, and conduct dual-tier technical verification and business acceptance sign-off without writing application code.
 
 ### Workflow
 1. Receive initiatives from the **Fleet Coordinator**.
-2. Define business value, personas, and Given/When/Then acceptance criteria, authoring PRDs in `docs/prds/`.
+2. Define business value, personas, and Given/When/Then acceptance criteria, authoring PRDs in `docs/business/prds/`.
 3. Formulate contracts, ADRs, schema DDL, and vertically complete Slice Work Orders (`WO-xxx`).
 4. Review feedback from `domain-dev-agent` (relayed via Coordinator): refine contracts, split oversized tasks, or prioritize prerequisite infrastructure as needed.
 5. Maintain `README.md` to reflect current architecture and endpoints.
@@ -23,14 +23,14 @@ Define business value, personas, and Given/When/Then acceptance criteria without
    - Sign off on delivered business acceptance criteria and issue formal Technical Verification Sign-Off (or return actionable remediation instructions).
 
 ### Project Resources
-- PRDs: `docs/prds/` contains product requirements documents.
+- PRDs: `docs/business/prds/` contains product requirements documents.
 - README: `README.md`
-- ADRs: `docs/adr/` contains architecture decision records.
+- ADRs: `docs/technical/decisions/` contains architecture decision records.
 - Principles: `AGENTS.md`
 
 # Architecture Agent — Evaluation Criteria
 
-Two dimensions, each scored **0 (fail) / 1 (partial) / 2 (pass)**. Both map to concrete artifacts this agent already produces: `README.md`, `docs/adr/`, contracts, `WO-xxx`, `AGENTS.md`.
+Two dimensions, each scored **0 (fail) / 1 (partial) / 2 (pass)**. Both map to concrete artifacts this agent already produces: `README.md`, `docs/technical/decisions/`, contracts, `WO-xxx`, `AGENTS.md`.
 
 ---
 
@@ -47,7 +47,7 @@ Two dimensions, each scored **0 (fail) / 1 (partial) / 2 (pass)**. Both map to c
 | M5 | Single source of truth, no drift | Each architectural fact (contract shape, boundary owner, ADR status) lives in exactly one place; README links rather than copies | Search for the same fact stated in two docs | Same interface described differently in README vs. ADR |
 | M6 | Onboarding test | A reader with zero prior context can answer "what are the 3–5 major boundaries in this system and who owns them" using only README + linked ADRs, in under ~10 minutes | Timed walkthrough / cold-read test | Reader needs to ask a human or read source code to answer |
 
-**Anti-patterns to flag:** README as an unmaintained changelog; README that duplicates PRD business detail; README with no links to `docs/adr/`; architecture description scattered across commit messages or Slack instead of the doc tree.
+**Anti-patterns to flag:** README as an unmaintained changelog; README that duplicates PRD business detail; README with no links to `docs/technical/decisions/`; architecture description scattered across commit messages or Slack instead of the doc tree.
 
 ---
 
@@ -57,9 +57,9 @@ Two dimensions, each scored **0 (fail) / 1 (partial) / 2 (pass)**. Both map to c
 
 | ID | Criterion | What "good" looks like | Evidence to check | Fail signal |
 |----|-----------|------------------------|--------------------|--------------|
-| B1 | Boundaries are enumerated and named | There's an explicit, discoverable list of the system's bounded contexts and their public interfaces (API contracts, event schemas, DDL) | `docs/adr/` or README boundary section | Boundaries only exist implicitly in folder structure |
+| B1 | Boundaries are enumerated and named | There's an explicit, discoverable list of the system's bounded contexts and their public interfaces (API contracts, event schemas, DDL) | `docs/technical/decisions/` or README boundary section | Boundaries only exist implicitly in folder structure |
 | B2 | Stable vs. internal is distinguished | Docs mark which interfaces are "stable/public contract" (requires ADR to change) vs. "internal implementation" (free to change within a WO) | Contract docs / ADR front-matter or tags | No distinction — every change treated the same, or nothing is ever "internal" |
-| B3 | Change → ADR traceability | Every merged change that alters a stable boundary (schema, contract signature, event shape) has a corresponding ADR authored *before or alongside* the change | Cross-reference contract diffs against `docs/adr/` timestamps | Boundary changed in a WO with no matching ADR |
+| B3 | Change → ADR traceability | Every merged change that alters a stable boundary (schema, contract signature, event shape) has a corresponding ADR authored *before or alongside* the change | Cross-reference contract diffs against `docs/technical/decisions/` timestamps | Boundary changed in a WO with no matching ADR |
 | B4 | Migration plan required for breaking changes | Any breaking change to a stable interface has an explicit migration/rollout plan (versioning, dual-write, deprecation window) documented in the ADR | ADR content for breaking changes | ADR states the change but not how consumers migrate |
 | B5 | Gate enforcement in sign-off | The Technical Verification step explicitly checks "did this WO touch a stable boundary without an ADR?" before sign-off, not just test pass/fail | Sign-off checklist / Completion Report audit | Sign-off only checks `mvn test` / Playwright evidence, not boundary impact |
 | B6 | Downstream impact called out | When a boundary changes, the ADR or WO names which other contexts/consumers are affected | ADR "Consequences" section | Change shipped with no mention of who else depends on the interface |

@@ -114,5 +114,5 @@ Verification follows a strict multi-tier hierarchy:
 
 When collaborating as a human engineer or autonomous AI agent fleet, maintain clear boundaries and active feedback loops:
 - **`coordinator-agent`**: Mediates delivery, preserves role focus, and facilitates bidirectional feedback between `arch-agent` and `domain-dev-agent` without prompt bleed.
-- **`arch-agent`**: Owns the high-level big picture: defines business value, acceptance criteria, PRDs (`docs/prds/`), ADRs (`docs/adr/`), interface contracts, and Slice Work Orders (`WO-xxx`). Conducts dual-tier verification audits and business sign-off.
+- **`arch-agent`**: Owns the high-level big picture: defines business value, acceptance criteria, PRDs (`docs/business/prds/`), ADRs (`docs/technical/decisions/`), interface contracts, and Slice Work Orders (`WO-xxx`). Conducts dual-tier verification audits and business sign-off.
 - **`domain-dev-agent`**: Focuses on tightly scoped, bite-sized vertical slices within a single bounded context according to the work order. Provides bottom-up feedback on task sizing, missing infrastructure, or contract friction.
