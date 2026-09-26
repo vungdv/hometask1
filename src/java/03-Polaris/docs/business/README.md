@@ -56,6 +56,8 @@ flowchart TD
 
 Branches off step 2 above (order request), when the requested quantity exceeds available stock. See [PRD-003](prds/PRD-003-web-chat-ai-assistant.md) §3.5 and [PRD-002](prds/PRD-002-comprehensive-order-apis.md) Scenario 2.
 
+> For the Command/Event/Read-Model breakdown of this path — including where the current implementation diverges from the staged-draft flow described below — see [EM-001](../technical/event-models/EM-001-order-staging-out-of-stock-exception.md).
+
 ```mermaid
 flowchart TD
     subgraph Shopper["Shopper"]

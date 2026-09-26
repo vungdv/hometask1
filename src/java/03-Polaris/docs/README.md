@@ -21,6 +21,7 @@ Domain processes, product requirements, and use cases. Read this to understand t
 Architecture, decisions, data, and implementation. Read this to understand how the system is built.
 - [Architecture Decision Records (ADRs)](technical/decisions/) — why a given technical approach was chosen
 - [Architecture & design docs](technical/architecture/) — sequence diagrams and component design
+- [Event Models](technical/event-models/) — Command/Event/Read-Model breakdowns of individual use cases (especially exception paths), including as-designed vs. as-built gaps
 - [Work Orders](technical/work-orders/) — vertically-sliced implementation task specs
 - [Data](technical/data/) — schema and seed data
 
