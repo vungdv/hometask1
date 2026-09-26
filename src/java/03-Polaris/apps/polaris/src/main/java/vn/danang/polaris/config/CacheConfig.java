@@ -65,8 +65,12 @@ public class CacheConfig {
         // enableUnsafeDefaultTyping(), which allows any class on the classpath) since Jackson's
         // polymorphic deserialization can be abused for RCE if an attacker can write into this
         // Redis key - see https://owasp.org/www-community/vulnerabilities/Deserialization_of_untrusted_data.
+        // BigDecimal is explicitly allow-listed too: Jackson's default typing always wraps it with
+        // a type tag (e.g. ["java.math.BigDecimal", 9.99]) to preserve numeric precision, even
+        // though it's a final class - that's a JDK core type, not an attacker-controlled one.
         PolymorphicTypeValidator typeValidator = BasicPolymorphicTypeValidator.builder()
                 .allowIfSubType("vn.danang.polaris.")
+                .allowIfSubType(java.math.BigDecimal.class)
                 .build();
         GenericJacksonJsonRedisSerializer valueSerializer = GenericJacksonJsonRedisSerializer.create(
                 builder -> builder.enableDefaultTyping(typeValidator));
