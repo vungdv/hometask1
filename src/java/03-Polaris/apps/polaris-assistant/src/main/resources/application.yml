@@ -51,7 +51,12 @@ polaris:
     core:
       url: ${POLARIS_CORE_MCP_URL:http://localhost:8080/mcp}
       message-endpoint: ${POLARIS_CORE_MCP_MESSAGE_ENDPOINT:http://localhost:8080/mcp}
+  core:
+    rest:
+      base-url: ${POLARIS_CORE_REST_BASE_URL:http://localhost:8080}
   assistant:
+    draft:
+      ttl: ${POLARIS_ASSISTANT_DRAFT_TTL:PT15M}
     intent:
       file: ${POLARIS_ASSISTANT_INTENT_FILE:classpath:intents.json}
       redis:

@@ -141,6 +141,7 @@
     ],
     "allowedTools": [
       "place_order",
+      "stage_order_draft",
       "search_customers_by_name"
     ],
     "requiredScope": "order.write",

@@ -145,11 +145,11 @@
 
       { "name": "purchase-management", "description": "Purchase Management - handling customer purchases, orders, and fulfillment",
         "composite": true,
-        "composites": { "client": { "polaris-api": ["order.read", "order.write"] }}
+        "composites": { "client": { "polaris-api": ["order.read", "order.write", "catalog.read"] }}
       },
       { "name": "purchase_management", "description": "Purchase Management alias (snake_case)",
         "composite": true,
-        "composites": { "client": { "polaris-api": ["order.read", "order.write"] }}
+        "composites": { "client": { "polaris-api": ["order.read", "order.write", "catalog.read"] }}
       }
     ],
     "client": {

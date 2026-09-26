@@ -109,6 +109,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: polaris
       POLARIS_MCP_CORE_URL: http://polaris:8080/mcp
       POLARIS_MCP_CORE_MESSAGE_ENDPOINT: http://polaris:8080/mcp
+      POLARIS_CORE_REST_BASE_URL: http://polaris:8080
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: "6379"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
