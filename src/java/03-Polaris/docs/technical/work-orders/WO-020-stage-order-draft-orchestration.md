@@ -161,7 +161,7 @@ Reuses the same intent-resolution/ReAct-loop machinery as `sendMessage`, but ins
 |---|---|---|
 | `thought` | before each model call | `{"step":"<phase>","message":"..."}` |
 | `token` | on the model's final text (chunked if the provider streams; one frame for `DeterministicRuleModelClient`, noted as an accepted simplification) | `{"delta":"..."}` |
-| `draft` | a `stage_order_draft` tool call returns `Staged` | `{"draftId":"...","status":"WAITING_CONFIRMATION","expiresAt":"...","items":[{"sku":"...","quantity":2,"unitPrice":24.90,"lineTotal":49.80}],"totalAmount":49.80}` — built from `DraftItemSnapshot` (WO-019 Task 5); this is `AssistantOrderDraftResponse` minus its `confirmedOrderNumber`/`sessionId` fields (WO-021 Task 3 defines the full DTO this is a projection of) |
+| `draft` | a `stage_order_draft` tool call returns `Staged` | `{"draftId":"...","status":"WAITING_CONFIRMATION","expiresAt":"...","items":[{"sku":"...","quantity":2,"unitPrice":24.90,"lineTotal":49.80}],"totalAmount":49.80}` — built from `DraftItemSnapshot` (WO-019 Task 5); this is `AssistantOrderDraftResponse` minus its `confirmedOrderNumber`/`sessionId` fields (WO-021 Task 4 defines the full DTO this is a projection of) |
 | `problem` | a `stage_order_draft` tool call returns `Rejected` | `{"type":"https://polaris.local/errors/out-of-stock","sku":"...","requested_quantity":10,"available_quantity":5,"remedy":"...","actions":[...]}` — same shape `InsufficientStockActions`/`GlobalExceptionHandler` produce for REST clients (Task 2) |
 | `done` | loop terminates | `{"sessionId":"...","status":"<current AssistantSessionStatus>"}` |
 
