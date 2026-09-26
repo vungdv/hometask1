@@ -21,7 +21,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.Status;
 
-import vn.danang.polaris.assistant.mcp.PolarisMcpProperties;
+import vn.danang.polaris.assistant.tools.PolarisMcpProperties;
 
 class PolarisMcpHealthIndicatorTest {
 

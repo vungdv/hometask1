@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.mcp;
+package vn.danang.polaris.assistant.tools;
 
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;

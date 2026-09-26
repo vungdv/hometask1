@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.mcp;
+package vn.danang.polaris.assistant.tools;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import lombok.Getter;

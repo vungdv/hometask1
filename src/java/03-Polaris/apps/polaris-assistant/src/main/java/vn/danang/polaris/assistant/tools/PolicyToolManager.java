@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.mcp;
+package vn.danang.polaris.assistant.tools;
 
 import java.util.List;
 import java.util.Map;
@@ -32,14 +32,14 @@ import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
 /**
  * Hub and tool registry for Polaris Assistant.
- * Implements {@link McpHub} to discover tools and handle the tool call execution loop,
+ * Implements {@link ToolManager} to discover tools and handle the tool call execution loop,
  * dispatching tool calls directly to Polaris Core via {@link PolarisMcpClient}
  * with policy validation and concurrent execution for remote tool calls.
  */
 @Component
-public class ToolManager implements McpHub, DisposableBean {
+public class PolicyToolManager implements ToolManager, DisposableBean {
 
-    private static final Logger log = LoggerFactory.getLogger(ToolManager.class);
+    private static final Logger log = LoggerFactory.getLogger(PolicyToolManager.class);
 
     private final PolarisMcpClient polarisMcpClient;
     private final PolicyEngine policyEngine;
@@ -47,7 +47,7 @@ public class ToolManager implements McpHub, DisposableBean {
     private final boolean managedExecutor;
 
     @Autowired
-    public ToolManager(
+    public PolicyToolManager(
             PolarisMcpClient polarisMcpClient,
             ObjectProvider<PolicyEngine> policyEngineProvider,
             ObjectProvider<Executor> executorProvider) {
@@ -64,17 +64,17 @@ public class ToolManager implements McpHub, DisposableBean {
         }
     }
 
-    public ToolManager(PolarisMcpClient polarisMcpClient) {
+    public PolicyToolManager(PolarisMcpClient polarisMcpClient) {
         this(polarisMcpClient, (PolicyEngine) null, null);
     }
 
-    public ToolManager(
+    public PolicyToolManager(
             PolarisMcpClient polarisMcpClient,
             @Nullable PolicyEngine policyEngine) {
         this(polarisMcpClient, policyEngine, null);
     }
 
-    public ToolManager(
+    public PolicyToolManager(
             PolarisMcpClient polarisMcpClient,
             @Nullable PolicyEngine policyEngine,
             @Nullable Executor executor) {
@@ -186,15 +186,6 @@ public class ToolManager implements McpHub, DisposableBean {
     }
 
     /**
-     * Dispatches a tool invocation to Polaris Core.
-     */
-    @Override
-    public CallToolResult executeTool(String toolName, Map<String, Object> arguments) {
-        log.info("Dispatching execution for tool: {}", toolName);
-        return polarisMcpClient.callTool(toolName, arguments);
-    }
-
-    /**
      * Policy check function: evaluates intent validity and policy authorization for a proposed tool call.
      *
      * @param toolCall the tool call proposed by the model
@@ -272,6 +263,11 @@ public class ToolManager implements McpHub, DisposableBean {
             log.error("Tool execution error for '{}': {}", toolCall.name(), ex.getMessage(), ex);
             return ToolResult.error(toolCall, "Tool execution error: " + ex.getMessage(), ex.getMessage());
         }
+    }
+
+    private CallToolResult executeTool(String toolName, Map<String, Object> arguments) {
+        log.info("Dispatching execution for tool: {}", toolName);
+        return polarisMcpClient.callTool(toolName, arguments);
     }
 
     private String extractText(CallToolResult result) {

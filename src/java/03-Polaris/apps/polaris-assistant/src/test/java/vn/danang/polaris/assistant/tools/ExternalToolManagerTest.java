@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.mcp;
+package vn.danang.polaris.assistant.tools;
 
 import java.util.List;
 import java.util.Map;
@@ -35,16 +35,16 @@ import vn.danang.polaris.assistant.policy.PolicyEngine;
 import vn.danang.polaris.assistant.ai.ToolCall;
 
 @ExtendWith(MockitoExtension.class)
-class ExternalMcpHubTest {
+class ExternalToolManagerTest {
 
     @Mock
     private PolarisMcpClient polarisMcpClient;
 
-    private ToolManager mcpHub;
+    private PolicyToolManager mcpHub;
 
     @BeforeEach
     void setUp() {
-        mcpHub = new ToolManager(polarisMcpClient);
+        mcpHub = new PolicyToolManager(polarisMcpClient);
     }
 
     // =========================================================================
@@ -71,7 +71,7 @@ class ExternalMcpHubTest {
         }
 
         @Test
-        @DisplayName("Given ToolManager with CustomNextSpanAspect, when discovering tools, then tags span with mcp.tool_count")
+        @DisplayName("Given PolicyToolManager with CustomNextSpanAspect, when discovering tools, then tags span with mcp.tool_count")
         void tags_span_with_mcp_tool_count_when_discovering_tools() {
             io.micrometer.tracing.Span span = mock(io.micrometer.tracing.Span.class);
             io.micrometer.tracing.Tracer tracer = mock(io.micrometer.tracing.Tracer.class);
@@ -86,7 +86,7 @@ class ExternalMcpHubTest {
                     new org.springframework.aop.aspectj.annotation.AspectJProxyFactory(mcpHub);
             factory.setProxyTargetClass(true);
             factory.addAspect(new vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect(tracer));
-            ToolManager proxy = factory.getProxy();
+            PolicyToolManager proxy = factory.getProxy();
 
             Tool tool1 = Tool.builder("search_available_products", Map.of()).build();
             Tool tool2 = Tool.builder("place_order", Map.of()).build();
@@ -99,24 +99,6 @@ class ExternalMcpHubTest {
             verify(span).tag("mcp.tool_count", "2");
             verify(span).start();
             verify(span).end();
-        }
-
-        @Test
-        @DisplayName("Given valid tool call, when executed, then routes to client and returns content")
-        void executes_tool_and_returns_content() {
-            CallToolResult expected = new CallToolResult(
-                    List.of(TextContent.builder("Found 3 products").build()),
-                    false,
-                    null,
-                    Map.of()
-            );
-            when(polarisMcpClient.callTool(eq("search_available_products"), any())).thenReturn(expected);
-
-            CallToolResult actual = mcpHub.executeTool("search_available_products", Map.of("query", "charger"));
-
-            assertThat(actual.isError()).isFalse();
-            assertThat(((TextContent) actual.content().getFirst()).text()).isEqualTo("Found 3 products");
-            verify(polarisMcpClient, times(1)).callTool(eq("search_available_products"), any());
         }
 
         @Test
@@ -215,7 +197,7 @@ class ExternalMcpHubTest {
             when(mockPolicy.authorize(eq("order.write")))
                     .thenReturn(PolicyDecision.deny("Missing scope order.write"));
 
-            ToolManager hubWithPolicy = new ToolManager(polarisMcpClient, mockPolicy);
+            PolicyToolManager hubWithPolicy = new PolicyToolManager(polarisMcpClient, mockPolicy);
 
             Tool tool = Tool.builder("place_order", Map.of()).build();
             IntentDefinition intentDef = mock(IntentDefinition.class);
@@ -273,7 +255,7 @@ class ExternalMcpHubTest {
             when(mockPolicy.authorize(eq("order.write")))
                     .thenReturn(PolicyDecision.deny("Missing scope order.write"));
 
-            ToolManager hubWithPolicy = new ToolManager(polarisMcpClient, mockPolicy);
+            PolicyToolManager hubWithPolicy = new PolicyToolManager(polarisMcpClient, mockPolicy);
 
             Tool tool = Tool.builder("place_order", Map.of()).build();
             IntentDefinition intentDef = mock(IntentDefinition.class);
@@ -310,8 +292,8 @@ class ExternalMcpHubTest {
             when(mockPolicy.authorize(eq("custom.scope")))
                     .thenReturn(PolicyDecision.allow());
 
-            // Construct ToolManager with custom PolicyEngine
-            ToolManager hubWithoutRegistry = new ToolManager(polarisMcpClient, mockPolicy);
+            // Construct PolicyToolManager with custom PolicyEngine
+            PolicyToolManager hubWithoutRegistry = new PolicyToolManager(polarisMcpClient, mockPolicy);
 
             Tool tool = Tool.builder("custom_tool", Map.of()).build();
             IntentDefinition customIntent = mock(IntentDefinition.class);
@@ -342,7 +324,7 @@ class ExternalMcpHubTest {
             when(mockPolicy.authorize(eq("order.write")))
                     .thenReturn(PolicyDecision.allow());
 
-            ToolManager hub = new ToolManager(polarisMcpClient, mockPolicy);
+            PolicyToolManager hub = new PolicyToolManager(polarisMcpClient, mockPolicy);
             Tool tool = Tool.builder("place_order", Map.of()).build();
 
             IntentDefinition intentDef = mock(IntentDefinition.class);
@@ -371,41 +353,6 @@ class ExternalMcpHubTest {
     @Nested
     @DisplayName("3. Edge cases")
     class EdgeCases {
-
-        @Test
-        @DisplayName("Given null tool name, when executed, then handles gracefully")
-        void handles_null_tool_name_gracefully() {
-            mcpHub.executeTool(null, Map.of());
-            verify(polarisMcpClient, times(1)).callTool(eq(null), any());
-        }
-
-        @Test
-        @DisplayName("Given tool result with isError=true, when executed, then returns error result")
-        void returns_error_when_tool_returns_error_result() {
-            CallToolResult errorResult = new CallToolResult(
-                    List.of(TextContent.builder("Failed").build()),
-                    true,
-                    null,
-                    Map.of()
-            );
-            when(polarisMcpClient.callTool(eq("search_available_products"), any())).thenReturn(errorResult);
-
-            CallToolResult actual = mcpHub.executeTool("search_available_products", Map.of());
-
-            assertThat(actual.isError()).isTrue();
-        }
-
-        @Test
-        @DisplayName("Given client throws exception, when executing tool, then propagates exception")
-        void propagates_exception_on_failure() {
-            RuntimeException exception = new RuntimeException("Core timeout");
-            when(polarisMcpClient.callTool(eq("search_available_products"), any())).thenThrow(exception);
-
-            assertThatThrownBy(() -> mcpHub.executeTool("search_available_products", Map.of()))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("Core timeout");
-        }
-
         @Test
         @DisplayName("Given multiple parallel tool calls, when handled, executes them concurrently in parallel and returns all tool results")
         void executes_remote_tool_calls_concurrently_in_parallel() {
@@ -530,20 +477,20 @@ class ExternalMcpHubTest {
         }
 
         @Test
-        @DisplayName("Given ToolManager with managed executor, when destroyed, then shuts down executor")
+        @DisplayName("Given PolicyToolManager with managed executor, when destroyed, then shuts down executor")
         void shuts_down_managed_executor_on_destroy() {
-            ToolManager manager = new ToolManager(polarisMcpClient);
+            PolicyToolManager manager = new PolicyToolManager(polarisMcpClient);
             manager.destroy();
             // calling destroy again is safe and idempotent
             manager.destroy();
         }
 
         @Test
-        @DisplayName("Given ToolManager with custom unmanaged executor, when destroyed, does not shut down custom executor")
+        @DisplayName("Given PolicyToolManager with custom unmanaged executor, when destroyed, does not shut down custom executor")
         void does_not_shut_down_custom_executor_on_destroy() {
             ExecutorService customExecutor = Executors.newSingleThreadExecutor();
             try {
-                ToolManager manager = new ToolManager(polarisMcpClient, null, customExecutor);
+                PolicyToolManager manager = new PolicyToolManager(polarisMcpClient, null, customExecutor);
                 manager.destroy();
                 assertThat(customExecutor.isShutdown()).isFalse();
             } finally {
@@ -552,7 +499,7 @@ class ExternalMcpHubTest {
         }
 
         @Test
-        @DisplayName("Given ToolManager with custom ObjectProviders, initializes with provided beans")
+        @DisplayName("Given PolicyToolManager with custom ObjectProviders, initializes with provided beans")
         @SuppressWarnings("unchecked")
         void initializes_with_provided_beans_from_object_providers() {
             ObjectProvider<PolicyEngine> policyProvider = mock(ObjectProvider.class);
@@ -563,7 +510,7 @@ class ExternalMcpHubTest {
             when(policyProvider.getIfAvailable()).thenReturn(customPolicy);
             when(executorProvider.getIfAvailable()).thenReturn(customExecutor);
 
-            ToolManager manager = new ToolManager(polarisMcpClient, policyProvider, executorProvider);
+            PolicyToolManager manager = new PolicyToolManager(polarisMcpClient, policyProvider, executorProvider);
 
             try {
                 manager.destroy();
@@ -578,7 +525,7 @@ class ExternalMcpHubTest {
         void falls_back_to_defaults_when_providers_null() {
             ObjectProvider<PolicyEngine> nullPolicyProvider = null;
             ObjectProvider<Executor> nullExecutorProvider = null;
-            ToolManager manager = new ToolManager(polarisMcpClient, nullPolicyProvider, nullExecutorProvider);
+            PolicyToolManager manager = new PolicyToolManager(polarisMcpClient, nullPolicyProvider, nullExecutorProvider);
             manager.destroy();
         }
     }

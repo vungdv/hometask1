@@ -74,7 +74,7 @@ CallToolResult toolResult = decisionRecorder.recordToolExecution(
         toolCall.arguments(),
         filteredTools,
         span,
-        () -> mcpHub.executeTool(toolCall.name(), toolCall.arguments())
+        () -> toolManager.executeTool(toolCall.name(), toolCall.arguments())
 );
 String resultText = extractToolResultText(toolResult);
 recordEvent(span, "agent.tool.result: " + toolCall.name());

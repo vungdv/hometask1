@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.mcp;
+package vn.danang.polaris.assistant.tools;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnore;

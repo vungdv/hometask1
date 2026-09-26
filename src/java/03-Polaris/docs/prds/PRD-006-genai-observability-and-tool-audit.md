@@ -13,7 +13,7 @@
 
 ## 1. Business Problem & Engineering Rationale (WHAT & WHY)
 
-In Polaris conversational commerce, the AI Assistant (`apps/polaris-assistant`) executes an autonomous ReAct loop (`AssistantChatService`), alternating between foundation model reasoning (Google Gemini) and tool execution over the Model Context Protocol (`ToolManager`). 
+In Polaris conversational commerce, the AI Assistant (`apps/polaris-assistant`) executes an autonomous ReAct loop (`AssistantChatService`), alternating between foundation model reasoning (Google Gemini) and tool execution over the Model Context Protocol (`PolicyToolManager`). 
 
 Prior architecture milestones established:
 - **PRD-004 / ADR-0011:** Gemini model distributed tracing spans (`gemini.generate_content`).

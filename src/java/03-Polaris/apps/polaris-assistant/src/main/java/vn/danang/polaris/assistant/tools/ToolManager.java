@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.mcp;
+package vn.danang.polaris.assistant.tools;
 
 import java.util.List;
 import java.util.Map;
@@ -11,7 +11,7 @@ import vn.danang.polaris.assistant.ai.ToolCall;
  * Hub contract for Model Context Protocol (MCP) operations.
  * Manages tool discovery and handles execution loops for tool calls proposed by AI models.
  */
-public interface McpHub {
+public interface ToolManager {
 
     /**
      * Discovers all available tools registered with MCP providers.
@@ -19,15 +19,6 @@ public interface McpHub {
      * @return list of available tools
      */
     List<Tool> discoverAllTools();
-
-    /**
-     * Dispatches a single tool invocation to an MCP provider.
-     *
-     * @param toolName the name of the tool to execute
-     * @param arguments the arguments map for the tool
-     * @return result of the tool execution
-     */
-    CallToolResult executeTool(String toolName, Map<String, Object> arguments);
 
     /**
      * Handles the execution for a batch of tool calls proposed by the AI model.
@@ -39,11 +30,4 @@ public interface McpHub {
      * @return list of tool results indicating outcome for each tool call
      */
     List<ToolResult> handleToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context);
-
-    /**
-     * Alias for {@link #handleToolCalls(List, ToolExecutionContext)}.
-     */
-    default List<ToolResult> executeToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context) {
-        return handleToolCalls(toolCalls, context);
-    }
 }

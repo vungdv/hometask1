@@ -19,7 +19,7 @@ import org.springframework.context.annotation.Import;
 
 import vn.danang.polaris.assistant.PolarisAssistantApp;
 import vn.danang.polaris.assistant.TestcontainersConfiguration;
-import vn.danang.polaris.assistant.mcp.PolarisMcpClient;
+import vn.danang.polaris.assistant.tools.PolarisMcpClient;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
 
 @SpringBootTest(classes = PolarisAssistantApp.class)

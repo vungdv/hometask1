@@ -17,14 +17,14 @@ import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import vn.danang.polaris.assistant.mcp.PolarisMcpProperties;
+import vn.danang.polaris.assistant.tools.PolarisMcpProperties;
 
 /**
  * Reports whether the Polaris Core MCP server is reachable, for the readiness probe.
  *
  * Probes with a {@code tools/list} JSON-RPC call: it's the cheapest real MCP operation (just
  * returns tool definitions, invokes nothing) and confirms the whole path — network, HTTP layer
- * and JSON-RPC handling — the same way {@link vn.danang.polaris.assistant.mcp.HttpPolarisMcpClient}
+ * and JSON-RPC handling — the same way {@link vn.danang.polaris.assistant.tools.HttpPolarisMcpClient}
  * does for real traffic. It uses its own short, fixed timeout, independent of
  * {@code polaris.mcp.core.timeout-seconds}, so a slow/unreachable MCP server never stalls the
  * container healthcheck past its own timeout.

@@ -11,7 +11,7 @@
 
 ## 1. Context and Problem Statement
 
-Polaris Assistant operates as an autonomous microservice (`apps/polaris-assistant`) adhering to [ADR-0008](0008-polaris-assistant-independent-application-mcp-architecture.md). Inbound conversational requests (`POST /api/v1/assistant/chat`) are handled by `AssistantChatController`, which delegates execution to `AssistantChatService.sendMessage()`. Inside this service, an autonomous ReAct loop runs up to `MAX_TOOL_ITERATIONS` (5), querying Google Gemini for inference and executing tools via the Model Context Protocol (`ToolManager`).
+Polaris Assistant operates as an autonomous microservice (`apps/polaris-assistant`) adhering to [ADR-0008](0008-polaris-assistant-independent-application-mcp-architecture.md). Inbound conversational requests (`POST /api/v1/assistant/chat`) are handled by `AssistantChatController`, which delegates execution to `AssistantChatService.sendMessage()`. Inside this service, an autonomous ReAct loop runs up to `MAX_TOOL_ITERATIONS` (5), querying Google Gemini for inference and executing tools via the Model Context Protocol (`PolicyToolManager`).
 
 Prior telemetry milestones established:
 - [ADR-0011](0011-gemini-model-call-distributed-tracing.md): Distributed tracing child spans (`gemini.generate_content <model>`) for model calls.
@@ -44,7 +44,7 @@ How should Polaris architect agent-turn observability to provide zero-blind-spot
 Inject `ObjectProvider<Tracer>` into `AssistantChatService`. Open an enclosing child span named `agent.turn`, activate it using `tracer.withSpan(span)`, and record timestamped events using `span.event(eventName)` at each milestone in the ReAct lifecycle.
 
 * **Pros:**
-  - Automatically nests existing model and MCP spans under `agent.turn` without touching `GeminiAiModelClient` or `ToolManager`.
+  - Automatically nests existing model and MCP spans under `agent.turn` without touching `GeminiAiModelClient` or `PolicyToolManager`.
   - Zero span explosion: Exactly 1 enclosing span is created per turn; milestones appear as timestamped annotations in Grafana Tempo.
   - Full access to ReAct internal variables (iteration count, tool counts, session/user IDs).
   - Clean null-safe guard (`if (this.tracer != null)`).
@@ -76,19 +76,19 @@ In `AssistantChatService.java`:
 @Autowired
 public AssistantChatService(
         AssistantModelClient modelClient,
-        ExternalMcpHub mcpHub,
+        ExternalMcpHub toolManager,
         ObjectMapper objectMapper,
         ObjectProvider<Tracer> tracerProvider) {
-    this(modelClient, mcpHub, objectMapper, tracerProvider != null ? tracerProvider.getIfAvailable() : null);
+    this(modelClient, toolManager, objectMapper, tracerProvider != null ? tracerProvider.getIfAvailable() : null);
 }
 
 // Backwards-compatible constructors for testing & legacy calls
-public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub mcpHub, ObjectMapper objectMapper) {
-    this(modelClient, mcpHub, objectMapper, (Tracer) null);
+public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub toolManager, ObjectMapper objectMapper) {
+    this(modelClient, toolManager, objectMapper, (Tracer) null);
 }
 
-public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub mcpHub) {
-    this(modelClient, mcpHub, new ObjectMapper(), (Tracer) null);
+public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub toolManager) {
+    this(modelClient, toolManager, new ObjectMapper(), (Tracer) null);
 }
 
 public AssistantChatService(AssistantModelClient modelClient) {
@@ -97,11 +97,11 @@ public AssistantChatService(AssistantModelClient modelClient) {
 
 public AssistantChatService(
         AssistantModelClient modelClient,
-        ExternalMcpHub mcpHub,
+        ExternalMcpHub toolManager,
         ObjectMapper objectMapper,
         @Nullable Tracer tracer) {
     this.modelClient = modelClient;
-    this.mcpHub = mcpHub;
+    this.toolManager = toolManager;
     this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
     this.tracer = tracer;
 }
@@ -135,11 +135,11 @@ Events must be recorded at exact execution points using `recordEvent(span, event
 | Event Name | Exact Execution Location |
 |---|---|
 | `agent.request.received` | Immediately upon entering `sendMessage()`, before input validation and tool discovery. |
-| `tools.discovered` | Immediately after `mcpHub.discoverAllTools()` returns. |
+| `tools.discovered` | Immediately after `toolManager.discoverAllTools()` returns. |
 | `agent.iteration.started` | At the very beginning of each ReAct while-loop iteration (`iterations++`). |
 | `model.request` | Immediately before calling `modelClient.generateResponse(...)` (or fallback `chat()`). |
 | `model.response` | Immediately after `modelClient.generateResponse` returns `ModelResponse`. |
-| `agent.tool.call` | In the tool execution loop, immediately before calling `mcpHub.executeTool(...)`. |
+| `agent.tool.call` | In the tool execution loop, immediately before calling `toolManager.executeTool(...)`. |
 | `agent.tool.result` | In the tool execution loop, immediately after receiving `CallToolResult` and extracting text. |
 | `agent.response.generated` | Once the while-loop exits, immediately after final reply text is determined and added to history. |
 | `agent.completed` | Immediately before creating and returning `ChatMessageResponse`. |

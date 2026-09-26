@@ -23,9 +23,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import vn.danang.polaris.assistant.mcp.HttpPolarisMcpClient;
-import vn.danang.polaris.assistant.mcp.PolarisMcpClient;
-import vn.danang.polaris.assistant.mcp.PolarisMcpProperties;
+import vn.danang.polaris.assistant.tools.HttpPolarisMcpClient;
+import vn.danang.polaris.assistant.tools.PolarisMcpClient;
+import vn.danang.polaris.assistant.tools.PolarisMcpProperties;
 import vn.danang.polaris.assistant.security.UserContext;
 
 /**

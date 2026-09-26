@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.mcp;
+package vn.danang.polaris.assistant.tools;
 
 import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.ai.ToolCall;

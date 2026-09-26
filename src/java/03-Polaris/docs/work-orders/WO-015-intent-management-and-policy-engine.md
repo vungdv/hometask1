@@ -15,7 +15,7 @@
 Implement proactive tool set narrowing, defensive tool registry checks, OAuth2 scope authorization, and intent observability in `apps/polaris-assistant`:
 1. **Domain models & taxonomy configuration:** `IntentDefinition`, `IntentClassification`, `PolicyDecision`, and `IntentTaxonomyProperties`.
 2. **Core components:** `IntentResolver` & `DefaultIntentResolver`, `IntentToolRegistry`, `PolicyEngine` & `DefaultPolicyEngine`.
-3. **Observability extensions:** Trace context integration in `ToolManager` for intent and policy validation (`AgentDecisionRecorder` decommissioned).
+3. **Observability extensions:** Trace context integration in `PolicyToolManager` for intent and policy validation (`AgentDecisionRecorder` decommissioned).
 4. **Service integration:** Update `AssistantChatService` to run intent resolution once per turn, clarify low-confidence mutating intents, proactively offer filtered tools, defensively guard tool invocations, and enforce OAuth2 scopes while preserving 100% binary/source backwards compatibility.
 5. **Configuration:** Wire built-in taxonomy in `application.yml`.
 6. **Testing:** Deliver comprehensive unit test suites achieving 100% pass rate.

@@ -11,7 +11,7 @@
 
 ## 1. Context and Problem Statement
 
-Polaris Assistant (`apps/polaris-assistant`) executes an autonomous ReAct loop querying Gemini and invoking tools exposed by Polaris Core over MCP (`ToolManager`).
+Polaris Assistant (`apps/polaris-assistant`) executes an autonomous ReAct loop querying Gemini and invoking tools exposed by Polaris Core over MCP (`PolicyToolManager`).
 
 Prior architecture provided all 7 MCP tools to the model on every single turn regardless of user intent. This created several failure modes:
 1. **Tool Hallucination & Indiscriminate Execution:** The model was exposed to mutating tools (`place_order`, `cancel_order`) even when a user only requested catalog browsing or order tracking.
@@ -50,7 +50,7 @@ Introduce modular components in package `vn.danang.polaris.assistant.intent`:
 - `IntentResolver`: Classifies user utterances into taxonomy intents with confidence scores.
 - `IntentToolRegistry`: Filters available MCP tools and validates proposed invocations.
 - `PolicyEngine`: Authorizes actions against the caller's OAuth 2.0 token scopes.
-- Integration in `AssistantChatService` and `ToolManager`.
+- Integration in `AssistantChatService` and `PolicyToolManager`.
 
 ---
 

@@ -26,7 +26,7 @@ Establish seamless, unbroken distributed tracing between `apps/polaris-assistant
 ## 2. Detailed Technical Tasks
 
 ### Task 1: Update `HttpPolarisMcpClient.java`
-**File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/HttpPolarisMcpClient.java`
+**File:** `tools`
 1. Inject `ObjectProvider<Tracer> tracerProvider` in `@Autowired` constructor, storing `@Nullable private final Tracer tracer;`.
 2. Add overloaded constructors maintaining backwards-compatibility for existing tests.
 3. In `buildJsonRpcRequest`, implement and invoke `injectTraceParent(HttpRequest.Builder builder)`:
@@ -34,7 +34,7 @@ Establish seamless, unbroken distributed tracing between `apps/polaris-assistant
    - Add header: `builder.header("traceparent", "00-" + traceId + "-" + spanId + "-" + sampled);`.
 
 ### Task 2: Update `ExternalMcpHub.java`
-**File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java`
+**File:** `tools`
 1. Instrument `discoverAllTools()`:
    - When `tracer != null`, start span `mcp.list_tools`.
    - Tag `mcp.provider`: `"polaris-core"`, `mcp.operation`: `"tools/list"`.
@@ -61,10 +61,10 @@ Establish seamless, unbroken distributed tracing between `apps/polaris-assistant
 2. Wrap `getOrderStatus`, `getOrderDetails`, `placeOrder`, `listCustomerOrders`, and `cancelOrder`.
 
 ### Task 5: Add Unit & Integration Tests
-1. `apps/polaris-assistant/src/test/java/vn/danang/polaris/assistant/mcp/HttpPolarisMcpClientTest.java`:
+1. `tools`:
    - Verify `traceparent` header is injected on outgoing request when tracer is active.
    - Verify graceful operation without tracer.
-2. `apps/polaris-assistant/src/test/java/vn/danang/polaris/assistant/mcp/ExternalMcpHubTest.java`:
+2. `tools`:
    - Verify `discoverAllTools()` creates span `mcp.list_tools` and tags counts.
 3. `apps/polaris/src/test/java/vn/danang/polaris/mcp/McpServerTest.java`:
    - Verify `ProductMcpTools` and `OrderMcpTools` create spans and tags for tool executions.

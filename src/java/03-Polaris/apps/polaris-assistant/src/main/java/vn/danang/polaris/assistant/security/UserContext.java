@@ -14,7 +14,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
 
-import vn.danang.polaris.assistant.mcp.PolarisMcpProperties;
+import vn.danang.polaris.assistant.tools.PolarisMcpProperties;
 
 /**
  * Accessor for user authentication state and security tokens in the current execution context.

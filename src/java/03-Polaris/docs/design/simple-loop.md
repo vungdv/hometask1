@@ -63,9 +63,9 @@ sequenceDiagram
 | Component | Class | Responsibility |
 | :--- | :--- | :--- |
 | **Web REST API** | [`AssistantChatController`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/web/AssistantChatController.java) | Ingress controller exposing `POST /api/v1/assistant/chat`, extracting authentication principal and validating request bodies. |
-| **Assistant Orchestrator** | [`AssistantChatService`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/service/AssistantChatService.java) | Coordinates the conversation turn: maintains session history, resolves intent, discovers tools from `McpHub`, drives the high-level `while` execution loop, and delegates tool execution to `McpHub`. |
+| **Assistant Orchestrator** | [`AssistantChatService`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/service/AssistantChatService.java) | Coordinates the conversation turn: maintains session history, resolves intent, discovers tools from `ToolManager`, drives the high-level `while` execution loop, and delegates tool execution to `ToolManager`. |
 | **Model Handler** | [`GeminiAiModelClient`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/model/GeminiAiModelClient.java) | Implements `AssistantModelClient`. Translates domain messages and MCP tools into Gemini REST format (`contents`, `tools`), calls Gemini API, and parses candidate parts into `ModelResponse`. |
-| **Tools Gateway & Hub** | [`ToolManager`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java) | Implements [`McpHub`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/McpHub.java). Aggregates tools from Polaris Core and external MCP providers, and encapsulates the entire tool call execution loop (`handleToolCalls`): intent validation, policy authorization, MCP dispatching, decision auditing, and turns construction. |
+| **Tools Gateway & Hub** | [`PolicyToolManager`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java) | Implements [`ToolManager`](file:///Users/vung.do/projects/hometask1/src/java/03-Polaris/apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/McpHub.java). Aggregates tools from Polaris Core and external MCP providers, and encapsulates the entire tool call execution loop (`handleToolCalls`): intent validation, policy authorization, MCP dispatching, decision auditing, and turns construction. |
 
 ---
 
@@ -132,7 +132,7 @@ When the model determines it needs external data to fulfill the query, it return
 ```
 
 ### 4.3. Assistant Feedback with Tool Response
-After executing `get_product_by_sku` via `ToolManager`, the Assistant appends the function result as a `user` turn with a `functionResponse` part:
+After executing `get_product_by_sku` via `PolicyToolManager`, the Assistant appends the function result as a `user` turn with a `functionResponse` part:
 
 ```json
 {

@@ -45,18 +45,18 @@ Instrument `AssistantChatService` in `apps/polaris-assistant` with an enclosing 
    @Autowired
    public AssistantChatService(
            AssistantModelClient modelClient,
-           ExternalMcpHub mcpHub,
+           ExternalMcpHub toolManager,
            ObjectMapper objectMapper,
            ObjectProvider<Tracer> tracerProvider) {
-       this(modelClient, mcpHub, objectMapper, tracerProvider != null ? tracerProvider.getIfAvailable() : null);
+       this(modelClient, toolManager, objectMapper, tracerProvider != null ? tracerProvider.getIfAvailable() : null);
    }
    ```
 2. Store `@Nullable private final Tracer tracer;`.
 3. Provide overloaded constructors maintaining binary compatibility:
-   - `public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub mcpHub, ObjectMapper objectMapper)`
-   - `public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub mcpHub)`
+   - `public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub toolManager, ObjectMapper objectMapper)`
+   - `public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub toolManager)`
    - `public AssistantChatService(AssistantModelClient modelClient)`
-   - `public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub mcpHub, ObjectMapper objectMapper, @Nullable Tracer tracer)`
+   - `public AssistantChatService(AssistantModelClient modelClient, ExternalMcpHub toolManager, ObjectMapper objectMapper, @Nullable Tracer tracer)`
 
 ### Task 2: Instrument Enclosing Span `agent.turn`
 **File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/service/AssistantChatService.java`
@@ -82,7 +82,7 @@ Instrument `AssistantChatService` in `apps/polaris-assistant` with an enclosing 
 **File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/service/AssistantChatService.java`
 Record events at these precise locations (helper method `recordEvent(Span span, String eventName)` is recommended):
 1. `span.event("agent.request.received")` -> At method entry.
-2. `span.event("tools.discovered")` -> Immediately after `mcpHub.discoverAllTools()`. Also record `span.tag("agent.tools.count", String.valueOf(availableTools.size()))`.
+2. `span.event("tools.discovered")` -> Immediately after `toolManager.discoverAllTools()`. Also record `span.tag("agent.tools.count", String.valueOf(availableTools.size()))`.
 3. While-loop (`iterations < MAX_TOOL_ITERATIONS`):
    - Inside loop start: `span.event("agent.iteration.started")`.
    - Before model invocation: `span.event("model.request")`.

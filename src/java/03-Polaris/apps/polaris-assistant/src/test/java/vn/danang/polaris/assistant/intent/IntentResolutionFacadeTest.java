@@ -15,9 +15,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import vn.danang.polaris.assistant.mcp.McpHub;
-import vn.danang.polaris.assistant.mcp.ToolExecutionContext;
-import vn.danang.polaris.assistant.mcp.ToolResult;
+import vn.danang.polaris.assistant.tools.ToolExecutionContext;
+import vn.danang.polaris.assistant.tools.ToolManager;
+import vn.danang.polaris.assistant.tools.ToolResult;
 import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.service.IntentResolutionFacade;
 
@@ -31,9 +31,9 @@ class IntentResolutionFacadeTest {
     class HappyPath {
 
         @Test
-        @DisplayName("Given configured McpHub, when resolve called with message, then discovers tools and returns filtered ResolvedIntent")
+        @DisplayName("Given configured ToolManager, when resolve called with message, then discovers tools and returns filtered ResolvedIntent")
         void resolves_intent_and_filters_tools_using_configured_hub() {
-            McpHub mockHub = mock(McpHub.class);
+            ToolManager mockHub = mock(ToolManager.class);
             Tool searchTool = Tool.builder("search_available_products", Map.of()).build();
             Tool orderTool = Tool.builder("place_order", Map.of()).build();
             when(mockHub.discoverAllTools()).thenReturn(List.of(searchTool, orderTool));
@@ -61,7 +61,7 @@ class IntentResolutionFacadeTest {
         @Test
         @DisplayName("Given IntentResolver interface mock, when resolve called, delegates directly via the interface")
         void delegates_resolution_directly_via_intent_resolver_interface() {
-            McpHub mockHub = mock(McpHub.class);
+            ToolManager mockHub = mock(ToolManager.class);
             IntentResolver mockResolver = mock(IntentResolver.class);
             Tool testTool = Tool.builder("search_available_products", Map.of()).build();
             List<Tool> tools = List.of(testTool);
@@ -78,9 +78,9 @@ class IntentResolutionFacadeTest {
         }
 
         @Test
-        @DisplayName("Given valid tool calls and execution context, when executeToolCalls is called, then delegates to McpHub")
+        @DisplayName("Given valid tool calls and execution context, when executeToolCalls is called, then delegates to ToolManager")
         void delegates_tool_execution_to_configured_mcp_hub() {
-            McpHub mockHub = mock(McpHub.class);
+            ToolManager mockHub = mock(ToolManager.class);
             ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
             ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
             ToolExecutionContext context = new ToolExecutionContext(
@@ -101,9 +101,9 @@ class IntentResolutionFacadeTest {
         }
 
         @Test
-        @DisplayName("Given handleToolCalls alias invoked, then delegates identically to McpHub")
+        @DisplayName("Given handleToolCalls alias invoked, then delegates identically to ToolManager")
         void handle_tool_calls_alias_delegates_identically() {
-            McpHub mockHub = mock(McpHub.class);
+            ToolManager mockHub = mock(ToolManager.class);
             ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
             ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
             ToolExecutionContext context = new ToolExecutionContext(
@@ -132,9 +132,9 @@ class IntentResolutionFacadeTest {
     class InvalidInput {
 
         @Test
-        @DisplayName("Given policy denial from McpHub, when executeToolCalls called, then propagates denied ToolResult")
+        @DisplayName("Given policy denial from ToolManager, when executeToolCalls called, then propagates denied ToolResult")
         void propagates_policy_denial_from_mcp_hub() {
-            McpHub mockHub = mock(McpHub.class);
+            ToolManager mockHub = mock(ToolManager.class);
             ToolCall toolCall = new ToolCall("place_order", Map.of("sku", "PROD-1"));
             ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
             ToolExecutionContext context = new ToolExecutionContext(
@@ -176,7 +176,7 @@ class IntentResolutionFacadeTest {
         @Test
         @DisplayName("Given null or empty tool calls, when executeToolCalls called, then returns empty list without calling hub")
         void returns_empty_list_when_tool_calls_null_or_empty() {
-            McpHub mockHub = mock(McpHub.class);
+            ToolManager mockHub = mock(ToolManager.class);
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),
                     mockHub
@@ -191,7 +191,7 @@ class IntentResolutionFacadeTest {
         }
 
         @Test
-        @DisplayName("Given null McpHub, when executeToolCalls called, then returns empty list gracefully")
+        @DisplayName("Given null ToolManager, when executeToolCalls called, then returns empty list gracefully")
         void returns_empty_list_when_mcp_hub_is_null() {
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),

@@ -14,7 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import vn.danang.polaris.assistant.PolarisAssistantApp;
 import vn.danang.polaris.assistant.TestcontainersConfiguration;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
-import vn.danang.polaris.assistant.mcp.PolarisMcpClient;
+import vn.danang.polaris.assistant.tools.PolarisMcpClient;
 import vn.danang.polaris.web.support.JwtMockFactory;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;

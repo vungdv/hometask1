@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.mcp;
+package vn.danang.polaris.assistant.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;

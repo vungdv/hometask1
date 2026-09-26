@@ -17,16 +17,16 @@ Implement tool execution auditability, governance attribution, and PII/PCI argum
 1. Implement `ArgumentSanitizer` in `vn.danang.polaris.assistant.observability`:
    - Recursively sanitize tool invocation arguments, redacting sensitive PII/PCI keys (`password`, `token`, `secret`, `card`, `cvv`, `ssn`, `address`, `phone`, `email`, etc.) with `"[REDACTED]"`.
    - Produce a safe, bounded JSON summary string (`mcp.tool.args_summary`) capped at 256 characters.
-2. Update `ToolManager`:
+2. Update `PolicyToolManager`:
    - Tag `mcp.tool_call` distributed tracing spans with standard `gen_ai.tool.name`.
-3. Direct Tool Execution via `ToolManager` *(superseded Task 3: AgentDecisionRecorder decommissioned)*:
+3. Direct Tool Execution via `PolicyToolManager` *(superseded Task 3: AgentDecisionRecorder decommissioned)*:
    - Tool execution managed directly by `ExternalMcpHub.handleToolCalls` / `executeTool`.
-4. Deliver comprehensive unit tests in `ArgumentSanitizerTest` and `ExternalMcpHubTest`.
+4. Deliver comprehensive unit tests in `ArgumentSanitizerTest` and `ExternalToolManagerTest`.
 
 **Constraint Checklist:**
 - [x] Zero raw PII/PCI data attached to distributed tracing spans.
 - [x] Strict bounding of argument summary string (max 256 chars).
-- [x] Maintain 100% binary and source backwards compatibility for `ToolManager`.
+- [x] Maintain 100% binary and source backwards compatibility for `PolicyToolManager`.
 - [x] Complete fail-safe behavior: sanitization or logging errors must never abort tool execution.
 - [x] Unit test coverage must achieve 100% pass rate across `polaris-assistant` and monorepo reactor.
 
@@ -147,8 +147,8 @@ public final class ArgumentSanitizer {
 }
 ```
 
-### Task 2: Update `ToolManager` Span Tagging
-**File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/mcp/ExternalMcpHub.java`
+### Task 2: Update `PolicyToolManager` Span Tagging
+**File:** `tools`
 
 In `executeTool(String toolName, Map<String, Object> arguments)`:
 - Add `span.tag("gen_ai.tool.name", toolName != null ? toolName : "unknown");` to the `mcp.tool_call` span alongside existing `mcp.tool.name`.
