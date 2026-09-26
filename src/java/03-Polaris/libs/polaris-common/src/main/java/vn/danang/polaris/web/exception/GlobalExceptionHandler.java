@@ -257,6 +257,17 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(DraftNotActionableException.class)
+    public ProblemDetail handleDraftNotActionableException(DraftNotActionableException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Draft Not Actionable");
+        problem.setType(URI.create("https://polaris.local/errors/draft-not-actionable"));
+        problem.setProperty("draftId", ex.getDraftId());
+        problem.setProperty("currentStatus", ex.getCurrentStatus());
+        problem.setProperty("remedy", "Stage a new order draft; this one is no longer awaiting confirmation.");
+        return problem;
+    }
+
     @ExceptionHandler(DuplicateSkuException.class)
     public ProblemDetail handleDuplicateSkuException(DuplicateSkuException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());

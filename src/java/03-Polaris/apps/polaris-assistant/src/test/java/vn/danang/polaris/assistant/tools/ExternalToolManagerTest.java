@@ -511,7 +511,10 @@ class ExternalToolManagerTest {
             ExecutorService customExecutor = Executors.newSingleThreadExecutor();
 
             when(policyProvider.getIfAvailable()).thenReturn(customPolicy);
-            when(executorProvider.getIfAvailable()).thenReturn(customExecutor);
+            // getIfUnique() (not getIfAvailable()) - see PolicyToolManager's constructor: it falls
+            // back to its own executor on ambiguity now that @EnableScheduling (WO-021) means a
+            // real Spring context always has more than one Executor-typed bean.
+            when(executorProvider.getIfUnique()).thenReturn(customExecutor);
 
             PolicyToolManager manager = new PolicyToolManager(polarisMcpClient, policyProvider, executorProvider);
 
