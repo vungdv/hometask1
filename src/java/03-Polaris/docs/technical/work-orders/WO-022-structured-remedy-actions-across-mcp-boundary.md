@@ -8,6 +8,7 @@
 - **Event Model Reference:** [EM-001](../event-models/EM-001-order-staging-out-of-stock-exception.md) §2 frame 05 / §3 Gap Analysis rows "Structured remedy actions reach the shopper" and "'Remove Item' remedy"
 - **Bounded Context:** this is a **seam change**, not a single-context change — see Principle 2.1 "Seam Splitting" call-out below. It touches the `place_order` MCP tool's response contract, which is jointly owned across `apps/polaris` (producer) and `apps/polaris-assistant` (consumer). No database, no other endpoint, no other tool is touched.
 - **Cross-Context Contracts Consumed:** none new. This WO does not add a new REST/CloudEvents contract — it enriches the existing, already-published MCP `CallToolResult` wire shape for the `place_order` tool call (MCP is itself the published contract here, per ADR-0004's Topology C).
+- **Depends on:** WO-020 — **build order is WO-019 → WO-020 → WO-021 → WO-022, strictly matching the WO numbers.** WO-020 Task 2 creates the shared `libs/polaris-common` helper `InsufficientStockActions`, and WO-020 Task 5 creates the `ToolResult.actions` field and its 4-arg `error(...)` overload (both needed there first, since WO-020's `stage_order_draft` local tool has its own insufficient-stock rejection path). This WO does not create either — it reuses them verbatim. This removed an earlier ambiguity where both WO-020 and this WO could plausibly have created these first (flagged in `domain-dev-agent`'s review of PR #7); WO-020 is now their single canonical owner.
 - **Status:** PROPOSED
 
 ---
@@ -28,10 +29,10 @@ EM-001 §2 frame 05 draws the divergence explicitly: a direct REST client of `Or
 
 ## 2. Detailed Technical Tasks
 
-### Task 1: Shared `InsufficientStockActions` Helper
-**File:** `libs/polaris-common/src/main/java/vn/danang/polaris/web/exception/InsufficientStockActions.java`
+### Task 1: Reuse the Shared `InsufficientStockActions` Helper (created by WO-020, not by this WO)
+**File (already exists — do not recreate):** `libs/polaris-common/src/main/java/vn/danang/polaris/web/exception/InsufficientStockActions.java`
 
-If WO-020 has already landed, this file already exists with `remove_item` included — use it as-is, do not create a second copy. If this WO lands first, create it:
+WO-020 Task 2 is this file's canonical owner: it exists by the time this WO starts, because build order is fixed at WO-019 → WO-020 → WO-021 → WO-022 (see this doc's "Depends on"). This task is exactly one line of work: confirm the helper already produces `adjust_quantity`/`search_alternatives`/`remove_item` in that order (Task 4/Task 2 below both call it) — there is no second implementation to write. Shown here for reference only, so this document is self-contained without requiring a cross-file diff to follow Task 2/Task 4:
 
 ```java
 package vn.danang.polaris.web.exception;
@@ -71,24 +72,24 @@ problem.setProperty("actions", InsufficientStockActions.build(ex));
 ```
 This is the change that actually delivers `remove_item` to direct REST clients — today's `handleInsufficientStockException` only builds `adjust_quantity`/`search_alternatives`. No other line in this method changes; `title`, `type`, `sku`, `requested_quantity`, `available_quantity`, `remedy` are all untouched, so this is a pure superset addition to the existing `ProblemDetail` response body (additive, non-breaking).
 
-### Task 3: `ToolResult` — Add an `actions` Field
-**File:** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/tools/ToolResult.java`
+### Task 3: Reuse the `ToolResult.actions` Field (added by WO-020, not by this WO)
+**File (already modified by WO-020 Task 5 — do not re-add):** `apps/polaris-assistant/src/main/java/vn/danang/polaris/assistant/tools/ToolResult.java`
 
-Add a fifth record component:
+WO-020 Task 5 adds this fifth record component (and its 4-arg `error(...)` overload) for its own `stage_order_draft` local-tool rejection path, ahead of this WO in build order. Nothing to change here — Task 5 below (`PolicyToolManager`) just calls the overload that already exists. Shown here for reference only:
 ```java
 public record ToolResult(
         ToolCall toolCall, String result, Status status, String errorDescription,
         @JsonProperty("actions") List<Map<String, Object>> actions
 ) { ... }
 ```
-Add a defaulting compact constructor and a new overload so **every existing call site keeps compiling unchanged**:
+Already accompanied (by WO-020 Task 5) by a defaulting compact constructor and this overload, so every pre-existing call site kept compiling unchanged when it landed:
 ```java
 public static ToolResult error(ToolCall toolCall, String error, String errorDescription, List<Map<String,Object>> actions) {
     return new ToolResult(toolCall, error, Status.ERROR, errorDescription, actions);
 }
 // existing 2- and 3-arg success/denied/error factories all delegate here with actions = null
 ```
-`actions` is `null`/absent (via the existing `@JsonInclude(NON_NULL)`) for every result that isn't a structured remedy — this field means nothing for `SUCCESS`/`DENIED` results today and is reserved exclusively for the insufficient-stock case this WO and WO-020 populate.
+`actions` is `null`/absent (via the existing `@JsonInclude(NON_NULL)`) for every result that isn't a structured remedy — this field means nothing for `SUCCESS`/`DENIED` results and is populated only by WO-020's local `stage_order_draft` rejection path and, once Task 5 below lands, this WO's `place_order` rejection path.
 
 ### Task 4: `OrderMcpTools.placeOrder` — Emit `structuredContent`
 **File:** `apps/polaris/src/main/java/vn/danang/polaris/mcp/OrderMcpTools.java`
