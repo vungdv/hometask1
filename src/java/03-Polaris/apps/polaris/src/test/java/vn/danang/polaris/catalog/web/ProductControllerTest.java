@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.hamcrest.Matchers.hasSize;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -169,6 +170,29 @@ public class ProductControllerTest {
                 .andExpect(jsonPath("$.id").value(2))
                 .andExpect(jsonPath("$.sku").value("NG-WATCH-01"))
                 .andExpect(jsonPath("$.category").value("Wearables"));
+    }
+
+    @Test
+    @DisplayName("WO-020 Task 10 (RBAC fix): a purchase-management-only caller — the realistic caller "
+            + "the assistant's stage_order_draft relays — can reach the read-only SKU lookup")
+    void getProductBySku_asPurchaseManagementRole_shouldSucceed() throws Exception {
+        ProductResponse sample = new ProductResponse(
+                2L, "NG-WATCH-01", "Nova Smart Watch", "Advanced smartwatch", "Wearables",
+                new BigDecimal("89.90"), 60, true, true, Instant.now());
+        when(productService.getProductBySku("NG-WATCH-01")).thenReturn(sample);
+
+        mockMvc.perform(get("/api/v1/products/sku/NG-WATCH-01").with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sku").value("NG-WATCH-01"));
+    }
+
+    @Test
+    @DisplayName("Regression guard: order.write alone (without the catalog.read Task 10 grants) still 403s — "
+            + "Task 10 must not have widened who can reach this endpoint")
+    void getProductBySku_withOrderWriteOnlyNoCatalogRead_shouldReturn403() throws Exception {
+        mockMvc.perform(get("/api/v1/products/sku/NG-WATCH-01")
+                        .with(JwtMockFactory.withPermissions("order.write")))
+                .andExpect(status().isForbidden());
     }
 
     @Test

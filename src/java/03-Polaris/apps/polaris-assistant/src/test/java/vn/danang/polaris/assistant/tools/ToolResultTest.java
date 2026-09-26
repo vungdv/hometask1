@@ -1,6 +1,7 @@
 package vn.danang.polaris.assistant.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -95,6 +96,30 @@ class ToolResultTest {
             assertThat(result.result()).isEqualTo("Connection timeout");
             assertThat(result.errorDescription()).isEqualTo("Downstream MCP service unreachable");
         }
+
+        @Test
+        @DisplayName("Given a stage_order_draft-style rejection with remedy actions, when error factory (WO-020's 4-arg overload) invoked, then actions are exposed and data is null")
+        void factoryError_withActions_exposesActionsAndNullData() {
+            ToolCall toolCall = new ToolCall("stage_order_draft", Map.of());
+            List<Map<String, Object>> actions = List.of(Map.of("label", "Remove Item", "action", "remove_item", "sku", "NG-WATCH-01"));
+
+            ToolResult result = ToolResult.error(toolCall, "Insufficient stock", "insufficient stock", actions);
+
+            assertThat(result.actions()).isEqualTo(actions);
+            assertThat(result.data()).isNull();
+        }
+
+        @Test
+        @DisplayName("Given a staged draft summary, when success factory (WO-020's data-carrying overload) invoked, then data is exposed and actions is null")
+        void factorySuccess_withData_exposesDataAndNullActions() {
+            ToolCall toolCall = new ToolCall("stage_order_draft", Map.of());
+            Map<String, Object> draftSummary = Map.of("draftId", "dft-abc", "status", "WAITING_CONFIRMATION");
+
+            ToolResult result = ToolResult.success(toolCall, "Staged", draftSummary);
+
+            assertThat(result.data()).isEqualTo(draftSummary);
+            assertThat(result.actions()).isNull();
+        }
     }
 
     // =========================================================================
@@ -167,6 +192,26 @@ class ToolResultTest {
             String json = objectMapper.writeValueAsString(original);
             assertThat(json).doesNotContain("error-description");
             assertThat(json).doesNotContain("error_description");
+        }
+
+        @Test
+        @DisplayName("Given a plain SUCCESS/DENIED/ERROR result with no actions or data, when serialized to JSON, then both fields are omitted (existing call sites unaffected)")
+        void jsonSerialization_omitsActionsAndDataWhenAbsent() throws Exception {
+            ToolCall toolCall = new ToolCall("search_products", Map.of());
+            String json = objectMapper.writeValueAsString(ToolResult.success(toolCall, "2 results"));
+
+            assertThat(json).doesNotContain("\"actions\"");
+            assertThat(json).doesNotContain("\"data\"");
+        }
+
+        @Test
+        @DisplayName("Given a 3-arg constructor call (pre-WO-020 call site), when constructed, then actions and data default to null")
+        void threeArgConstructor_stillCompilesAndDefaultsNewFieldsToNull() {
+            ToolCall toolCall = new ToolCall("legacy_tool", Map.of());
+            ToolResult result = new ToolResult(toolCall, "ok", ToolResult.Status.SUCCESS);
+
+            assertThat(result.actions()).isNull();
+            assertThat(result.data()).isNull();
         }
 
         @Test

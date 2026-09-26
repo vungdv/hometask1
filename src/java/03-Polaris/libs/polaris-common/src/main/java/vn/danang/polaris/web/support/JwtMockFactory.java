@@ -84,7 +84,12 @@ public final class JwtMockFactory {
                         new SimpleGrantedAuthority("PERM_" + PolarisPermissions.ORDER_READ),
                         new SimpleGrantedAuthority("PERMISSION_" + PolarisPermissions.ORDER_READ),
                         new SimpleGrantedAuthority("PERM_" + PolarisPermissions.ORDER_WRITE),
-                        new SimpleGrantedAuthority("PERMISSION_" + PolarisPermissions.ORDER_WRITE)
+                        new SimpleGrantedAuthority("PERMISSION_" + PolarisPermissions.ORDER_WRITE),
+                        // WO-020 Task 10: purchase-management is granted read-only catalog visibility so
+                        // the assistant's stage_order_draft can verify stock via GET /api/v1/products/sku/{sku}
+                        // without escalating this role to catalog.write. Mirrors docker/keycloak/realm-export.json.
+                        new SimpleGrantedAuthority("PERM_" + PolarisPermissions.CATALOG_READ),
+                        new SimpleGrantedAuthority("PERMISSION_" + PolarisPermissions.CATALOG_READ)
                 ));
     }
 

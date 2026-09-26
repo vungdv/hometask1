@@ -64,9 +64,11 @@ class ExternalToolManagerTest {
 
             List<Tool> tools = mcpHub.discoverAllTools();
 
+            // WO-020: discoverAllTools() also appends the local stage_order_draft tool
+            // (never dispatched to PolarisMcpClient), alongside whatever MCP returns.
             assertThat(tools)
                     .extracting(Tool::name)
-                    .containsExactly("search_available_products");
+                    .containsExactly("search_available_products", "stage_order_draft");
             verify(polarisMcpClient, times(1)).listAvailableTools();
         }
 
@@ -94,9 +96,10 @@ class ExternalToolManagerTest {
 
             List<Tool> tools = proxy.discoverAllTools();
 
-            assertThat(tools).hasSize(2);
+            // 2 remote tools + the local stage_order_draft tool WO-020 adds.
+            assertThat(tools).hasSize(3);
             verify(span).name("mcp.polaris.discovery");
-            verify(span).tag("mcp.tool_count", "2");
+            verify(span).tag("mcp.tool_count", "3");
             verify(span).start();
             verify(span).end();
         }

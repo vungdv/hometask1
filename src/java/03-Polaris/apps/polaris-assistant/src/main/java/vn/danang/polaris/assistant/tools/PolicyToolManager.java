@@ -1,5 +1,7 @@
 package vn.danang.polaris.assistant.tools;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -21,6 +23,8 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import jakarta.annotation.Nullable;
+import vn.danang.polaris.assistant.dto.OrderItemRequest;
+import vn.danang.polaris.assistant.entity.AssistantOrderDraft;
 import vn.danang.polaris.assistant.intent.IntentDefinition;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
 import vn.danang.polaris.assistant.policy.DefaultPolicyEngine;
@@ -29,6 +33,8 @@ import vn.danang.polaris.assistant.policy.PolicyEngine;
 import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
+import vn.danang.polaris.assistant.service.DraftStagingService;
+import vn.danang.polaris.assistant.service.DraftStagingService.StageOutcome;
 
 /**
  * Hub and tool registry for Polaris Assistant.
@@ -45,12 +51,15 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
     private final PolicyEngine policyEngine;
     private final Executor executor;
     private final boolean managedExecutor;
+    @Nullable
+    private final DraftStagingService draftStagingService;
 
     @Autowired
     public PolicyToolManager(
             PolarisMcpClient polarisMcpClient,
             ObjectProvider<PolicyEngine> policyEngineProvider,
-            ObjectProvider<Executor> executorProvider) {
+            ObjectProvider<Executor> executorProvider,
+            ObjectProvider<DraftStagingService> draftStagingServiceProvider) {
         this.polarisMcpClient = polarisMcpClient;
         this.policyEngine = policyEngineProvider != null && policyEngineProvider.getIfAvailable() != null
                 ? policyEngineProvider.getIfAvailable()
@@ -62,22 +71,38 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
             this.executor = Executors.newVirtualThreadPerTaskExecutor();
             this.managedExecutor = true;
         }
+        this.draftStagingService = draftStagingServiceProvider != null ? draftStagingServiceProvider.getIfAvailable() : null;
+    }
+
+    public PolicyToolManager(
+            PolarisMcpClient polarisMcpClient,
+            ObjectProvider<PolicyEngine> policyEngineProvider,
+            ObjectProvider<Executor> executorProvider) {
+        this(polarisMcpClient, policyEngineProvider, executorProvider, null);
     }
 
     public PolicyToolManager(PolarisMcpClient polarisMcpClient) {
-        this(polarisMcpClient, (PolicyEngine) null, null);
+        this(polarisMcpClient, (PolicyEngine) null, null, null);
     }
 
     public PolicyToolManager(
             PolarisMcpClient polarisMcpClient,
             @Nullable PolicyEngine policyEngine) {
-        this(polarisMcpClient, policyEngine, null);
+        this(polarisMcpClient, policyEngine, null, null);
     }
 
     public PolicyToolManager(
             PolarisMcpClient polarisMcpClient,
             @Nullable PolicyEngine policyEngine,
             @Nullable Executor executor) {
+        this(polarisMcpClient, policyEngine, executor, null);
+    }
+
+    public PolicyToolManager(
+            PolarisMcpClient polarisMcpClient,
+            @Nullable PolicyEngine policyEngine,
+            @Nullable Executor executor,
+            @Nullable DraftStagingService draftStagingService) {
         this.polarisMcpClient = polarisMcpClient;
         this.policyEngine = policyEngine != null
                 ? policyEngine
@@ -89,6 +114,7 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
             this.executor = Executors.newVirtualThreadPerTaskExecutor();
             this.managedExecutor = true;
         }
+        this.draftStagingService = draftStagingService;
     }
 
     @Override
@@ -109,7 +135,9 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
             }
     )
     public List<Tool> discoverAllTools() {
-        return polarisMcpClient.listAvailableTools();
+        List<Tool> tools = new ArrayList<>(polarisMcpClient.listAvailableTools());
+        tools.add(StageOrderDraftTool.definition());
+        return tools;
     }
 
     @Override
@@ -146,9 +174,14 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
                         // step-1: policy evaluation
                         .map(toolCall -> checkPolicy(toolCall, context))
                         // step-2: if it's ok pass to execute it concurrently; otherwise mark done
+                        // stage_order_draft is a LOCAL tool (never dispatched to Polaris Core's MCP
+                        // surface) but still runs through the same policy gate above first.
                         .map(checkResult ->
                                 checkResult.isOk()?
-                                executeConcurrently(checkResult.toolCall(), delegatingExecutor)
+                                (StageOrderDraftTool.TOOL_STAGE_ORDER_DRAFT.equals(checkResult.toolCall().name())
+                                        ? CompletableFuture.supplyAsync(
+                                                () -> executeStageOrderDraft(checkResult.toolCall(), context), delegatingExecutor)
+                                        : executeConcurrently(checkResult.toolCall(), delegatingExecutor))
                                 : CompletableFuture.completedFuture(checkResult.rejection()))
                         .toList();
 
@@ -243,6 +276,138 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
             ToolCall toolCall,
             Executor executor) {
         return CompletableFuture.supplyAsync(() -> executeRemoteToolCall(toolCall), executor);
+    }
+
+    /**
+     * Executes {@code stage_order_draft} entirely in-process via {@link DraftStagingService} —
+     * never through {@link #executeTool(String, Map)}/MCP dispatch. Fails closed (a {@code ERROR}
+     * {@link ToolResult}, no draft mutation) on any exception, including Catalog being unreachable.
+     */
+    private ToolResult executeStageOrderDraft(ToolCall toolCall, @Nullable ToolExecutionContext context) {
+        try {
+            if (this.draftStagingService == null) {
+                return ToolResult.error(toolCall, "stage_order_draft is not available in this deployment.",
+                        "DraftStagingService is not configured");
+            }
+
+            Map<String, Object> args = toolCall.arguments();
+
+            Long customerId = parseLong(args.get("customer_id") != null ? args.get("customer_id") : args.get("customerId"));
+            if (customerId == null) {
+                return ToolResult.error(toolCall,
+                        "Please resolve the customer first via 'search_customers_by_name' and retry 'stage_order_draft' with the resolved customer_id.",
+                        "stage_order_draft requires a resolved numeric customer_id; customer_name fuzzy lookup crosses into the Order context and is out of this tool's scope.");
+            }
+
+            Object rawItems = args.get("items");
+            if (!(rawItems instanceof List<?> rawList) || rawList.isEmpty()) {
+                return ToolResult.error(toolCall, "Parameter 'items' is required and must not be empty.", "Invalid stage_order_draft arguments");
+            }
+
+            List<OrderItemRequest> items = new ArrayList<>();
+            for (Object o : rawList) {
+                if (!(o instanceof Map<?, ?> itemMap)) {
+                    return ToolResult.error(toolCall, "Each item must be an object with 'sku' and 'quantity'.", "Invalid stage_order_draft arguments");
+                }
+                Object rawSku = itemMap.get("sku");
+                String sku = rawSku != null ? rawSku.toString().trim() : null;
+                if (sku == null || sku.isBlank()) {
+                    return ToolResult.error(toolCall, "Item 'sku' is required.", "Invalid stage_order_draft arguments");
+                }
+                Integer qty = parseInteger(itemMap.get("quantity"));
+                if (qty == null || qty < 1) {
+                    return ToolResult.error(toolCall, "Item 'quantity' must be at least 1 for SKU '" + sku + "'.", "Invalid stage_order_draft arguments");
+                }
+                items.add(new OrderItemRequest(sku, qty));
+            }
+
+            Object rawDraftId = args.get("draft_id") != null ? args.get("draft_id") : args.get("draftId");
+            String draftId = rawDraftId != null ? rawDraftId.toString().trim() : null;
+            if (draftId != null && draftId.isBlank()) {
+                draftId = null;
+            }
+
+            String sessionId = context != null ? context.sessionId() : null;
+            String userId = context != null && context.userId() != null ? context.userId() : "anonymous";
+
+            StageOutcome outcome = draftStagingService.stage(sessionId, userId, customerId, draftId, items);
+
+            if (outcome instanceof StageOutcome.Staged staged) {
+                AssistantOrderDraft draft = staged.draft();
+                String summary = String.format("Staged order draft %s (%d item(s), total %s), awaiting confirmation.",
+                        draft.getId(), staged.items().size(), draft.getTotalAmount());
+                return ToolResult.success(toolCall, summary, draftSummaryData(staged));
+            }
+
+            StageOutcome.Rejected rejected = (StageOutcome.Rejected) outcome;
+            String humanReadableSummary = String.format(
+                    "Insufficient stock for product '%s'. Requested: %d, available: %d. Remedy: Reduce order quantity for '%s' to %d or fewer units.",
+                    rejected.sku(), rejected.requested(), rejected.available(), rejected.sku(), rejected.available());
+            return ToolResult.error(toolCall, humanReadableSummary, "Tool execution failure: insufficient stock",
+                    rejected.actions(), problemData(rejected));
+        } catch (Exception ex) {
+            log.error("stage_order_draft execution error: {}", ex.getMessage(), ex);
+            return ToolResult.error(toolCall, "Tool execution error: " + ex.getMessage(), ex.getMessage());
+        }
+    }
+
+    private Map<String, Object> problemData(StageOutcome.Rejected rejected) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("type", "https://polaris.local/errors/out-of-stock");
+        data.put("sku", rejected.sku());
+        data.put("requested_quantity", rejected.requested());
+        data.put("available_quantity", rejected.available());
+        data.put("remedy", String.format("Reduce order quantity for '%s' to %d or fewer units.",
+                rejected.sku(), rejected.available()));
+        return data;
+    }
+
+    private Map<String, Object> draftSummaryData(StageOutcome.Staged staged) {
+        AssistantOrderDraft draft = staged.draft();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("draftId", draft.getId());
+        data.put("status", draft.getStatus().name());
+        data.put("expiresAt", draft.getExpiresAt() != null ? draft.getExpiresAt().toString() : null);
+        data.put("totalAmount", draft.getTotalAmount());
+        data.put("items", staged.items().stream()
+                .map(i -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("sku", i.sku());
+                    item.put("quantity", i.quantity());
+                    item.put("unitPrice", i.unitPrice());
+                    item.put("lineTotal", i.lineTotal());
+                    return item;
+                })
+                .toList());
+        return data;
+    }
+
+    private Long parseLong(Object val) {
+        if (val == null) {
+            return null;
+        }
+        if (val instanceof Number n) {
+            return n.longValue();
+        }
+        try {
+            return Long.parseLong(val.toString().trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Integer parseInteger(Object val) {
+        if (val == null) {
+            return null;
+        }
+        if (val instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            return Integer.parseInt(val.toString().trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private ToolResult executeRemoteToolCall(ToolCall toolCall) {
