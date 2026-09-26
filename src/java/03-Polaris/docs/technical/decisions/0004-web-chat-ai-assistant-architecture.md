@@ -4,6 +4,8 @@
 * Deciders: Polaris Architecture Team, Core Platform Engineering, Product Management
 * Date: 2026-09-09
 * Technical Story: Technology-agnostic architectural topology selection, placement of cognitive agency responsibilities, session lifecycle management, and human-in-the-loop security boundaries for the Polaris conversational assistant.
+* Event Model: [EM-001](../event-models/EM-001-order-staging-out-of-stock-exception.md) documents where the as-built system diverged from §3 of this ADR (no persisted draft, no read-only stock check, no structured remedies across MCP).
+* Work Order References: [WO-019](../work-orders/WO-019-assistant-session-and-draft-persistence.md) (session/draft persistence schema), [WO-020](../work-orders/WO-020-stage-order-draft-orchestration.md) (StageOrderDraft orchestration & SSE transport), [WO-021](../work-orders/WO-021-confirm-cancel-draft-and-ttl-expiration.md) (confirm/cancel endpoints & TTL expiration), [WO-022](../work-orders/WO-022-structured-remedy-actions-across-mcp-boundary.md) (structured remedy actions across the MCP boundary) — decompose §3's design into implementable slices closing the EM-001 gap.
 
 ---
 
