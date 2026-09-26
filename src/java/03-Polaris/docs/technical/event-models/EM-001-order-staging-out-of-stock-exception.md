@@ -2,7 +2,7 @@
 
 - **Use case:** [Exception Path: Out-of-Stock at Order Staging](../../business/README.md#exception-path-out-of-stock-at-order-staging), branching off step 2 of [Business Process: Shopper Search & Order Placement](../../business/README.md#business-process-shopper-search--order-placement-bpmn).
 - **Sources:** [PRD-003](../../business/prds/PRD-003-web-chat-ai-assistant.md) §3.5 / Scenario 5; [PRD-002](../../business/prds/PRD-002-comprehensive-order-apis.md) Scenario 2; [ADR-0004](../decisions/0004-web-chat-ai-assistant-architecture.md) §3 (Session & Order Draft Persistence State Machines).
-- **Status:** Section 1 is the flow as specified in PRD-003/ADR-0004. Section 2 is the flow as actually implemented, verified against the code below as of 2026-09-26. They diverge — see the [Gap Analysis](#3-gap-analysis).
+- **Status:** Section 1 is the flow as specified in PRD-003/ADR-0004. Section 2 is the flow as actually implemented, verified against the code below as of 2026-09-26. They diverge — see the [Gap Analysis](#3-gap-analysis). **Resolved 2026-09-26:** the decision in [§4](#4-implications) is option (a) — build the designed flow. Decomposed into [WO-019](../work-orders/WO-019-assistant-session-and-draft-persistence.md)..[WO-022](../work-orders/WO-022-structured-remedy-actions-across-mcp-boundary.md); Section 2 will describe the as-built state again once those land.
 
 See the [notation](README.md#notation) for the `ui`/`cmd`/`evt`/`rmo` frame types used below.
 
@@ -78,3 +78,11 @@ tf 10 rmo OrderConfirmation ->> 09
 - **Price/inventory guarantee gap:** Without a persisted draft or TTL, there is no price-lock across a multi-turn remedy negotiation — each retry re-reads the live price and stock, which is simpler and still safe against overselling (thanks to the pessimistic row lock), but does not match the "guaranteed price within 15 minutes" promise in ADR-0004.
 - **Inconsistent remedy UX:** Shoppers using the chat assistant today get a strictly worse error experience than a direct API integrator — a plain sentence instead of clickable remedy actions — because the structured `actions[]` payload is never threaded through the MCP tool boundary.
 - **Before implementing the designed flow:** decide whether to (a) build the `assistant_order_drafts` persistence and thread `actions[]` through the MCP response, closing the gap, or (b) update PRD-003/ADR-0004 to describe the simpler as-built flow, so the two stop drifting apart.
+
+**Resolution:** (a) — build the designed flow. Decomposed into four Slice Work Orders, each vertically complete within a single bounded context:
+- [WO-019](../work-orders/WO-019-assistant-session-and-draft-persistence.md) — `assistant_sessions`/`assistant_order_drafts` schema, entities, repositories.
+- [WO-020](../work-orders/WO-020-stage-order-draft-orchestration.md) — read-only stock verification, insert-or-update-by-`draftId` staging, and the SSE transport carrying `draft`/`problem` events.
+- [WO-021](../work-orders/WO-021-confirm-cancel-draft-and-ttl-expiration.md) — confirm/cancel REST endpoints, live re-verification at confirm time, and TTL expiration (finally making `DraftExpiredException` reachable).
+- [WO-022](../work-orders/WO-022-structured-remedy-actions-across-mcp-boundary.md) — threads `actions[]` (including the missing `remove_item`) through the MCP boundary so `place_order` gets the same structured remedies `stage_order_draft` and direct REST clients do.
+
+Note: honoring the "guaranteed price within 15 minutes" phrasing in ADR-0004 §3.B literally would require an additive contract change to the Order context's `POST /api/v1/orders` request shape (it has no field to carry a locked unit price today); WO-021 ships the staging/confirm workflow but names that as a separate, tracked gap rather than working around it — see WO-021 §2 Task 5's "Known Limitation" note.
