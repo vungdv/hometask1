@@ -450,7 +450,17 @@ public class OrderMcpTools {
                         ex.getSku(), ex.getRequestedQuantity(), ex.getAvailableQuantity(),
                         ex.getSku(), ex.getAvailableQuantity()
                 );
-                return McpSchema.CallToolResult.builder().addTextContent(errorMsg).isError(true).build();
+                Map<String, Object> structured = new java.util.LinkedHashMap<>();
+                structured.put("type", "https://polaris.local/errors/out-of-stock");
+                structured.put("sku", ex.getSku());
+                structured.put("requested_quantity", ex.getRequestedQuantity());
+                structured.put("available_quantity", ex.getAvailableQuantity());
+                structured.put("actions", vn.danang.polaris.web.exception.InsufficientStockActions.build(ex));
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent(errorMsg)          // unchanged human-readable text, for any MCP client that ignores structuredContent
+                        .structuredContent(structured)     // new — same actions[] shape a direct REST client gets (WO-022)
+                        .isError(true)
+                        .build();
             } catch (ResourceNotFoundException ex) {
                 return McpSchema.CallToolResult.builder().addTextContent(ex.getMessage()).isError(true).build();
             } catch (Exception ex) {

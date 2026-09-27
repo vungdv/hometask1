@@ -485,6 +485,30 @@ class McpServerTest {
         }
 
         @Test
+        @DisplayName("WO-022: place_order with insufficient stock also attaches structuredContent.actions[] "
+                + "(adjust_quantity, search_alternatives, remove_item) alongside the unchanged plain-text content")
+        @SuppressWarnings("unchecked")
+        void placeOrder_insufficientStock_attachesStructuredRemedyActions() {
+            Map<String, Object> item = Map.of("sku", "NG-WATCH-01", "quantity", 9999);
+            Map<String, Object> args = Map.of("customer_id", 1, "items", List.of(item));
+
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(args);
+
+            assertThat(result.isError()).isTrue();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).contains("Insufficient stock for product 'NG-WATCH-01'");
+
+            assertThat(result.structuredContent()).isInstanceOf(Map.class);
+            Map<String, Object> structured = (Map<String, Object>) result.structuredContent();
+            assertThat(structured.get("type")).isEqualTo("https://polaris.local/errors/out-of-stock");
+            assertThat(structured.get("sku")).isEqualTo("NG-WATCH-01");
+
+            List<Map<String, Object>> actions = (List<Map<String, Object>>) structured.get("actions");
+            assertThat(actions).extracting(a -> a.get("action"))
+                    .containsExactly("adjust_quantity", "search_alternatives", "remove_item");
+        }
+
+        @Test
         @DisplayName("place_order with missing customer_id and customer_name returns error")
         void placeOrder_missingCustomerId() {
             Map<String, Object> item = Map.of("sku", "NG-EARBUD-01", "quantity", 1);
