@@ -249,7 +249,14 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.sku").value("NG-WATCH-01"))
                 .andExpect(jsonPath("$.requested_quantity").value(10))
                 .andExpect(jsonPath("$.available_quantity").value(5))
-                .andExpect(jsonPath("$.remedy").value("Reduce order quantity for 'NG-WATCH-01' to 5 or fewer units."));
+                .andExpect(jsonPath("$.remedy").value("Reduce order quantity for 'NG-WATCH-01' to 5 or fewer units."))
+                // WO-022: GlobalExceptionHandler now delegates to the shared InsufficientStockActions
+                // helper, so remove_item (PRD-003 FR-5) joins the two actions direct REST clients
+                // already had - a REST client and the MCP place_order tool must see the same three.
+                .andExpect(jsonPath("$.actions", org.hamcrest.Matchers.hasSize(3)))
+                .andExpect(jsonPath("$.actions[0].action").value("adjust_quantity"))
+                .andExpect(jsonPath("$.actions[1].action").value("search_alternatives"))
+                .andExpect(jsonPath("$.actions[2].action").value("remove_item"));
     }
 
     @Test

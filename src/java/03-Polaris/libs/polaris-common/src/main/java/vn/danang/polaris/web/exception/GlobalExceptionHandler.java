@@ -73,22 +73,7 @@ public class GlobalExceptionHandler {
         problem.setProperty("remedy", String.format("Reduce order quantity for '%s' to %d or fewer units.",
                 ex.getSku(), ex.getAvailableQuantity()));
 
-        java.util.List<java.util.Map<String, Object>> actions = new java.util.ArrayList<>();
-        if (ex.getAvailableQuantity() > 0) {
-            java.util.Map<String, Object> adjust = new java.util.LinkedHashMap<>();
-            adjust.put("label", "Adjust Quantity to " + ex.getAvailableQuantity());
-            adjust.put("action", "adjust_quantity");
-            adjust.put("sku", ex.getSku());
-            adjust.put("quantity", ex.getAvailableQuantity());
-            actions.add(adjust);
-        }
-        java.util.Map<String, Object> alt = new java.util.LinkedHashMap<>();
-        alt.put("label", "Search Alternatives");
-        alt.put("action", "search_alternatives");
-        alt.put("query", ex.getSku());
-        actions.add(alt);
-
-        problem.setProperty("actions", actions);
+        problem.setProperty("actions", InsufficientStockActions.build(ex));
         return problem;
     }
 

@@ -398,13 +398,25 @@ public class AssistantChatService {
         return modelTurn;
     }
 
-    private AssistantMessage toToolTurn(ToolResult toolResult) {
+    /** Package-visible (not private), like {@link #runStreamingTurn}, so tests can call it directly. */
+    AssistantMessage toToolTurn(ToolResult toolResult) {
         Objects.requireNonNull(toolResult, "toolResult must not be null");
         AssistantMessage toolTurn = new AssistantMessage();
         toolTurn.setRole(MessageRole.TOOL);
         toolTurn.setToolCallId(toolResult.toolCall().name());
         toolTurn.setContent(toolResult.result());
         toolTurn.setCreatedAt(Instant.now());
+        if (toolResult.actions() != null && !toolResult.actions().isEmpty()) {
+            // Surfaces the structured remedy actions (WO-022) into conversation history, mirroring
+            // how toModelTurn already uses widgetPayload for structured data - otherwise this data
+            // is thrown away between the MCP boundary and the rest of the Assistant context.
+            toolTurn.setWidgetType("PROBLEM_CARD");
+            try {
+                toolTurn.setWidgetPayload(objectMapper.writeValueAsString(Map.of("actions", toolResult.actions())));
+            } catch (Exception e) {
+                toolTurn.setWidgetPayload("{}");
+            }
+        }
         return toolTurn;
     }
 

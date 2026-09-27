@@ -5,6 +5,7 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
@@ -38,7 +39,24 @@ public class HttpCatalogRestClient implements CatalogRestClient {
 
     @Autowired
     public HttpCatalogRestClient(PolarisCoreRestProperties properties, UserContext userContext) {
-        this(RestClient.builder().baseUrl(properties.getBaseUrl()).build(), userContext);
+        this(RestClient.builder()
+                .baseUrl(properties.getBaseUrl())
+                .requestFactory(http1RequestFactory())
+                .build(), userContext);
+    }
+
+    /**
+     * Pins HTTP/1.1 (carried over from {@code HttpOrderRestClient}, WO-021): the JDK HttpClient's
+     * default HTTP/2-with-fallback negotiation can reset a POST-with-body against a plain
+     * HTTP/1.1 server (observed as "RST_STREAM: Stream cancelled" against WireMock in tests) -
+     * Polaris Core's own server is HTTP/1.1 only too. This client only issues GETs today, which
+     * didn't trip the bug, but both clients hit the same server, so both get the same pin rather
+     * than leaving one silently exposed to it the day a GET-with-body or similar edge case lands.
+     */
+    private static JdkClientHttpRequestFactory http1RequestFactory() {
+        return new JdkClientHttpRequestFactory(java.net.http.HttpClient.newBuilder()
+                .version(java.net.http.HttpClient.Version.HTTP_1_1)
+                .build());
     }
 
     public HttpCatalogRestClient(RestClient restClient, UserContext userContext) {

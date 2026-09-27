@@ -426,7 +426,8 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
 
             if (Boolean.TRUE.equals(mcpResult.isError())) {
                 String errorText = extractText(mcpResult);
-                return ToolResult.error(toolCall, errorText, "Tool execution failure");
+                List<Map<String, Object>> actions = extractActions(mcpResult);
+                return ToolResult.error(toolCall, errorText, "Tool execution failure", actions);
             }
 
             String content = extractText(mcpResult);
@@ -451,5 +452,35 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
                 .map(c -> ((TextContent) c).text())
                 .findFirst()
                 .orElse("");
+    }
+
+    /**
+     * Reads the remedy {@code actions[]} back out of {@code structuredContent} (WO-022), the same
+     * shape {@code OrderMcpTools.placeOrder} attaches via {@code InsufficientStockActions.build}.
+     * {@code structuredContent} is {@code Object} — coming back over JSON-RPC it's a generic
+     * {@code Map}/{@code List} tree, not the original typed objects — so every level is cast
+     * defensively. Absent or unshaped (an older Polaris Core version, or a failure with no
+     * actions) simply yields {@code null}, never an exception.
+     */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> extractActions(CallToolResult result) {
+        if (result == null) {
+            return null;
+        }
+        Object structured = result.structuredContent();
+        if (!(structured instanceof Map<?, ?> structuredMap)) {
+            return null;
+        }
+        Object actionsObj = structuredMap.get("actions");
+        if (!(actionsObj instanceof List<?> actionsList) || actionsList.isEmpty()) {
+            return null;
+        }
+        List<Map<String, Object>> actions = new ArrayList<>();
+        for (Object item : actionsList) {
+            if (item instanceof Map<?, ?> actionMap) {
+                actions.add((Map<String, Object>) actionMap);
+            }
+        }
+        return actions.isEmpty() ? null : actions;
     }
 }
