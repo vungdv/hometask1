@@ -69,6 +69,9 @@ class McpServerTest {
     @Autowired
     private OrderRepository orderRepository;
 
+    @Autowired
+    private vn.danang.polaris.catalog.repository.ProductRepository productRepository;
+
     /** Keycloak user ID of shopper alice.tran, linked to seeded customer 1 by V12. */
     private static final String ALICE_SUBJECT = "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a4b01";
 
@@ -564,6 +567,183 @@ class McpServerTest {
             assertThat(result.isError()).isTrue();
             String text = ((McpSchema.TextContent) result.content().get(0)).text();
             assertThat(text).contains("Parameter 'order_number' is required.");
+        }
+    }
+
+    @Nested
+    @DisplayName("place_order price guard and idempotency (plan S4)")
+    class PriceGuardAndIdempotencyTests {
+
+        /** Keycloak user ID of shopper ben.nguyen, linked to seeded customer 2 by V12. */
+        private static final String BEN_SUBJECT = "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a4b02";
+
+        @SuppressWarnings("unchecked")
+        private Map<String, Object> structured(McpSchema.CallToolResult result) {
+            assertThat(result.structuredContent()).isInstanceOf(Map.class);
+            return (Map<String, Object>) result.structuredContent();
+        }
+
+        @Test
+        @DisplayName("place_order schema offers an optional expected_unit_price per item")
+        void placeOrder_schemaHasExpectedUnitPrice() {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> items = (Map<String, Object>) ((Map<String, Object>) orderMcpTools.getPlaceOrderTool()
+                    .inputSchema().get("properties")).get("items");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> itemSchema = (Map<String, Object>) items.get("items");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> itemProperties = (Map<String, Object>) itemSchema.get("properties");
+            assertThat(itemProperties).containsKey("expected_unit_price");
+            assertThat((List<String>) itemSchema.get("required")).containsExactly("sku", "quantity");
+        }
+
+        @Test
+        @DisplayName("matching expected_unit_price (camelCase alias accepted) places the order")
+        void placeOrder_expectedPriceMatches_success() {
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1,
+                    "items", List.of(Map.of("sku", "NG-EARBUD-01", "quantity", 1, "expectedUnitPrice", 49.90))));
+
+            assertThat(result.isError()).isFalse();
+            assertThat(((McpSchema.TextContent) result.content().get(0)).text()).contains("Order successfully placed!");
+        }
+
+        @Test
+        @DisplayName("changed price is a tool error whose structuredContent carries the price-changed problem and changed lines")
+        void placeOrder_priceChanged_structuredProblem() {
+            long ordersBefore = orderRepository.count();
+
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1,
+                    "items", List.of(
+                            Map.of("sku", "NG-EARBUD-01", "quantity", 1, "expected_unit_price", "39.90"),
+                            Map.of("sku", "NG-CHARGER-01", "quantity", 1, "expected_unit_price", 24.90))));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(((McpSchema.TextContent) result.content().get(0)).text()).contains("No order was placed");
+            Map<String, Object> problem = structured(result);
+            assertThat(problem).containsEntry("type", "https://polaris.local/errors/price-changed");
+            assertThat(problem).containsEntry("status", 409);
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> changed = (List<Map<String, Object>>) problem.get("changed_lines");
+            assertThat(changed).hasSize(1);
+            assertThat(changed.get(0)).containsEntry("sku", "NG-EARBUD-01");
+            assertThat((java.math.BigDecimal) changed.get(0).get("expected_unit_price")).isEqualByComparingTo("39.90");
+            assertThat((java.math.BigDecimal) changed.get(0).get("current_unit_price")).isEqualByComparingTo("49.90");
+            assertThat(orderRepository.count()).isEqualTo(ordersBefore);
+        }
+
+        @Test
+        @DisplayName("insufficient stock is a tool error whose structuredContent carries the out-of-stock problem")
+        void placeOrder_insufficientStock_structuredProblem() {
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1, "items", List.of(Map.of("sku", "NG-WATCH-01", "quantity", 9999))));
+
+            assertThat(result.isError()).isTrue();
+            Map<String, Object> problem = structured(result);
+            assertThat(problem).containsEntry("type", "https://polaris.local/errors/out-of-stock");
+            assertThat(problem).containsEntry("sku", "NG-WATCH-01");
+            assertThat(problem).containsEntry("requested_quantity", 9999);
+            assertThat(problem).containsKey("available_quantity");
+        }
+
+        @Test
+        @DisplayName("invalid expected_unit_price is rejected before anything is ordered")
+        void placeOrder_invalidExpectedPrice_error() {
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1, "items", List.of(Map.of("sku", "NG-EARBUD-01", "quantity", 1, "expected_unit_price", "cheap"))));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(((McpSchema.TextContent) result.content().get(0)).text()).contains("expected_unit_price");
+        }
+
+        @Test
+        @DisplayName("inactive product is a tool error with the product-inactive problem listing the SKUs")
+        void placeOrder_inactiveProduct_structuredProblem() {
+            var speaker = productRepository.findBySku("NG-SPEAKER-01").orElseThrow();
+            speaker.setIsActive(false);
+            productRepository.saveAndFlush(speaker);
+
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1, "items", List.of(Map.of("sku", "NG-SPEAKER-01", "quantity", 1))));
+
+            assertThat(result.isError()).isTrue();
+            Map<String, Object> problem = structured(result);
+            assertThat(problem).containsEntry("type", "https://polaris.local/errors/product-inactive");
+            assertThat(problem).containsEntry("status", 409);
+            assertThat(problem).containsEntry("inactive_skus", List.of("NG-SPEAKER-01"));
+        }
+
+        @Test
+        @DisplayName("unknown SKU (e.g. deleted since staging) is a structured not-found problem")
+        void placeOrder_unknownSku_structuredNotFound() {
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1, "items", List.of(Map.of("sku", "NG-DOES-NOT-EXIST", "quantity", 1))));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(structured(result)).containsEntry("type", "https://polaris.local/errors/not-found")
+                    .containsEntry("status", 404);
+        }
+
+        @Test
+        @DisplayName("unknown customer_id is a structured not-found problem")
+        void placeOrder_unknownCustomer_structuredNotFound() {
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 999999, "items", List.of(Map.of("sku", "NG-EARBUD-01", "quantity", 1))));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(structured(result)).containsEntry("type", "https://polaris.local/errors/not-found");
+        }
+
+        @Test
+        @DisplayName("invalid arguments are structured validation problems naming the parameter")
+        void placeOrder_invalidArguments_structuredValidation() {
+            McpSchema.CallToolResult noItems = orderMcpTools.placeOrder(Map.of("customer_id", 1, "items", List.of()));
+            assertThat(structured(noItems)).containsEntry("type", "https://polaris.local/errors/validation-error")
+                    .containsEntry("status", 400)
+                    .containsEntry("invalid_param", "items");
+
+            McpSchema.CallToolResult badQty = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1, "items", List.of(Map.of("sku", "NG-EARBUD-01", "quantity", 0))));
+            assertThat(structured(badQty)).containsEntry("invalid_param", "items.quantity");
+        }
+
+        @Test
+        @DisplayName("idempotency_key longer than 100 characters is a structured validation problem and places nothing")
+        void placeOrder_idempotencyKeyTooLong_structuredValidation() {
+            long ordersBefore = orderRepository.count();
+
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1,
+                    "items", List.of(Map.of("sku", "NG-EARBUD-01", "quantity", 1)),
+                    "idempotency_key", "k".repeat(101)));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(structured(result)).containsEntry("type", "https://polaris.local/errors/validation-error")
+                    .containsEntry("invalid_param", "idempotency_key");
+            assertThat(orderRepository.count()).isEqualTo(ordersBefore);
+        }
+
+        @Test
+        @DisplayName("same idempotency_key replays the order; another shopper reusing it gets idempotency-key-reused")
+        void placeOrder_idempotencyKey_replayAndReuseByOtherShopper() {
+            Map<String, Object> args = Map.of(
+                    "items", List.of(Map.of("sku", "NG-EARBUD-01", "quantity", 1)),
+                    "idempotency_key", "mcp-s4-key-alice");
+
+            McpSchema.CallToolResult first = orderMcpTools.placeOrder(args, shopper(ALICE_SUBJECT, "alice.tran@example.com"));
+            assertThat(first.isError()).isFalse();
+            long ordersAfterFirst = orderRepository.count();
+
+            McpSchema.CallToolResult replay = orderMcpTools.placeOrder(args, shopper(ALICE_SUBJECT, "alice.tran@example.com"));
+            assertThat(replay.isError()).isFalse();
+            assertThat(((McpSchema.TextContent) replay.content().get(0)).text()).contains("no new order was created");
+
+            McpSchema.CallToolResult reused = orderMcpTools.placeOrder(args, shopper(BEN_SUBJECT, "ben.nguyen@example.com"));
+            assertThat(reused.isError()).isTrue();
+            assertThat(((McpSchema.TextContent) reused.content().get(0)).text()).doesNotContain("Alice");
+            assertThat(structured(reused)).containsEntry("type", "https://polaris.local/errors/idempotency-key-reused");
+            assertThat(orderRepository.count()).isEqualTo(ordersAfterFirst);
         }
     }
 

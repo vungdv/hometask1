@@ -2,6 +2,8 @@ package vn.danang.polaris.web.exception;
 
 public class InsufficientStockException extends RuntimeException {
 
+    public static final String TYPE = "https://polaris.local/errors/out-of-stock";
+
     private final String sku;
     private final int requestedQuantity;
     private final int availableQuantity;

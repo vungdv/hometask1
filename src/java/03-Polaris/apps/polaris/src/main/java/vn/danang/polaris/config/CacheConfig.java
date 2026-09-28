@@ -38,6 +38,15 @@ public class CacheConfig {
 
     public static final String PRODUCTS_CACHE = "products";
 
+    /**
+     * Key of a SKU lookup in {@link #PRODUCTS_CACHE}. SKU lookups share the cache with id lookups, so the key is
+     * prefixed ({@code sku:<lowercased-sku>}) to keep it distinct from the plain numeric id keys. Used by
+     * {@code ProductService}'s cache annotations and by order placement's post-commit eviction, so both agree.
+     */
+    public static String productSkuKey(String sku) {
+        return "sku:" + sku.toLowerCase(java.util.Locale.ROOT);
+    }
+
     @Bean
     @ConfigurationProperties(prefix = "polaris.cache.products")
     public ProductCacheProperties productCacheProperties() {
