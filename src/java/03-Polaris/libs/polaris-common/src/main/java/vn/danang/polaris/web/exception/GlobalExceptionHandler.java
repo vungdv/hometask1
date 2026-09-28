@@ -111,6 +111,17 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(ProductInactiveException.class)
+    public ProblemDetail handleProductInactiveException(ProductInactiveException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Product Inactive");
+        problem.setType(URI.create(ProductInactiveException.TYPE));
+        problem.setProperty("inactive_skus", ex.getSkus());
+        problem.setProperty("remedy", "Remove the listed products from the order or choose alternatives. Nothing was charged and no stock was taken.");
+        problem.setProperty("actions", java.util.List.of(java.util.Map.of("label", "Search Alternatives", "action", "search_alternatives")));
+        return problem;
+    }
+
     @ExceptionHandler(IdempotencyKeyReusedException.class)
     public ProblemDetail handleIdempotencyKeyReusedException(IdempotencyKeyReusedException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage());

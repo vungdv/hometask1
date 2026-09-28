@@ -533,4 +533,57 @@ public class OrderApiIntegrationTest {
         // The sequence starts above every seeded number (ORD-1001..ORD-1006), so it can never re-issue one
         org.assertj.core.api.Assertions.assertThat(firstValue).isGreaterThan(1006L);
     }
+
+    @Test
+    void placeOrder_inactiveProduct_shouldReturn409ProductInactiveAndChangeNothing() throws Exception {
+        var speaker = productRepository.findBySku("NG-SPEAKER-01").orElseThrow();
+        speaker.setIsActive(false);
+        productRepository.saveAndFlush(speaker);
+        int speakerStock = speaker.getStockQty();
+        int chargerStock = productRepository.findBySku("NG-CHARGER-01").orElseThrow().getStockQty();
+        long initialOrderCount = orderRepository.count();
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                            { "customerId": 1, "items": [
+                                { "sku": "NG-CHARGER-01", "quantity": 1 },
+                                { "sku": "NG-SPEAKER-01", "quantity": 1 } ] }
+                            """)
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/product-inactive"))
+                .andExpect(jsonPath("$.title").value("Product Inactive"))
+                .andExpect(jsonPath("$.inactive_skus.length()").value(1))
+                .andExpect(jsonPath("$.inactive_skus[0]").value("NG-SPEAKER-01"));
+
+        org.assertj.core.api.Assertions.assertThat(orderRepository.count()).isEqualTo(initialOrderCount);
+        org.assertj.core.api.Assertions.assertThat(productRepository.findBySku("NG-SPEAKER-01").orElseThrow().getStockQty())
+                .isEqualTo(speakerStock);
+        org.assertj.core.api.Assertions.assertThat(productRepository.findBySku("NG-CHARGER-01").orElseThrow().getStockQty())
+                .isEqualTo(chargerStock);
+    }
+
+    @Test
+    void placeOrder_idempotencyKeyTooLong_shouldReturn400AndCreateNothing() throws Exception {
+        long initialOrderCount = orderRepository.count();
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "k".repeat(101))
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{ \"customerId\": 1, " + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Idempotency-Key must be at most 100 characters"));
+
+        // Exactly 100 characters fits orders.idempotency_key
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "k".repeat(100))
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{ \"customerId\": 1, " + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isCreated());
+
+        org.assertj.core.api.Assertions.assertThat(orderRepository.count()).isEqualTo(initialOrderCount + 1);
+    }
 }

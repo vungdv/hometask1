@@ -25,6 +25,7 @@ import vn.danang.polaris.order.repository.OrderRepository;
 import vn.danang.polaris.web.exception.IdempotencyKeyReusedException;
 import vn.danang.polaris.web.exception.InsufficientStockException;
 import vn.danang.polaris.web.exception.PriceChangedException;
+import vn.danang.polaris.web.exception.ProductInactiveException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -195,5 +196,32 @@ class OrderServiceTest {
         assertThat(placement.replayed()).isFalse();
         assertThat(placement.order().getOrderNumber()).isEqualTo("ORD-000007");
         assertThat(placement.order().getTotalAmount()).isEqualByComparingTo("10.00");
+    }
+
+    @Test
+    @DisplayName("inactive products are rejected under lock with every inactive SKU listed")
+    void place_inactiveProducts_throwsWithSkus() {
+        Product active = product(10L, "SKU-A", "5.00", 10);
+        Product inactive = product(11L, "SKU-B", "5.00", 10);
+        inactive.setIsActive(false);
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer(1L)));
+        when(productRepository.findBySkuIgnoreCaseForUpdate("SKU-A")).thenReturn(Optional.of(active));
+        when(productRepository.findBySkuIgnoreCaseForUpdate("SKU-B")).thenReturn(Optional.of(inactive));
+
+        assertThatThrownBy(() -> service.place(1L,
+                List.of(new OrderItemRequest("SKU-B", 1), new OrderItemRequest("SKU-A", 1)), null))
+                .isInstanceOfSatisfying(ProductInactiveException.class,
+                        ex -> assertThat(ex.getSkus()).containsExactly("SKU-B"));
+        verify(orderRepository, never()).save(any());
+        assertThat(inactive.getStockQty()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("an idempotency key longer than the column is rejected before touching the database")
+    void place_idempotencyKeyTooLong_throwsIllegalArgument() {
+        assertThatThrownBy(() -> service.place(1L, List.of(new OrderItemRequest("SKU-A", 1)), "k".repeat(101)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at most 100");
+        verify(orderRepository, never()).findByIdempotencyKey(any());
     }
 }

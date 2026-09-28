@@ -3,15 +3,11 @@
 -- counter seeded from the clock, which could hand out the same number after a restart or on a
 -- second replica and then fail on the UNIQUE order_number constraint.
 --
--- The service formats nextval as ORD-%06d. The sequence starts above the largest numeric suffix
--- already in use (seeded ORD-1001.., and any number the old counter produced), so a generated
--- number can never collide with an existing one.
+-- The service formats the next value as ORD-%06d. The sequence starts at 10,000,000, above the
+-- seeded ORD-1001..ORD-1006 and above anything the old counter could produce (clock millis
+-- mod 1,000,000 plus increments), so a generated number never collides with an existing one.
+-- "ORD-" plus 8+ digits still fits order_number VARCHAR(20).
+--
+-- Kept to standard SQL so it applies on both PostgreSQL and the local H2 default.
 
-CREATE SEQUENCE order_number_seq START WITH 1 INCREMENT BY 1;
-
-SELECT setval(
-    'order_number_seq',
-    COALESCE((SELECT MAX(CAST(SUBSTRING(order_number FROM 5) AS BIGINT))
-              FROM orders
-              WHERE order_number ~ '^ORD-[0-9]{1,18}$'), 0) + 1,
-    false);
+CREATE SEQUENCE order_number_seq START WITH 10000000 INCREMENT BY 1;

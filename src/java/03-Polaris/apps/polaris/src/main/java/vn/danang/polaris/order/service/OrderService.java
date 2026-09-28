@@ -41,12 +41,16 @@ import vn.danang.polaris.config.CacheConfig;
 import vn.danang.polaris.web.exception.IdempotencyKeyReusedException;
 import vn.danang.polaris.web.exception.InsufficientStockException;
 import vn.danang.polaris.web.exception.PriceChangedException;
+import vn.danang.polaris.web.exception.ProductInactiveException;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
 
 @Service
 public class OrderService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+
+    /** Length of {@code orders.idempotency_key} (V5). */
+    public static final int MAX_IDEMPOTENCY_KEY_LENGTH = 100;
 
     /**
      * Result of {@link #place}: the order, and whether it was an existing order returned for a repeated
@@ -85,9 +89,10 @@ public class OrderService {
      * Places an order, or returns the existing one when {@code idempotencyKey} was already used by the same customer.
      * <p>
      * Lines repeating a SKU (case-insensitive) are merged and checked against stock as one line, like the quote.
-     * Under row lock, every line with an {@code expectedUnitPrice} must still match the live price
-     * ({@link PriceChangedException}, FR-14) and have enough stock ({@link InsufficientStockException}); either
-     * failure rolls back with no order and no stock change.
+     * Under row lock, every product must still be sold ({@link ProductInactiveException}), every line with an
+     * {@code expectedUnitPrice} must still match the live price ({@link PriceChangedException}, FR-14), and every
+     * line must have enough stock ({@link InsufficientStockException}); any failure rolls back with no order and
+     * no stock change.
      * <p>
      * Deliberately not {@code @Transactional}: the write runs in its own transaction so that a request losing an
      * idempotency-key race (unique index {@code idx_orders_idempotency_key}) can discard the aborted Postgres
@@ -101,6 +106,10 @@ public class OrderService {
         }
         List<MergedLine> lines = mergeLines(requestedItems);
         String key = idempotencyKey != null && !idempotencyKey.isBlank() ? idempotencyKey.trim() : null;
+        if (key != null && key.length() > MAX_IDEMPOTENCY_KEY_LENGTH) {
+            throw new IllegalArgumentException(
+                    "Idempotency-Key must be at most " + MAX_IDEMPOTENCY_KEY_LENGTH + " characters");
+        }
 
         try {
             return writeTx.execute(status -> placeInTransaction(customerId, lines, key));
@@ -150,7 +159,15 @@ public class OrderService {
             }
         }
 
-        // Phase 2: verify price and stock for all lines before modifying any state
+        // Phase 2: verify active status, price and stock for all lines before modifying any state
+        List<String> inactive = locked.stream()
+                .filter(l -> Boolean.FALSE.equals(l.product().getIsActive()))
+                .map(l -> l.product().getSku())
+                .toList();
+        if (!inactive.isEmpty()) {
+            log.info("Order rejected, inactive products: customerId={}, inactiveSkus={}", customerId, inactive.size());
+            throw new ProductInactiveException(inactive);
+        }
         List<PriceChangedException.ChangedLine> changed = new ArrayList<>();
         for (LockedLine l : locked) {
             BigDecimal livePrice = l.product().getPrice();
@@ -253,7 +270,7 @@ public class OrderService {
     }
 
     /**
-     * Evicts the cached {@code products} entries (id and {@code sku:} keys, see {@code ProductService}) of the given
+     * Evicts the cached {@code products} entries (id and {@link CacheConfig#productSkuKey} keys) of the given
      * products once the current transaction commits, so {@code get_product_by_sku} never serves pre-order stock.
      * A rollback leaves the cache untouched, since nothing changed.
      */
@@ -261,7 +278,7 @@ public class OrderService {
         List<Object> keys = new ArrayList<>();
         for (Product product : products) {
             keys.add(product.getId());
-            keys.add("sku:" + product.getSku().toLowerCase());
+            keys.add(CacheConfig.productSkuKey(product.getSku()));
         }
         Runnable evict = () -> {
             Cache cache = cacheManager.getCache(CacheConfig.PRODUCTS_CACHE);

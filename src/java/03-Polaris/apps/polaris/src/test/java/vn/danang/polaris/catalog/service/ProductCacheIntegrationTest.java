@@ -248,7 +248,7 @@ class ProductCacheIntegrationTest {
 
     /** Key of a SKU lookup inside the {@code products} cache (the Redis key adds the {@code products::} prefix). */
     private static String localSkuKey(String sku) {
-        return "sku:" + sku.toLowerCase();
+        return CacheConfig.productSkuKey(sku);
     }
 
     private static String idKey(Long id) {
@@ -256,7 +256,7 @@ class ProductCacheIntegrationTest {
     }
 
     private static String skuKey(String sku) {
-        return CacheConfig.PRODUCTS_CACHE + "::sku:" + sku.toLowerCase();
+        return CacheConfig.PRODUCTS_CACHE + "::" + CacheConfig.productSkuKey(sku);
     }
 
     /**

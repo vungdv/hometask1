@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -38,6 +40,7 @@ import vn.danang.polaris.order.service.OrderService;
 import vn.danang.polaris.web.exception.IdempotencyKeyReusedException;
 import vn.danang.polaris.web.exception.InsufficientStockException;
 import vn.danang.polaris.web.exception.PriceChangedException;
+import vn.danang.polaris.web.exception.ProductInactiveException;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
 
 /**
@@ -54,6 +57,14 @@ public class OrderMcpTools {
     public static final String TOOL_SEARCH_CUSTOMERS_BY_NAME = "search_customers_by_name";
 
     private static final String ORDER_WRITE_AUTHORITY = "PERM_" + PolarisPermissions.ORDER_WRITE;
+
+    private static final Logger log = LoggerFactory.getLogger(OrderMcpTools.class);
+
+    // Problem types shared with GlobalExceptionHandler, so place_order errors read like the REST API's
+    private static final String TYPE_VALIDATION_ERROR = "https://polaris.local/errors/validation-error";
+    private static final String TYPE_NOT_FOUND = "https://polaris.local/errors/not-found";
+    private static final String TYPE_FORBIDDEN = "https://polaris.local/errors/forbidden";
+    private static final String TYPE_INTERNAL_ERROR = "https://polaris.local/errors/internal-error";
 
     private static final String GET_ORDER_STATUS_SCHEMA = """
         {
@@ -118,7 +129,8 @@ public class OrderMcpTools {
             },
             "idempotency_key": {
               "type": "string",
-              "description": "Optional unique idempotency key to prevent duplicate orders during retries. A retry returns the original order; a key already used for another customer is rejected"
+              "maxLength": 100,
+              "description": "Optional unique idempotency key (at most 100 characters) to prevent duplicate orders during retries. A retry returns the original order; a key already used for another customer is rejected"
             }
           },
           "required": ["items"]
@@ -370,10 +382,7 @@ public class OrderMcpTools {
     public McpSchema.CallToolResult placeOrder(Map<String, Object> arguments, @Nullable Authentication authentication) {
         return executeWithSpan(TOOL_PLACE_ORDER, () -> {
             if (arguments == null) {
-                return McpSchema.CallToolResult.builder()
-                        .addTextContent("Arguments are required.")
-                        .isError(true)
-                        .build();
+                return validationError("Arguments are required.", null);
             }
 
             // Resolve customer: prefer customer_id, fall back to customer_name fuzzy lookup
@@ -388,30 +397,20 @@ public class OrderMcpTools {
             }
             if (authentication.getAuthorities().stream()
                     .noneMatch(authority -> ORDER_WRITE_AUTHORITY.equals(authority.getAuthority()))) {
-                return McpSchema.CallToolResult.builder()
-                        .addTextContent("Forbidden: the '" + PolarisPermissions.ORDER_WRITE + "' permission is required to place an order.")
-                        .isError(true)
-                        .build();
+                String message = "Forbidden: the '" + PolarisPermissions.ORDER_WRITE + "' permission is required to place an order.";
+                return problemResult(message, problem(TYPE_FORBIDDEN, "Forbidden", 403, message));
             }
             if (!caller.staff()) {
                 // Shoppers: the customer comes from the caller's identity, never from model-supplied arguments
                 try {
                     customerId = customerService.resolveOrderingCustomerId(caller, customerId);
                 } catch (AccessDeniedException ex) {
-                    return McpSchema.CallToolResult.builder()
-                            .addTextContent("Forbidden: " + ex.getMessage())
-                            .isError(true)
-                            .build();
+                    String message = "Forbidden: " + ex.getMessage();
+                    return problemResult(message, problem(TYPE_FORBIDDEN, "Forbidden", 403, message));
                 } catch (ResourceNotFoundException ex) {
-                    return McpSchema.CallToolResult.builder()
-                            .addTextContent(ex.getMessage() + " The order cannot be placed.")
-                            .isError(true)
-                            .build();
+                    return notFound(ex.getMessage() + " The order cannot be placed.");
                 } catch (Exception ex) {
-                    return McpSchema.CallToolResult.builder()
-                            .addTextContent("Error resolving the customer for the authenticated user: " + ex.getMessage())
-                            .isError(true)
-                            .build();
+                    return internalError("resolving the customer for the authenticated user", ex);
                 }
             }
 
@@ -420,10 +419,7 @@ public class OrderMcpTools {
                 String customerName = rawCustomerName != null ? rawCustomerName.toString().trim() : null;
 
                 if (customerName == null || customerName.isBlank()) {
-                    return McpSchema.CallToolResult.builder()
-                            .addTextContent("Either 'customer_id' or 'customer_name' is required to identify the customer.")
-                            .isError(true)
-                            .build();
+                    return validationError("Either 'customer_id' or 'customer_name' is required to identify the customer.", "customer_id");
                 }
 
                 // Fuzzy name lookup
@@ -431,18 +427,12 @@ public class OrderMcpTools {
                 try {
                     candidates = customerService.searchByName(customerName, 10);
                 } catch (Exception ex) {
-                    return McpSchema.CallToolResult.builder()
-                            .addTextContent("Error searching customer '" + customerName + "': " + ex.getMessage())
-                            .isError(true)
-                            .build();
+                    return internalError("searching customers by name", ex);
                 }
 
                 if (candidates.isEmpty()) {
-                    return McpSchema.CallToolResult.builder()
-                            .addTextContent("No customer found matching '" + customerName + "'. "
-                                    + "Please check the name spelling and retry, or provide the customer_id directly.")
-                            .isError(true)
-                            .build();
+                    return notFound("No customer found matching '" + customerName + "'. "
+                            + "Please check the name spelling and retry, or provide the customer_id directly.");
                 }
 
                 if (candidates.size() > 1) {
@@ -465,47 +455,33 @@ public class OrderMcpTools {
 
             Object rawItems = arguments.get("items");
             if (!(rawItems instanceof List<?> itemsList) || itemsList.isEmpty()) {
-                return McpSchema.CallToolResult.builder()
-                        .addTextContent("Parameter 'items' is required and must not be empty.")
-                        .isError(true)
-                        .build();
+                return validationError("Parameter 'items' is required and must not be empty.", "items");
             }
 
             List<OrderItemRequest> reqItems = new ArrayList<>();
             for (Object itemObj : itemsList) {
                 if (!(itemObj instanceof Map<?, ?> itemMap)) {
-                    return McpSchema.CallToolResult.builder()
-                            .addTextContent("Each item must be an object with 'sku' and 'quantity'.")
-                            .isError(true)
-                            .build();
+                    return validationError("Each item must be an object with 'sku' and 'quantity'.", "items");
                 }
 
                 Object rawSku = itemMap.get("sku");
                 if (rawSku == null || rawSku.toString().isBlank()) {
-                    return McpSchema.CallToolResult.builder()
-                            .addTextContent("Item 'sku' is required.")
-                            .isError(true)
-                            .build();
+                    return validationError("Item 'sku' is required.", "items.sku");
                 }
                 String sku = rawSku.toString().trim();
 
                 Object rawQty = itemMap.get("quantity");
                 Integer qty = parseInteger(rawQty);
                 if (qty == null || qty < 1) {
-                    return McpSchema.CallToolResult.builder()
-                            .addTextContent("Item 'quantity' must be at least 1 for SKU '" + sku + "'.")
-                            .isError(true)
-                            .build();
+                    return validationError("Item 'quantity' must be at least 1 for SKU '" + sku + "'.", "items.quantity");
                 }
 
                 Object rawExpected = itemMap.get("expected_unit_price") != null
                         ? itemMap.get("expected_unit_price") : itemMap.get("expectedUnitPrice");
                 BigDecimal expectedUnitPrice = parseBigDecimal(rawExpected);
                 if (rawExpected != null && (expectedUnitPrice == null || expectedUnitPrice.signum() < 0)) {
-                    return McpSchema.CallToolResult.builder()
-                            .addTextContent("Item 'expected_unit_price' must be a non-negative number for SKU '" + sku + "'.")
-                            .isError(true)
-                            .build();
+                    return validationError("Item 'expected_unit_price' must be a non-negative number for SKU '" + sku + "'.",
+                            "items.expected_unit_price");
                 }
 
                 reqItems.add(new OrderItemRequest(sku, qty, expectedUnitPrice));
@@ -513,6 +489,10 @@ public class OrderMcpTools {
 
             Object rawKey = arguments.get("idempotency_key") != null ? arguments.get("idempotency_key") : arguments.get("idempotencyKey");
             String idempotencyKey = rawKey != null ? rawKey.toString().trim() : null;
+            if (idempotencyKey != null && idempotencyKey.length() > OrderService.MAX_IDEMPOTENCY_KEY_LENGTH) {
+                return validationError("Parameter 'idempotency_key' must be at most "
+                        + OrderService.MAX_IDEMPOTENCY_KEY_LENGTH + " characters.", "idempotency_key");
+            }
 
             try {
                 OrderService.Placement placement = orderService.place(customerId, reqItems, idempotencyKey);
@@ -541,18 +521,40 @@ public class OrderMcpTools {
                 }
                 problem.put("changed_lines", changedLines);
                 return problemResult(ex.getMessage() + " No order was placed. Remedy: review the current prices and confirm again.", problem);
+            } catch (ProductInactiveException ex) {
+                Map<String, Object> problem = problem(ProductInactiveException.TYPE, "Product Inactive", 409, ex.getMessage());
+                problem.put("inactive_skus", ex.getSkus());
+                return problemResult(ex.getMessage() + " No order was placed. Remedy: remove them or choose alternatives.", problem);
             } catch (IdempotencyKeyReusedException ex) {
                 return problemResult(ex.getMessage(),
                         problem(IdempotencyKeyReusedException.TYPE, "Idempotency Key Reused", 422, ex.getMessage()));
             } catch (ResourceNotFoundException ex) {
-                return McpSchema.CallToolResult.builder().addTextContent(ex.getMessage()).isError(true).build();
+                return notFound(ex.getMessage());
+            } catch (IllegalArgumentException ex) {
+                return validationError(ex.getMessage(), null);
             } catch (Exception ex) {
-                return McpSchema.CallToolResult.builder()
-                        .addTextContent("Error placing order: " + ex.getMessage())
-                        .isError(true)
-                        .build();
+                return internalError("placing the order", ex);
             }
         });
+    }
+
+    private static McpSchema.CallToolResult validationError(String message, @Nullable String invalidParam) {
+        Map<String, Object> problem = problem(TYPE_VALIDATION_ERROR, "Validation Error", 400, message);
+        if (invalidParam != null) {
+            problem.put("invalid_param", invalidParam);
+        }
+        return problemResult(message, problem);
+    }
+
+    private static McpSchema.CallToolResult notFound(String message) {
+        return problemResult(message, problem(TYPE_NOT_FOUND, "Resource Not Found", 404, message));
+    }
+
+    /** Logs the cause server-side and returns a generic problem, never the exception message (it may leak internals). */
+    private static McpSchema.CallToolResult internalError(String activity, Exception ex) {
+        log.error("place_order failed while {}", activity, ex);
+        String message = "An internal error occurred while " + activity + ". No order was placed; please retry later.";
+        return problemResult(message, problem(TYPE_INTERNAL_ERROR, "Internal Server Error", 500, message));
     }
 
     public McpSchema.CallToolResult listCustomerOrders(Map<String, Object> arguments) {

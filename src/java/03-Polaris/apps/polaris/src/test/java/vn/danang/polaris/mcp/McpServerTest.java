@@ -69,6 +69,9 @@ class McpServerTest {
     @Autowired
     private OrderRepository orderRepository;
 
+    @Autowired
+    private vn.danang.polaris.catalog.repository.ProductRepository productRepository;
+
     /** Keycloak user ID of shopper alice.tran, linked to seeded customer 1 by V12. */
     private static final String ALICE_SUBJECT = "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a4b01";
 
@@ -652,6 +655,73 @@ class McpServerTest {
 
             assertThat(result.isError()).isTrue();
             assertThat(((McpSchema.TextContent) result.content().get(0)).text()).contains("expected_unit_price");
+        }
+
+        @Test
+        @DisplayName("inactive product is a tool error with the product-inactive problem listing the SKUs")
+        void placeOrder_inactiveProduct_structuredProblem() {
+            var speaker = productRepository.findBySku("NG-SPEAKER-01").orElseThrow();
+            speaker.setIsActive(false);
+            productRepository.saveAndFlush(speaker);
+
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1, "items", List.of(Map.of("sku", "NG-SPEAKER-01", "quantity", 1))));
+
+            assertThat(result.isError()).isTrue();
+            Map<String, Object> problem = structured(result);
+            assertThat(problem).containsEntry("type", "https://polaris.local/errors/product-inactive");
+            assertThat(problem).containsEntry("status", 409);
+            assertThat(problem).containsEntry("inactive_skus", List.of("NG-SPEAKER-01"));
+        }
+
+        @Test
+        @DisplayName("unknown SKU (e.g. deleted since staging) is a structured not-found problem")
+        void placeOrder_unknownSku_structuredNotFound() {
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1, "items", List.of(Map.of("sku", "NG-DOES-NOT-EXIST", "quantity", 1))));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(structured(result)).containsEntry("type", "https://polaris.local/errors/not-found")
+                    .containsEntry("status", 404);
+        }
+
+        @Test
+        @DisplayName("unknown customer_id is a structured not-found problem")
+        void placeOrder_unknownCustomer_structuredNotFound() {
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 999999, "items", List.of(Map.of("sku", "NG-EARBUD-01", "quantity", 1))));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(structured(result)).containsEntry("type", "https://polaris.local/errors/not-found");
+        }
+
+        @Test
+        @DisplayName("invalid arguments are structured validation problems naming the parameter")
+        void placeOrder_invalidArguments_structuredValidation() {
+            McpSchema.CallToolResult noItems = orderMcpTools.placeOrder(Map.of("customer_id", 1, "items", List.of()));
+            assertThat(structured(noItems)).containsEntry("type", "https://polaris.local/errors/validation-error")
+                    .containsEntry("status", 400)
+                    .containsEntry("invalid_param", "items");
+
+            McpSchema.CallToolResult badQty = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1, "items", List.of(Map.of("sku", "NG-EARBUD-01", "quantity", 0))));
+            assertThat(structured(badQty)).containsEntry("invalid_param", "items.quantity");
+        }
+
+        @Test
+        @DisplayName("idempotency_key longer than 100 characters is a structured validation problem and places nothing")
+        void placeOrder_idempotencyKeyTooLong_structuredValidation() {
+            long ordersBefore = orderRepository.count();
+
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(Map.of(
+                    "customer_id", 1,
+                    "items", List.of(Map.of("sku", "NG-EARBUD-01", "quantity", 1)),
+                    "idempotency_key", "k".repeat(101)));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(structured(result)).containsEntry("type", "https://polaris.local/errors/validation-error")
+                    .containsEntry("invalid_param", "idempotency_key");
+            assertThat(orderRepository.count()).isEqualTo(ordersBefore);
         }
 
         @Test
