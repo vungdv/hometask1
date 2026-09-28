@@ -1,7 +1,9 @@
 package vn.danang.polaris.assistant.tools;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -21,7 +23,10 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import jakarta.annotation.Nullable;
+import vn.danang.polaris.assistant.intent.DefaultIntentManager;
 import vn.danang.polaris.assistant.intent.IntentDefinition;
+import vn.danang.polaris.assistant.intent.IntentManager;
+import vn.danang.polaris.assistant.intent.IntentToolPolicy;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
 import vn.danang.polaris.assistant.policy.DefaultPolicyEngine;
 import vn.danang.polaris.assistant.policy.PolicyDecision;
@@ -35,6 +40,8 @@ import vn.danang.polaris.assistant.observability.trace.SpanTag;
  * Implements {@link ToolManager} to discover tools and handle the tool call execution loop,
  * dispatching tool calls directly to Polaris Core via {@link PolarisMcpClient}
  * with policy validation and concurrent execution for remote tool calls.
+ * Authorization is per tool: each tool's required scope is derived from the intent taxonomy
+ * ({@link IntentToolPolicy}), so a low-confidence or empty intent can't skip the scope check.
  */
 @Component
 public class PolicyToolManager implements ToolManager, DisposableBean {
@@ -43,6 +50,7 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
 
     private final PolarisMcpClient polarisMcpClient;
     private final PolicyEngine policyEngine;
+    private final IntentManager intentManager;
     private final Executor executor;
     private final boolean managedExecutor;
 
@@ -50,11 +58,15 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
     public PolicyToolManager(
             PolarisMcpClient polarisMcpClient,
             ObjectProvider<PolicyEngine> policyEngineProvider,
-            ObjectProvider<Executor> executorProvider) {
+            ObjectProvider<Executor> executorProvider,
+            ObjectProvider<IntentManager> intentManagerProvider) {
         this.polarisMcpClient = polarisMcpClient;
         this.policyEngine = policyEngineProvider != null && policyEngineProvider.getIfAvailable() != null
                 ? policyEngineProvider.getIfAvailable()
                 : new DefaultPolicyEngine();
+        this.intentManager = intentManagerProvider != null && intentManagerProvider.getIfAvailable() != null
+                ? intentManagerProvider.getIfAvailable()
+                : new DefaultIntentManager();
         if (executorProvider != null && executorProvider.getIfAvailable() != null) {
             this.executor = executorProvider.getIfAvailable();
             this.managedExecutor = false;
@@ -65,23 +77,34 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
     }
 
     public PolicyToolManager(PolarisMcpClient polarisMcpClient) {
-        this(polarisMcpClient, (PolicyEngine) null, null);
+        this(polarisMcpClient, (PolicyEngine) null, (Executor) null, null);
     }
 
     public PolicyToolManager(
             PolarisMcpClient polarisMcpClient,
             @Nullable PolicyEngine policyEngine) {
-        this(polarisMcpClient, policyEngine, null);
+        this(polarisMcpClient, policyEngine, (Executor) null, null);
     }
 
     public PolicyToolManager(
             PolarisMcpClient polarisMcpClient,
             @Nullable PolicyEngine policyEngine,
             @Nullable Executor executor) {
+        this(polarisMcpClient, policyEngine, executor, null);
+    }
+
+    public PolicyToolManager(
+            PolarisMcpClient polarisMcpClient,
+            @Nullable PolicyEngine policyEngine,
+            @Nullable Executor executor,
+            @Nullable IntentManager intentManager) {
         this.polarisMcpClient = polarisMcpClient;
         this.policyEngine = policyEngine != null
                 ? policyEngine
                 : new DefaultPolicyEngine();
+        this.intentManager = intentManager != null
+                ? intentManager
+                : new DefaultIntentManager();
         if (executor != null) {
             this.executor = executor;
             this.managedExecutor = false;
@@ -209,14 +232,16 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
 
         log.info("Model requested tool call: '{}' with arguments: {}", toolCall.name(), toolCall.arguments());
 
-        // 1. Defensive tool validation against intent
+        List<IntentDefinition> intents = this.intentManager.listIntents();
+
+        // 1. Defensive tool validation against intent; below threshold only read-only tools are valid
         boolean isValidTool;
-        if (intentDef != null) {
-            isValidTool = !meetsThreshold
-                    || (intentDef.allowedTools() != null && intentDef.allowedTools().contains(toolCall.name()));
+        if (!meetsThreshold) {
+            isValidTool = IntentToolPolicy.readOnlyTools(intents).contains(toolCall.name());
+        } else if (intentDef != null) {
+            isValidTool = intentDef.allowedTools() != null && intentDef.allowedTools().contains(toolCall.name());
         } else {
-            isValidTool = !meetsThreshold
-                    || filteredTools.stream().anyMatch(t -> t.name().equals(toolCall.name()));
+            isValidTool = filteredTools.stream().anyMatch(t -> t.name().equals(toolCall.name()));
         }
 
         if (!isValidTool) {
@@ -226,17 +251,31 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
             return ToolPolicyCheckResult.reject(toolCall, ToolResult.error(toolCall, correctiveMessage, semanticNote));
         }
 
-        // 2. Policy engine authorization check: check requiredScope directly on IntentDefinition
-        String requiredScope = intentDef != null ? intentDef.requiredScope() : null;
-        PolicyDecision decision = this.policyEngine.authorize(requiredScope);
-        if (!decision.allowed()) {
-            log.warn("Policy DENIED execution of tool '{}' for user '{}': {}", toolCall.name(), userId, decision.reason());
-            String denialReason = decision.reason();
-            String semanticNote = "Policy authorization denied execution of tool '" + toolCall.name() + "' for user '" + userId + "': " + denialReason;
-            return ToolPolicyCheckResult.reject(toolCall, ToolResult.denied(toolCall, denialReason, semanticNote));
+        // 2. Policy engine authorization: the tool's own scope(s), plus the matched intent's scope
+        Set<String> requiredScopes = new LinkedHashSet<>(IntentToolPolicy.requiredScopes(toolCall.name(), intents));
+        if (meetsThreshold && intentDef != null
+                && intentDef.requiredScope() != null && !intentDef.requiredScope().isBlank()) {
+            requiredScopes.add(intentDef.requiredScope());
+        }
+        if (requiredScopes.isEmpty()) {
+            // fail closed: a tool without a registered scope is never executed
+            String denialReason = "No required scope is registered for tool '" + toolCall.name() + "'.";
+            return deny(toolCall, userId, denialReason);
+        }
+        for (String requiredScope : requiredScopes) {
+            PolicyDecision decision = this.policyEngine.authorize(requiredScope);
+            if (!decision.allowed()) {
+                return deny(toolCall, userId, decision.reason());
+            }
         }
 
         return ToolPolicyCheckResult.ok(toolCall);
+    }
+
+    private ToolPolicyCheckResult deny(ToolCall toolCall, String userId, String denialReason) {
+        log.warn("Policy DENIED execution of tool '{}' for user '{}': {}", toolCall.name(), userId, denialReason);
+        String semanticNote = "Policy authorization denied execution of tool '" + toolCall.name() + "' for user '" + userId + "': " + denialReason;
+        return ToolPolicyCheckResult.reject(toolCall, ToolResult.denied(toolCall, denialReason, semanticNote));
     }
 
     private CompletableFuture<ToolResult> executeConcurrently(

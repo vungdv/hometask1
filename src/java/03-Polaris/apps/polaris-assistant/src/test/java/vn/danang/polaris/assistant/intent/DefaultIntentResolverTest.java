@@ -1,5 +1,6 @@
 package vn.danang.polaris.assistant.intent;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -97,18 +98,44 @@ class DefaultIntentResolverTest {
         }
 
         @Test
-        @DisplayName("Given a low-confidence classification below threshold, when resolve called with tools, then falls back to all available tools")
-        void resolves_with_all_tools_when_confidence_below_threshold() {
+        @DisplayName("Given a low-confidence classification below threshold, when resolve called with tools, then falls back to read-only tools only")
+        void resolves_with_read_only_tools_when_confidence_below_threshold() {
             classifier.nextResult = new IntentClassification("general.conversation", 0.1);
-            Tool tool1 = Tool.builder("tool_one", Map.of()).build();
-            Tool tool2 = Tool.builder("tool_two", Map.of()).build();
-            List<Tool> allTools = List.of(tool1, tool2);
+            List<Tool> allTools = tools("search_available_products", "get_product_by_sku", "get_order_status",
+                    "search_customers_by_name", "place_order", "cancel_order", "unknown_tool");
 
             ResolvedIntent resolved = resolver.resolve("xyzzy completely unknown query 12345", List.of(), allTools);
 
             assertThat(resolved.intentId()).isEqualTo("general.conversation");
             assertThat(resolved.meetsThreshold()).isFalse();
-            assertThat(resolved.acceptedTools()).containsExactlyElementsOf(allTools);
+            assertThat(resolved.acceptedTools()).extracting(Tool::name).containsExactly(
+                    "search_available_products", "get_product_by_sku", "get_order_status", "search_customers_by_name");
+        }
+
+        @Test
+        @DisplayName("Given commerce.order.place below its threshold (e.g. a vague 'yes do it'), when resolved, then place_order and cancel_order are excluded")
+        void excludes_mutating_tools_when_order_intent_is_below_threshold() {
+            classifier.nextResult = new IntentClassification("commerce.order.place", 0.6);
+            List<Tool> allTools = tools("search_available_products", "place_order", "cancel_order");
+
+            ResolvedIntent resolved = resolver.resolve("yes do it", List.of(), allTools);
+
+            assertThat(resolved.meetsThreshold()).isFalse();
+            assertThat(resolved.acceptedTools()).extracting(Tool::name)
+                    .doesNotContain("place_order", "cancel_order")
+                    .containsExactly("search_available_products");
+        }
+
+        @Test
+        @DisplayName("Given an unknown intent id, when resolved, then the empty intent exposes no mutating tool")
+        void excludes_mutating_tools_for_unknown_intent() {
+            classifier.nextResult = new IntentClassification("does.not.exist", 0.99);
+            List<Tool> allTools = tools("search_available_products", "place_order", "cancel_order");
+
+            ResolvedIntent resolved = resolver.resolve("do the thing", List.of(), allTools);
+
+            assertThat(resolved.acceptedTools()).extracting(Tool::name)
+                    .doesNotContain("place_order", "cancel_order");
         }
 
         @Test
@@ -126,6 +153,12 @@ class DefaultIntentResolverTest {
             assertThat(result.intentId()).isEqualTo("first.intent");
             assertThat(result.confidence()).isEqualTo(1.0);
         }
+    }
+
+    private static List<Tool> tools(String... names) {
+        return Arrays.stream(names)
+                .map(name -> Tool.builder(name, Map.of()).build())
+                .toList();
     }
 
     private static class StubIntentClassifier implements IntentClassifier {
