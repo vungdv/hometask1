@@ -29,7 +29,7 @@ See the [notation](README.md#notation) for frame types. Two conventions are spec
 Three bounded contexts talk only through two Kafka topics. Each topic is owned by the context that publishes to it.
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph ORD["Order Context · apps/polaris"]
         OAPI["REST / MCP<br/>place · confirm"]
         OSVC["OrderService"]
