@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -13,6 +14,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.AuthorityUtils;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -62,12 +69,33 @@ class McpServerTest {
     @Autowired
     private OrderRepository orderRepository;
 
+    /** Keycloak user ID of shopper alice.tran, linked to seeded customer 1 by V12. */
+    private static final String ALICE_SUBJECT = "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a4b01";
+
     @BeforeEach
     void setUp() {
         orderRepository.findByOrderNumber("ORD-1001").ifPresent(order -> {
             order.setStatus(OrderStatus.PLACED);
             orderRepository.save(order);
         });
+        // Tool calls run as back-office staff unless a test passes a shopper explicitly
+        SecurityContextHolder.getContext().setAuthentication(
+                new TestingAuthenticationToken("staff", null, "ROLE_PURCHASE_MANAGEMENT", "PERM_order.write"));
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
+    private static Authentication shopper(String subject, String email) {
+        Jwt jwt = Jwt.withTokenValue("shopper-token")
+                .header("alg", "none")
+                .subject(subject)
+                .claim("email", email)
+                .claim("email_verified", true)
+                .build();
+        return new JwtAuthenticationToken(jwt, AuthorityUtils.createAuthorityList("ROLE_shopper", "PERM_order.write"));
     }
 
     @Nested
@@ -536,6 +564,165 @@ class McpServerTest {
             assertThat(result.isError()).isTrue();
             String text = ((McpSchema.TextContent) result.content().get(0)).text();
             assertThat(text).contains("Parameter 'order_number' is required.");
+        }
+    }
+
+    @Nested
+    @DisplayName("place_order shopper identity binding (PRD-003 FR-10)")
+    class ShopperIdentityTests {
+
+        private final Map<String, Object> item = Map.of("sku", "NG-EARBUD-01", "quantity", 1);
+
+        @Test
+        @DisplayName("shopper without customer_id orders for their own linked customer")
+        void placeOrder_shopperWithoutCustomerId_ordersForOwnCustomer() {
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(
+                    Map.of("items", List.of(item)), shopper(ALICE_SUBJECT, "alice.tran@example.com"));
+
+            assertThat(result.isError()).isFalse();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).contains("Order successfully placed!");
+            assertThat(text).contains("- Customer: Alice Tran");
+        }
+
+        @Test
+        @DisplayName("shopper naming another customer_id is forbidden and no order is created")
+        void placeOrder_shopperForAnotherCustomer_forbidden() {
+            long ordersBefore = orderRepository.count();
+
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(
+                    Map.of("customer_id", 2, "items", List.of(item)), shopper(ALICE_SUBJECT, "alice.tran@example.com"));
+
+            assertThat(result.isError()).isTrue();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).startsWith("Forbidden:");
+            assertThat(orderRepository.count()).isEqualTo(ordersBefore);
+        }
+
+        @Test
+        @DisplayName("shopper-supplied customer_name is ignored: the order goes to the shopper's own customer")
+        void placeOrder_shopperWithCustomerName_ignoresName() {
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(
+                    Map.of("customer_name", "Ben Nguyen", "items", List.of(item)), shopper(ALICE_SUBJECT, "alice.tran@example.com"));
+
+            assertThat(result.isError()).isFalse();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).contains("- Customer: Alice Tran");
+            assertThat(text).doesNotContain("Ben Nguyen");
+        }
+
+        @Test
+        @DisplayName("shopper with no linked customer gets an error and no order")
+        void placeOrder_unlinkedShopper_returnsError() {
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(
+                    Map.of("customer_id", 1, "items", List.of(item)), shopper("unknown-subject", "nobody@example.com"));
+
+            assertThat(result.isError()).isTrue();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).contains("No customer is linked to the authenticated user.");
+        }
+
+        @Test
+        @DisplayName("unauthenticated tool call is rejected")
+        void placeOrder_unauthenticated_returnsError() {
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(
+                    Map.of("customer_id", 1, "items", List.of(item)), null);
+
+            assertThat(result.isError()).isTrue();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).contains("Authentication is required");
+        }
+
+        @Test
+        @DisplayName("caller without order.write is forbidden, staff included")
+        void placeOrder_withoutOrderWritePermission_forbidden() {
+            Authentication readOnlyStaff = new TestingAuthenticationToken("staff", null, "ROLE_ADMIN", "PERM_order.read");
+
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(
+                    Map.of("customer_id", 1, "items", List.of(item)), readOnlyStaff);
+
+            assertThat(result.isError()).isTrue();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).contains("Forbidden: the 'order.write' permission is required");
+        }
+
+        @Test
+        @DisplayName("Streamable transport: the request's caller reaches the place_order handler")
+        void streamableTransport_propagatesCallerToPlaceOrder() throws Exception {
+            SecurityContextHolder.getContext().setAuthentication(shopper(ALICE_SUBJECT, "alice.tran@example.com"));
+
+            org.springframework.mock.web.MockHttpServletResponse init = streamablePost(null, """
+                    {"jsonrpc": "2.0", "id": "init-1", "method": "initialize",
+                     "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+                                "clientInfo": {"name": "test-client", "version": "1.0.0"}}}
+                    """);
+            String sessionId = init.getHeader("mcp-session-id");
+            assertThat(sessionId).isNotBlank();
+            streamablePost(sessionId, """
+                    {"jsonrpc": "2.0", "method": "notifications/initialized"}
+                    """);
+
+            // A forbidden call writes nothing, so it is safe to run on the transport's own threads
+            org.springframework.mock.web.MockHttpServletResponse call = streamablePost(sessionId, """
+                    {"jsonrpc": "2.0", "id": "call-1", "method": "tools/call",
+                     "params": {"name": "place_order",
+                                "arguments": {"customer_id": 2, "items": [{"sku": "NG-EARBUD-01", "quantity": 1}]}}}
+                    """);
+
+            long deadline = System.currentTimeMillis() + 5_000;
+            while (!call.getContentAsString().contains("call-1") && System.currentTimeMillis() < deadline) {
+                Thread.onSpinWait();
+            }
+            assertThat(call.getContentAsString()).contains("Forbidden:");
+        }
+
+        private org.springframework.mock.web.MockHttpServletResponse streamablePost(String sessionId, String body) throws Exception {
+            org.springframework.mock.web.MockHttpServletRequest request =
+                    new org.springframework.mock.web.MockHttpServletRequest("POST", "/mcp/sse");
+            request.setAsyncSupported(true);
+            request.addHeader("Accept", "application/json, text/event-stream");
+            if (sessionId != null) {
+                request.addHeader("mcp-session-id", sessionId);
+            }
+            request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            request.setContent(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            org.springframework.mock.web.MockHttpServletResponse response =
+                    new org.springframework.mock.web.MockHttpServletResponse();
+            transport.service(request, response);
+            return response;
+        }
+
+        @Test
+        @DisplayName("Stateless transport: the request's caller reaches the place_order handler")
+        void statelessTransport_propagatesCallerToPlaceOrder() throws Exception {
+            // A forbidden call writes nothing, so it is safe to run on the transport's own threads
+            SecurityContextHolder.getContext().setAuthentication(shopper(ALICE_SUBJECT, "alice.tran@example.com"));
+
+            org.springframework.mock.web.MockHttpServletRequest request =
+                    new org.springframework.mock.web.MockHttpServletRequest("POST", "/mcp");
+            request.addHeader("Accept", "application/json, text/event-stream");
+            request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            request.setContent("""
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "call-1",
+                        "method": "tools/call",
+                        "params": {
+                            "name": "place_order",
+                            "arguments": {
+                                "customer_id": 2,
+                                "items": [{ "sku": "NG-EARBUD-01", "quantity": 1 }]
+                            }
+                        }
+                    }
+                    """.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            org.springframework.mock.web.MockHttpServletResponse response =
+                    new org.springframework.mock.web.MockHttpServletResponse();
+
+            statelessTransport.service(request, response);
+
+            assertThat(response.getStatus()).isEqualTo(200);
+            assertThat(response.getContentAsString()).contains("Forbidden:");
         }
     }
 

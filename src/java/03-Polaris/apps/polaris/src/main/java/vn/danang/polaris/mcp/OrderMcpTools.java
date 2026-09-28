@@ -10,6 +10,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,12 +23,14 @@ import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema;
 import jakarta.annotation.Nullable;
+import vn.danang.polaris.config.PolarisPermissions;
 import vn.danang.polaris.order.dto.CustomerSummaryResponse;
 import vn.danang.polaris.order.dto.OrderItemRequest;
 import vn.danang.polaris.order.dto.OrderResponse;
 import vn.danang.polaris.order.entity.Order;
 import vn.danang.polaris.order.entity.OrderItem;
 import vn.danang.polaris.order.entity.OrderStatus;
+import vn.danang.polaris.order.security.CallerIdentity;
 import vn.danang.polaris.order.service.CustomerService;
 import vn.danang.polaris.order.service.OrderService;
 import vn.danang.polaris.web.exception.InsufficientStockException;
@@ -43,6 +48,8 @@ public class OrderMcpTools {
     public static final String TOOL_LIST_CUSTOMER_ORDERS = "list_customer_orders";
     public static final String TOOL_CANCEL_ORDER = "cancel_order";
     public static final String TOOL_SEARCH_CUSTOMERS_BY_NAME = "search_customers_by_name";
+
+    private static final String ORDER_WRITE_AUTHORITY = "PERM_" + PolarisPermissions.ORDER_WRITE;
 
     private static final String GET_ORDER_STATUS_SCHEMA = """
         {
@@ -76,7 +83,7 @@ public class OrderMcpTools {
           "properties": {
             "customer_id": {
               "type": "integer",
-              "description": "Unique numeric ID of the customer placing the order (use this or customer_name)"
+              "description": "Unique numeric ID of the customer placing the order (use this or customer_name). Staff only: shoppers always order for their own linked customer"
             },
             "customer_name": {
               "type": "string",
@@ -213,8 +220,9 @@ public class OrderMcpTools {
 
     public McpSchema.Tool getPlaceOrderTool(McpJsonMapper jsonMapper) {
         return McpSchema.Tool.builder(TOOL_PLACE_ORDER, jsonMapper, PLACE_ORDER_SCHEMA)
-                .description("Place a new multi-item order for a customer. Accepts customer_id or customer_name (fuzzy match). "
-                        + "Returns a disambiguation candidate list if multiple name matches are found.")
+                .description("Place a new multi-item order for a customer. Staff accept customer_id or customer_name (fuzzy match) "
+                        + "and get a disambiguation candidate list if multiple name matches are found. "
+                        + "Shoppers always order for the customer linked to their own identity.")
                 .build();
     }
 
@@ -340,6 +348,17 @@ public class OrderMcpTools {
     }
 
     public McpSchema.CallToolResult placeOrder(Map<String, Object> arguments) {
+        return placeOrder(arguments, SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    /**
+     * Places an order for the given caller. Staff may name any customer; any other caller always orders
+     * for their own linked customer, and naming a different {@code customer_id} is rejected (PRD-003 FR-10).
+     *
+     * @param arguments      tool arguments
+     * @param authentication authenticated MCP caller captured from the transport request
+     */
+    public McpSchema.CallToolResult placeOrder(Map<String, Object> arguments, @Nullable Authentication authentication) {
         return executeWithSpan(TOOL_PLACE_ORDER, () -> {
             if (arguments == null) {
                 return McpSchema.CallToolResult.builder()
@@ -350,6 +369,42 @@ public class OrderMcpTools {
 
             // Resolve customer: prefer customer_id, fall back to customer_name fuzzy lookup
             Long customerId = parseLong(arguments.get("customer_id") != null ? arguments.get("customer_id") : arguments.get("customerId"));
+
+            CallerIdentity caller = CallerIdentity.from(authentication);
+            if (caller == null) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Authentication is required to place an order.")
+                        .isError(true)
+                        .build();
+            }
+            if (authentication.getAuthorities().stream()
+                    .noneMatch(authority -> ORDER_WRITE_AUTHORITY.equals(authority.getAuthority()))) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Forbidden: the '" + PolarisPermissions.ORDER_WRITE + "' permission is required to place an order.")
+                        .isError(true)
+                        .build();
+            }
+            if (!caller.staff()) {
+                // Shoppers: the customer comes from the caller's identity, never from model-supplied arguments
+                try {
+                    customerId = customerService.resolveOrderingCustomerId(caller, customerId);
+                } catch (AccessDeniedException ex) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("Forbidden: " + ex.getMessage())
+                            .isError(true)
+                            .build();
+                } catch (ResourceNotFoundException ex) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent(ex.getMessage() + " The order cannot be placed.")
+                            .isError(true)
+                            .build();
+                } catch (Exception ex) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("Error resolving the customer for the authenticated user: " + ex.getMessage())
+                            .isError(true)
+                            .build();
+                }
+            }
 
             if (customerId == null) {
                 Object rawCustomerName = arguments.get("customer_name") != null ? arguments.get("customer_name") : arguments.get("customerName");

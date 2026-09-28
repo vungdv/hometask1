@@ -41,6 +41,7 @@ public class McpServerConfig {
         return HttpServletStreamableServerTransportProvider.builder()
                 .jsonMapper(jsonMapper)
                 .mcpEndpoint(STREAMABLE_ENDPOINT)
+                .contextExtractor(McpSecurityContext.extractor())
                 .build();
     }
 
@@ -68,7 +69,7 @@ public class McpServerConfig {
                 .toolCall(productMcpTools.getProductBySkuTool(jsonMapper), (exchange, request) -> productMcpTools.getProductBySku(request.arguments()))
                 .toolCall(orderMcpTools.getOrderStatusTool(jsonMapper), (exchange, request) -> orderMcpTools.getOrderStatus(request.arguments()))
                 .toolCall(orderMcpTools.getOrderDetailsTool(jsonMapper), (exchange, request) -> orderMcpTools.getOrderDetails(request.arguments()))
-                .toolCall(orderMcpTools.getPlaceOrderTool(jsonMapper), (exchange, request) -> orderMcpTools.placeOrder(request.arguments()))
+                .toolCall(orderMcpTools.getPlaceOrderTool(jsonMapper), (exchange, request) -> orderMcpTools.placeOrder(request.arguments(), McpSecurityContext.authentication(exchange.transportContext())))
                 .toolCall(orderMcpTools.getListCustomerOrdersTool(jsonMapper), (exchange, request) -> orderMcpTools.listCustomerOrders(request.arguments()))
                 .toolCall(orderMcpTools.getCancelOrderTool(jsonMapper), (exchange, request) -> orderMcpTools.cancelOrder(request.arguments()))
                 .toolCall(orderMcpTools.getSearchCustomersByNameTool(jsonMapper), (exchange, request) -> orderMcpTools.searchCustomersByName(request.arguments()))
@@ -81,6 +82,7 @@ public class McpServerConfig {
         return HttpServletStatelessServerTransport.builder()
                 .jsonMapper(jsonMapper)
                 .messageEndpoint(STATELESS_ENDPOINT)
+                .contextExtractor(McpSecurityContext.extractor())
                 .build();
     }
 
@@ -108,7 +110,7 @@ public class McpServerConfig {
                 .toolCall(productMcpTools.getProductBySkuTool(jsonMapper), (exchange, request) -> productMcpTools.getProductBySku(request.arguments()))
                 .toolCall(orderMcpTools.getOrderStatusTool(jsonMapper), (exchange, request) -> orderMcpTools.getOrderStatus(request.arguments()))
                 .toolCall(orderMcpTools.getOrderDetailsTool(jsonMapper), (exchange, request) -> orderMcpTools.getOrderDetails(request.arguments()))
-                .toolCall(orderMcpTools.getPlaceOrderTool(jsonMapper), (exchange, request) -> orderMcpTools.placeOrder(request.arguments()))
+                .toolCall(orderMcpTools.getPlaceOrderTool(jsonMapper), (context, request) -> orderMcpTools.placeOrder(request.arguments(), McpSecurityContext.authentication(context)))
                 .toolCall(orderMcpTools.getListCustomerOrdersTool(jsonMapper), (exchange, request) -> orderMcpTools.listCustomerOrders(request.arguments()))
                 .toolCall(orderMcpTools.getCancelOrderTool(jsonMapper), (exchange, request) -> orderMcpTools.cancelOrder(request.arguments()))
                 .toolCall(orderMcpTools.getSearchCustomersByNameTool(jsonMapper), (exchange, request) -> orderMcpTools.searchCustomersByName(request.arguments()))

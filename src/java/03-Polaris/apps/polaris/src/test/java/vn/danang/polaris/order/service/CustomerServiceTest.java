@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
 
 import vn.danang.polaris.order.dto.CustomerResponse;
 import vn.danang.polaris.order.dto.CustomerSummaryResponse;
@@ -21,12 +22,14 @@ import vn.danang.polaris.order.dto.UpdateCustomerRequest;
 import vn.danang.polaris.order.entity.Customer;
 import vn.danang.polaris.order.mapper.CustomerMapper;
 import vn.danang.polaris.order.repository.CustomerRepository;
+import vn.danang.polaris.order.security.CallerIdentity;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -195,6 +198,184 @@ class CustomerServiceTest {
             assertThat(response.company()).isEqualTo("Danang Tech Solutions");
             assertThat(response.email()).isEqualTo("alice.tran@example.com");
             assertThat(response.phone()).isEqualTo("0901234567");
+        }
+    }
+
+    @Nested
+    @DisplayName("4. Caller identity binding (D1, FR-10)")
+    class CallerIdentityBinding {
+
+        private final CallerIdentity shopper = new CallerIdentity("sub-alice", "alice.tran@example.com", true, false);
+        private final CallerIdentity staff = new CallerIdentity("sub-staff", "staff@novagadgets.local", true, true);
+
+        @Test
+        @DisplayName("resolveCurrentCustomer finds the customer by subject without touching email")
+        void resolveCurrentCustomer_bySubject() {
+            Customer alice = createSampleCustomer(1L, "Alice Tran");
+            alice.setAuthSubject("sub-alice");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.of(alice));
+
+            assertThat(customerService.resolveCurrentCustomer(shopper)).isSameAs(alice);
+            verify(customerRepository, never()).findAllByEmailIgnoreCase(any());
+            verify(customerRepository, never()).linkAuthSubjectIfUnlinked(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("resolveCurrentCustomer links an unlinked customer once via verified email (case-insensitive)")
+        void resolveCurrentCustomer_emailFallbackLinksSubject() {
+            CallerIdentity mixedCase = new CallerIdentity("sub-alice", "Alice.Tran@Example.com", true, false);
+            Customer unlinked = createSampleCustomer(1L, "Alice Tran");
+            Customer linked = createSampleCustomer(1L, "Alice Tran");
+            linked.setAuthSubject("sub-alice");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.empty(), Optional.of(linked));
+            when(customerRepository.findAllByEmailIgnoreCase("Alice.Tran@Example.com")).thenReturn(List.of(unlinked));
+            when(customerRepository.linkAuthSubjectIfUnlinked(eq(1L), eq("sub-alice"), any())).thenReturn(1);
+
+            Customer resolved = customerService.resolveCurrentCustomer(mixedCase);
+
+            assertThat(resolved.getId()).isEqualTo(1L);
+            assertThat(resolved.getAuthSubject()).isEqualTo("sub-alice");
+            verify(customerRepository).linkAuthSubjectIfUnlinked(eq(1L), eq("sub-alice"), any());
+        }
+
+        @Test
+        @DisplayName("resolveCurrentCustomer: losing a concurrent first login of the same account returns the winner's link")
+        void resolveCurrentCustomer_concurrentFirstLogin_returnsExistingLink() {
+            Customer unlinked = createSampleCustomer(1L, "Alice Tran");
+            Customer linkedByWinner = createSampleCustomer(1L, "Alice Tran");
+            linkedByWinner.setAuthSubject("sub-alice");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.empty(), Optional.of(linkedByWinner));
+            when(customerRepository.findAllByEmailIgnoreCase("alice.tran@example.com")).thenReturn(List.of(unlinked));
+            when(customerRepository.linkAuthSubjectIfUnlinked(eq(1L), eq("sub-alice"), any())).thenReturn(0);
+
+            assertThat(customerService.resolveCurrentCustomer(shopper)).isSameAs(linkedByWinner);
+        }
+
+        @Test
+        @DisplayName("resolveCurrentCustomer: losing a concurrent link to a different subject is not linked")
+        void resolveCurrentCustomer_concurrentLinkByOtherSubject_notFound() {
+            Customer unlinked = createSampleCustomer(1L, "Alice Tran");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.empty());
+            when(customerRepository.findAllByEmailIgnoreCase("alice.tran@example.com")).thenReturn(List.of(unlinked));
+            when(customerRepository.linkAuthSubjectIfUnlinked(eq(1L), eq("sub-alice"), any())).thenReturn(0);
+
+            assertThatThrownBy(() -> customerService.resolveCurrentCustomer(shopper))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("resolveCurrentCustomer: a token without sub still resolves an unlinked customer by verified email, without linking")
+        void resolveCurrentCustomer_noSubject_emailFallbackWithoutLink() {
+            CallerIdentity noSub = new CallerIdentity(null, "alice.tran@example.com", true, false);
+            Customer unlinked = createSampleCustomer(1L, "Alice Tran");
+            when(customerRepository.findAllByEmailIgnoreCase("alice.tran@example.com")).thenReturn(List.of(unlinked));
+
+            assertThat(customerService.resolveCurrentCustomer(noSub)).isSameAs(unlinked);
+            verify(customerRepository, never()).findByAuthSubject(any());
+            verify(customerRepository, never()).linkAuthSubjectIfUnlinked(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("resolveCurrentCustomer: a token without sub cannot claim an already linked customer")
+        void resolveCurrentCustomer_noSubject_linkedCustomer_notFound() {
+            CallerIdentity noSub = new CallerIdentity(null, "alice.tran@example.com", true, false);
+            Customer linked = createSampleCustomer(1L, "Alice Tran");
+            linked.setAuthSubject("sub-alice");
+            when(customerRepository.findAllByEmailIgnoreCase("alice.tran@example.com")).thenReturn(List.of(linked));
+
+            assertThatThrownBy(() -> customerService.resolveCurrentCustomer(noSub))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("assertCustomerAccess: shopper may access own data, not another customer's; staff may access any")
+        void assertCustomerAccess_ownership() {
+            Customer alice = createSampleCustomer(1L, "Alice Tran");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.of(alice));
+
+            customerService.assertCustomerAccess(shopper, 1L);
+            assertThatThrownBy(() -> customerService.assertCustomerAccess(shopper, 2L))
+                    .isInstanceOf(AccessDeniedException.class);
+            customerService.assertCustomerAccess(staff, 2L);
+        }
+
+        @Test
+        @DisplayName("resolveCustomerScope: staff may search unfiltered, shoppers are forced to their own customer")
+        void resolveCustomerScope_staffAndShopper() {
+            Customer alice = createSampleCustomer(1L, "Alice Tran");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.of(alice));
+
+            assertThat(customerService.resolveCustomerScope(staff, null)).isNull();
+            assertThat(customerService.resolveCustomerScope(shopper, null)).isEqualTo(1L);
+            assertThatThrownBy(() -> customerService.resolveCustomerScope(shopper, 2L))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+
+        @Test
+        @DisplayName("resolveCurrentCustomer never re-links a customer owned by another subject")
+        void resolveCurrentCustomer_emailOfOtherSubject_notFound() {
+            Customer alice = createSampleCustomer(1L, "Alice Tran");
+            alice.setAuthSubject("sub-original");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.empty());
+            when(customerRepository.findAllByEmailIgnoreCase("alice.tran@example.com")).thenReturn(List.of(alice));
+
+            assertThatThrownBy(() -> customerService.resolveCurrentCustomer(shopper))
+                    .isInstanceOf(ResourceNotFoundException.class);
+            assertThat(alice.getAuthSubject()).isEqualTo("sub-original");
+            verify(customerRepository, never()).linkAuthSubjectIfUnlinked(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("resolveCurrentCustomer ignores an unverified email")
+        void resolveCurrentCustomer_unverifiedEmail_notFound() {
+            CallerIdentity unverified = new CallerIdentity("sub-alice", "alice.tran@example.com", false, false);
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> customerService.resolveCurrentCustomer(unverified))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessage("No customer is linked to the authenticated user.");
+            verify(customerRepository, never()).findAllByEmailIgnoreCase(any());
+        }
+
+        @Test
+        @DisplayName("resolveOrderingCustomerId: shopper without customer ID gets their own customer")
+        void resolveOrderingCustomerId_shopperDefaultsToOwn() {
+            Customer alice = createSampleCustomer(1L, "Alice Tran");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.of(alice));
+
+            assertThat(customerService.resolveOrderingCustomerId(shopper, null)).isEqualTo(1L);
+            assertThat(customerService.resolveOrderingCustomerId(shopper, 1L)).isEqualTo(1L);
+        }
+
+        @Test
+        @DisplayName("resolveOrderingCustomerId: shopper naming another customer is denied")
+        void resolveOrderingCustomerId_shopperForOther_denied() {
+            Customer alice = createSampleCustomer(1L, "Alice Tran");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.of(alice));
+
+            assertThatThrownBy(() -> customerService.resolveOrderingCustomerId(shopper, 2L))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+
+        @Test
+        @DisplayName("resolveOrderingCustomerId: staff order for the named customer without a linked account")
+        void resolveOrderingCustomerId_staffUsesRequested() {
+            assertThat(customerService.resolveOrderingCustomerId(staff, 2L)).isEqualTo(2L);
+            verify(customerRepository, never()).findByAuthSubject(any());
+        }
+
+        @Test
+        @DisplayName("resolveOrderingCustomerId: staff must name a customer")
+        void resolveOrderingCustomerId_staffWithoutCustomer_badRequest() {
+            assertThatThrownBy(() -> customerService.resolveOrderingCustomerId(staff, null))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("resolveOrderingCustomerId: missing caller is treated as unlinked")
+        void resolveOrderingCustomerId_nullCaller_notFound() {
+            assertThatThrownBy(() -> customerService.resolveOrderingCustomerId(null, 1L))
+                    .isInstanceOf(ResourceNotFoundException.class);
         }
     }
 }

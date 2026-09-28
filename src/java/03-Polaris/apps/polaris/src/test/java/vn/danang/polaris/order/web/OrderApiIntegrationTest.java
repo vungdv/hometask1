@@ -240,4 +240,139 @@ public class OrderApiIntegrationTest {
                 .andExpect(header().exists("X-Trace-Id"))
                 .andExpect(header().string("X-Trace-Id", "4bf92f3577b34da6a3ce929d0e0e4736"));
     }
+
+    // --- Shopper identity binding (PRD-003 FR-10, anti-IDOR) ---
+
+    /** Keycloak user ID of shopper alice.tran, linked to seeded customer 1 (Alice Tran) by V12. */
+    private static final String ALICE_SUBJECT = "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a4b01";
+
+    private static final String SINGLE_ITEM = "\"items\": [{ \"sku\": \"NG-CHARGER-01\", \"quantity\": 1 }]";
+
+    @Test
+    void placeOrder_shopperWithoutCustomerId_shouldOrderForOwnCustomer() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{" + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.shopper(ALICE_SUBJECT, "alice.tran@example.com")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerName").value("Alice Tran"));
+    }
+
+    @Test
+    void placeOrder_shopperWithOwnCustomerId_shouldReturn201() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{ \"customerId\": 1, " + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.shopper(ALICE_SUBJECT, "alice.tran@example.com")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerName").value("Alice Tran"));
+    }
+
+    @Test
+    void placeOrder_shopperForAnotherCustomer_shouldReturn403AndNotDeductStock() throws Exception {
+        int initialStock = productRepository.findBySku("NG-CHARGER-01").orElseThrow().getStockQty();
+        long initialOrderCount = orderRepository.count();
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{ \"customerId\": 2, " + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.shopper(ALICE_SUBJECT, "alice.tran@example.com")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/forbidden"));
+
+        org.assertj.core.api.Assertions.assertThat(orderRepository.count()).isEqualTo(initialOrderCount);
+        org.assertj.core.api.Assertions.assertThat(productRepository.findBySku("NG-CHARGER-01").orElseThrow().getStockQty())
+                .isEqualTo(initialStock);
+    }
+
+    @Test
+    void placeOrder_unlinkedShopper_shouldReturn404ProblemDetail() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{" + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.shopper("unknown-subject", "nobody@example.com")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/not-found"));
+    }
+
+    @Test
+    void placeOrder_staffForAnyCustomer_shouldReturn201() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{ \"customerId\": 2, " + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerName").value("Ben Nguyen"));
+    }
+
+    @Test
+    void placeOrder_staffWithoutCustomerId_shouldReturn400() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{" + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.admin()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"));
+    }
+
+    // --- Shopper order ownership on read / list / cancel ---
+
+    /** Keycloak user ID of shopper ben.nguyen, linked to seeded customer 2 (Ben Nguyen) by V12. */
+    private static final String BEN_SUBJECT = "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a4b02";
+
+    @Test
+    void getOrder_shopperOwnOrder_shouldReturn200() throws Exception {
+        mockMvc.perform(get("/api/v1/orders/ORD-1002")
+                        .with(JwtMockFactory.shopper(ALICE_SUBJECT, "alice.tran@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderNumber").value("ORD-1002"));
+    }
+
+    @Test
+    void getOrderAndStatus_shopperOtherCustomersOrder_shouldReturn403() throws Exception {
+        mockMvc.perform(get("/api/v1/orders/ORD-1002")
+                        .with(JwtMockFactory.shopper(BEN_SUBJECT, "ben.nguyen@example.com")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/forbidden"));
+        mockMvc.perform(get("/api/v1/orders/ORD-1002/status")
+                        .with(JwtMockFactory.shopper(BEN_SUBJECT, "ben.nguyen@example.com")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/forbidden"));
+    }
+
+    @Test
+    void searchOrders_shopperWithoutCustomerId_shouldOnlyReturnOwnOrders() throws Exception {
+        mockMvc.perform(get("/api/v1/orders")
+                        .with(JwtMockFactory.shopper(BEN_SUBJECT, "ben.nguyen@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[*].orderNumber", org.hamcrest.Matchers.hasItems("ORD-1003", "ORD-1004")))
+                .andExpect(jsonPath("$.content[*].customerName", org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is("Ben Nguyen"))));
+    }
+
+    @Test
+    void searchOrders_shopperForAnotherCustomer_shouldReturn403() throws Exception {
+        mockMvc.perform(get("/api/v1/orders").param("customerId", "1")
+                        .with(JwtMockFactory.shopper(BEN_SUBJECT, "ben.nguyen@example.com")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/forbidden"));
+    }
+
+    @Test
+    void cancel_shopperOtherCustomersOrder_shouldReturn403AndKeepStatus() throws Exception {
+        mockMvc.perform(post("/api/v1/orders/ORD-1001/cancel")
+                        .with(JwtMockFactory.shopper(BEN_SUBJECT, "ben.nguyen@example.com")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/forbidden"));
+
+        org.assertj.core.api.Assertions.assertThat(orderRepository.findByOrderNumber("ORD-1001").orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.PLACED);
+    }
+
+    @Test
+    void cancel_shopperOwnOrder_shouldReturn200() throws Exception {
+        mockMvc.perform(post("/api/v1/orders/ORD-1001/cancel")
+                        .with(JwtMockFactory.shopper(ALICE_SUBJECT, "alice.tran@example.com")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+    }
 }

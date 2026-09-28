@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 import static org.hamcrest.Matchers.hasSize;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.when;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,7 @@ import vn.danang.polaris.order.entity.Order;
 import vn.danang.polaris.order.entity.OrderItem;
 import vn.danang.polaris.order.entity.OrderStatus;
 import vn.danang.polaris.catalog.entity.Product;
+import vn.danang.polaris.order.service.CustomerService;
 import vn.danang.polaris.order.service.OrderService;
 import vn.danang.polaris.order.web.controller.OrderController;
 import vn.danang.polaris.web.exception.GlobalExceptionHandler;
@@ -38,6 +40,18 @@ public class OrderControllerTest {
 
     @MockitoBean
     private OrderService orderService;
+
+    @MockitoBean
+    private CustomerService customerService;
+
+    @BeforeEach
+    void setUp() {
+        // Staff callers order for the customer they name; identity rules are covered by CustomerServiceTest
+        when(customerService.resolveOrderingCustomerId(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+        when(customerService.resolveCustomerScope(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+    }
 
     private Order createSampleOrder(String orderNumber, OrderStatus status) {
         Order order = new Order();
@@ -348,6 +362,22 @@ public class OrderControllerTest {
                         .content("{\"customerId\": 1, \"items\": [{\"sku\": \"NG-EARBUD-01\", \"quantity\": 1}]}")
                         .with(JwtMockFactory.user()))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void placeOrder_shopperForAnotherCustomer_shouldReturn403ProblemDetail() throws Exception {
+        when(customerService.resolveOrderingCustomerId(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(2L)))
+                .thenThrow(new org.springframework.security.access.AccessDeniedException(
+                        "Orders can only be placed for the customer account linked to the authenticated user."));
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"customerId\": 2, \"items\": [{\"sku\": \"NG-EARBUD-01\", \"quantity\": 1}]}")
+                        .with(JwtMockFactory.shopper("shopper-sub", "alice.tran@example.com")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/forbidden"));
+
+        org.mockito.Mockito.verifyNoInteractions(orderService);
     }
 
     @Test

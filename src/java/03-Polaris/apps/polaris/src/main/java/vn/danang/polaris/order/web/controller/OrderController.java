@@ -10,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,6 +34,8 @@ import vn.danang.polaris.order.dto.CreateOrderRequest;
 import vn.danang.polaris.order.dto.OrderResponse;
 import vn.danang.polaris.order.entity.Order;
 import vn.danang.polaris.order.entity.OrderStatus;
+import vn.danang.polaris.order.security.CallerIdentity;
+import vn.danang.polaris.order.service.CustomerService;
 import vn.danang.polaris.order.service.OrderService;
 import vn.danang.polaris.web.validator.PageableValidator;
 
@@ -42,16 +45,20 @@ import vn.danang.polaris.web.validator.PageableValidator;
 public class OrderController {
 
     private final OrderService orderService;
+    private final CustomerService customerService;
 
-    public OrderController(OrderService orderService) {
+    public OrderController(OrderService orderService, CustomerService customerService) {
         this.orderService = orderService;
+        this.customerService = customerService;
     }
 
     @PostMapping
     @PreAuthorize("hasAuthority('PERM_order.write')")
     @Operation(
         summary = "Place a new order",
-        description = "Create and submit a new multi-item purchase order with live stock deduction and idempotency support."
+        description = "Create and submit a new multi-item purchase order with live stock deduction and idempotency support. "
+            + "Staff (staff, admin, purchase-management roles) must supply customerId. Any other caller always "
+            + "orders for the customer linked to their own identity; customerId may be omitted, and a different one is rejected with 403."
     )
     @ApiResponses({
         @ApiResponse(
@@ -67,15 +74,21 @@ public class OrderController {
         ),
         @ApiResponse(responseCode = "401", description = "Missing or invalid OAuth2 Bearer token"),
         @ApiResponse(
+            responseCode = "403",
+            description = "Missing order.write permission, or a shopper tried to order for a customer other than their own",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))
+        ),
+        @ApiResponse(
             responseCode = "404",
-            description = "Customer ID or product SKU does not exist",
+            description = "Customer ID or product SKU does not exist, or no customer is linked to the authenticated shopper",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))
         )
     })
     public ResponseEntity<OrderResponse> placeOrder(
             @Parameter(description = "Optional idempotency key header to prevent duplicate orders during retries")
             @RequestHeader(value = "Idempotency-Key", required = false) String headerIdempotencyKey,
-            @Valid @RequestBody CreateOrderRequest request) {
+            @Valid @RequestBody CreateOrderRequest request,
+            @Parameter(hidden = true) Authentication authentication) {
 
         String idempotencyKey = (headerIdempotencyKey != null && !headerIdempotencyKey.isBlank())
                 ? headerIdempotencyKey.trim()
@@ -83,7 +96,8 @@ public class OrderController {
                         ? request.idempotencyKey().trim()
                         : null);
 
-        Order order = orderService.placeOrder(request.customerId(), request.items(), idempotencyKey);
+        Long customerId = customerService.resolveOrderingCustomerId(CallerIdentity.from(authentication), request.customerId());
+        Order order = orderService.placeOrder(customerId, request.items(), idempotencyKey);
         URI location = URI.create("/api/v1/orders/" + order.getOrderNumber());
         return ResponseEntity.created(location).body(OrderResponse.from(order));
     }
@@ -95,13 +109,17 @@ public class OrderController {
         @ApiResponse(responseCode = "200", description = "Order details successfully retrieved",
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = OrderResponse.class))),
         @ApiResponse(responseCode = "401", description = "Missing or invalid OAuth2 Bearer token"),
+        @ApiResponse(responseCode = "403", description = "Missing permission, or a shopper tried to access another customer's order",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
         @ApiResponse(responseCode = "404", description = "Order not found with the specified order number",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<OrderResponse> getOrder(
             @Parameter(description = "Unique business order number (e.g. 'ORD-1001')", required = true)
-            @PathVariable String orderNumber) {
+            @PathVariable String orderNumber,
+            @Parameter(hidden = true) Authentication authentication) {
         Order order = orderService.getOrderStatus(orderNumber);
+        customerService.assertCustomerAccess(CallerIdentity.from(authentication), order.getCustomer().getId());
         return ResponseEntity.ok(OrderResponse.from(order));
     }
 
@@ -112,13 +130,17 @@ public class OrderController {
         @ApiResponse(responseCode = "200", description = "Order status successfully retrieved",
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = OrderResponse.class))),
         @ApiResponse(responseCode = "401", description = "Missing or invalid OAuth2 Bearer token"),
+        @ApiResponse(responseCode = "403", description = "Missing permission, or a shopper tried to access another customer's order",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
         @ApiResponse(responseCode = "404", description = "Order not found with the specified order number",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<OrderResponse> getStatus(
             @Parameter(description = "Unique business order number (e.g. 'ORD-1001')", required = true)
-            @PathVariable String orderNumber) {
+            @PathVariable String orderNumber,
+            @Parameter(hidden = true) Authentication authentication) {
         Order order = orderService.getOrderStatus(orderNumber);
+        customerService.assertCustomerAccess(CallerIdentity.from(authentication), order.getCustomer().getId());
         return ResponseEntity.ok(OrderResponse.from(order));
     }
 
@@ -126,7 +148,8 @@ public class OrderController {
     @PreAuthorize("hasAuthority('PERM_order.read')")
     @Operation(
         summary = "Search customer orders",
-        description = "Query customer order history with optional filtering by customer ID and order status, supporting pagination and sorting."
+        description = "Query customer order history with optional filtering by customer ID and order status, supporting pagination and sorting. "
+            + "Callers without a staff role only see their own linked customer's orders; naming another customerId is rejected with 403."
     )
     @Parameters({
         @Parameter(name = "customerId", description = "Filter by customer ID (must be > 0)", schema = @Schema(type = "integer", minimum = "1")),
@@ -139,7 +162,9 @@ public class OrderController {
         @ApiResponse(responseCode = "200", description = "Page of orders matching search criteria successfully retrieved"),
         @ApiResponse(responseCode = "400", description = "Invalid pagination, sorting, or customer ID parameter",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
-        @ApiResponse(responseCode = "401", description = "Missing or invalid OAuth2 Bearer token")
+        @ApiResponse(responseCode = "401", description = "Missing or invalid OAuth2 Bearer token"),
+        @ApiResponse(responseCode = "403", description = "Missing permission, or a shopper named another customer",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<Page<OrderResponse>> searchOrders(
             @Parameter(description = "Customer ID filter")
@@ -147,12 +172,14 @@ public class OrderController {
             @Parameter(description = "Order status filter")
             @RequestParam(required = false) OrderStatus status,
             @Parameter(hidden = true)
-            @PageableDefault(page = 0, size = 20, sort = "placedAt", direction = Sort.Direction.DESC) Pageable pageable) {
+            @PageableDefault(page = 0, size = 20, sort = "placedAt", direction = Sort.Direction.DESC) Pageable pageable,
+            @Parameter(hidden = true) Authentication authentication) {
 
         if (customerId != null && customerId <= 0) {
             throw new IllegalArgumentException("Customer ID must be greater than 0. Received: " + customerId);
         }
 
+        customerId = customerService.resolveCustomerScope(CallerIdentity.from(authentication), customerId);
         Pageable sanitized = PageableValidator.validateAndSanitizeOrder(pageable);
         Page<OrderResponse> result = orderService.searchOrders(customerId, status, sanitized);
         return ResponseEntity.ok(result);
@@ -165,6 +192,8 @@ public class OrderController {
         @ApiResponse(responseCode = "200", description = "Order successfully cancelled and stock restored",
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = OrderResponse.class))),
         @ApiResponse(responseCode = "401", description = "Missing or invalid OAuth2 Bearer token"),
+        @ApiResponse(responseCode = "403", description = "Missing permission, or a shopper tried to access another customer's order",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
         @ApiResponse(responseCode = "404", description = "Order not found with the specified order number",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
         @ApiResponse(responseCode = "409", description = "Order is in a non-cancellable state (e.g. PARCELED, DELIVERING, DELIVERED, CANCELLED)",
@@ -172,7 +201,13 @@ public class OrderController {
     })
     public ResponseEntity<OrderResponse> cancel(
             @Parameter(description = "Unique business order number to cancel (e.g. 'ORD-1001')", required = true)
-            @PathVariable String orderNumber) {
+            @PathVariable String orderNumber,
+            @Parameter(hidden = true) Authentication authentication) {
+        CallerIdentity caller = CallerIdentity.from(authentication);
+        if (caller == null || !caller.staff()) {
+            // Ownership check before any state change; staff may cancel any order
+            customerService.assertCustomerAccess(caller, orderService.getOrderStatus(orderNumber).getCustomer().getId());
+        }
         Order order = orderService.cancelOrder(orderNumber);
         return ResponseEntity.ok(OrderResponse.from(order));
     }
