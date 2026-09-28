@@ -23,6 +23,7 @@ import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.dto.ChatWidget;
+import vn.danang.polaris.assistant.dto.ProductListCard;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
@@ -284,6 +285,9 @@ public class AssistantChatService {
      * earlier one (a re-staged draft supersedes the previous draft), and a retraction removes it (a
      * discarded draft leaves no card). Mutating local tools run in call order (see PolicyToolManager), so
      * the {@code ORDER_DRAFT} card left at the end is the draft that is actually open.
+     * <p>
+     * {@code PRODUCT_LIST} is the exception: searches don't supersede each other ("chargers and cases" may
+     * be two searches), so their products are merged into one card, a repeated SKU taking the later values.
      */
     private static void applyWidgetChanges(List<ToolResult> results, Map<String, ChatWidget> widgets) {
         for (ToolResult result : results) {
@@ -294,10 +298,18 @@ public class AssistantChatService {
                 widgets.remove(result.retractsWidget());
             }
             if (result.widget() != null) {
-                widgets.remove(result.widget().type());
-                widgets.put(result.widget().type(), result.widget());
+                ChatWidget earlier = widgets.remove(result.widget().type());
+                widgets.put(result.widget().type(), combine(earlier, result.widget()));
             }
         }
+    }
+
+    private static ChatWidget combine(@Nullable ChatWidget earlier, ChatWidget later) {
+        if (earlier != null && earlier.payload() instanceof ProductListCard earlierList
+                && later.payload() instanceof ProductListCard laterList) {
+            return earlierList.mergedWith(laterList).toWidget();
+        }
+        return later;
     }
 
     /**

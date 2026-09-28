@@ -1,5 +1,6 @@
 package vn.danang.polaris.assistant.service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -22,17 +23,27 @@ import static org.mockito.Mockito.when;
 import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
 import org.springframework.beans.factory.ObjectProvider;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
+import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.dto.ChatWidget;
+import vn.danang.polaris.assistant.dto.ProductListCard;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
+import vn.danang.polaris.assistant.intent.DefaultIntentManager;
+import vn.danang.polaris.assistant.intent.IntentDefinition;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
+import vn.danang.polaris.assistant.policy.PolicyDecision;
+import vn.danang.polaris.assistant.tools.PolarisMcpClient;
+import vn.danang.polaris.assistant.tools.PolicyToolManager;
 import vn.danang.polaris.assistant.tools.ToolExecutionContext;
 import vn.danang.polaris.assistant.tools.ToolResult;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
@@ -543,6 +554,135 @@ class AssistantChatServiceTest {
 
             assertThat(response.widgets()).isEmpty();
             assertThat(sessionStore.persisted("sess-w3").getLast().getWidgetType()).isNull();
+        }
+    }
+
+    // =========================================================================
+    // Product cards (S8) — a search turn through the real tool pipeline yields a PRODUCT_LIST card
+    // =========================================================================
+    @Nested
+    @DisplayName("Product cards")
+    class ProductCards {
+
+        private static final String CHARGERS = """
+            {"totalElements": 2, "products": [
+              {"sku": "NG-CHARGER-01", "name": "Nova 65W Fast Charger", "category": "Chargers",
+               "price": 24.90, "stockQuantity": 200, "available": true},
+              {"sku": "NG-CHARGER-02", "name": "Nova 30W Charger", "category": null,
+               "price": 14.10, "stockQuantity": 0, "available": false}]}
+            """;
+
+        private static final String CASES = """
+            {"totalElements": 2, "products": [
+              {"sku": "NG-CASE-01", "name": "Nova Phone Case", "category": "Accessories",
+               "price": 14.90, "stockQuantity": 50, "available": true},
+              {"sku": "NG-CHARGER-01", "name": "Nova 65W Fast Charger", "category": "Chargers",
+               "price": 24.90, "stockQuantity": 198, "available": true}]}
+            """;
+
+        private PolarisMcpClient polarisMcpClient;
+        private AssistantChatService searchChatService;
+
+        @BeforeEach
+        void setUpPipeline() {
+            polarisMcpClient = mock(PolarisMcpClient.class);
+            DefaultIntentManager taxonomy = new DefaultIntentManager();
+            IntentDefinition search = taxonomy.getIntent("catalog.product.search").orElseThrow();
+            PolicyToolManager toolManager = new PolicyToolManager(
+                    polarisMcpClient, scope -> PolicyDecision.allow(), Runnable::run, taxonomy);
+            IntentResolutionFacade facade = new IntentResolutionFacade(
+                    (message, history, tools) -> new ResolvedIntent(search.id(), 0.99, true, List.of(), search),
+                    toolManager);
+            searchChatService = createChatService(modelClient, null, facade);
+        }
+
+        private CallToolResult searchResult(String text, String structuredJson) throws Exception {
+            // Parsed like HttpPolarisMcpClient does: floats as BigDecimal
+            Map<String, Object> structured = structuredJson == null ? null : new ObjectMapper()
+                    .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                    .readValue(structuredJson, new TypeReference<Map<String, Object>>() {});
+            return new CallToolResult(List.of(TextContent.builder(text).build()), false, structured, Map.of());
+        }
+
+        @Test
+        @DisplayName("Given a successful search, when the turn ends, then the reply carries a PRODUCT_LIST card built from the tool's structured data")
+        void search_turn_returns_product_list_widget() throws Exception {
+            ToolCall searchCall = new ToolCall("search_available_products", Map.of("query", "charger"));
+            when(polarisMcpClient.callTool(eq("search_available_products"), any()))
+                    .thenReturn(searchResult("Found 2 product(s): ...", CHARGERS));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(searchCall)))
+                    .thenReturn(new ModelResponse("Here are two chargers.", List.of()));
+
+            ChatMessageResponse response = searchChatService.sendMessage(ChatMessageRequest.of("sess-p1", "fast chargers"), "user-1");
+
+            assertThat(response.widgets()).singleElement().satisfies(widget -> {
+                assertThat(widget.type()).isEqualTo(ChatWidget.PRODUCT_LIST);
+                ProductListCard card = (ProductListCard) widget.payload();
+                assertThat(card.products()).extracting(ProductListCard.Product::sku)
+                        .containsExactly("NG-CHARGER-01", "NG-CHARGER-02");
+                ProductListCard.Product first = card.products().getFirst();
+                assertThat(first.name()).isEqualTo("Nova 65W Fast Charger");
+                assertThat(first.category()).isEqualTo("Chargers");
+                assertThat(first.price()).isEqualTo(new BigDecimal("24.90"));
+                assertThat(first.stockQuantity()).isEqualTo(200);
+                assertThat(first.available()).isTrue();
+                assertThat(card.products().get(1).category()).isNull();
+                assertThat(card.products().get(1).available()).isFalse();
+            });
+
+            // The model saw only the text; the card is persisted on the reply
+            List<AssistantMessage> persisted = sessionStore.persisted("sess-p1");
+            assertThat(persisted).filteredOn(m -> m.getRole() == MessageRole.TOOL)
+                    .singleElement().extracting(AssistantMessage::getContent).isEqualTo("Found 2 product(s): ...");
+            AssistantMessage reply = persisted.getLast();
+            assertThat(reply.getWidgetType()).isEqualTo("PRODUCT_LIST");
+            assertThat(reply.getWidgetPayload()).contains("\"sku\":\"NG-CHARGER-01\"").contains("\"price\":24.90");
+        }
+
+        @Test
+        @DisplayName("Given two searches in one turn, when the turn ends, then one PRODUCT_LIST card holds the products of both, a repeated SKU once with its later values")
+        void two_searches_merge_into_one_card() throws Exception {
+            ToolCall chargers = new ToolCall("search_available_products", Map.of("query", "charger"));
+            ToolCall cases = new ToolCall("search_available_products", Map.of("query", "case"));
+            when(polarisMcpClient.callTool(eq("search_available_products"), eq(Map.of("query", "charger"))))
+                    .thenReturn(searchResult("chargers", CHARGERS));
+            when(polarisMcpClient.callTool(eq("search_available_products"), eq(Map.of("query", "case"))))
+                    .thenReturn(searchResult("cases", CASES));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(chargers)))
+                    .thenReturn(new ModelResponse("", List.of(cases)))
+                    .thenReturn(new ModelResponse("Chargers and cases.", List.of()));
+
+            ChatMessageResponse response = searchChatService.sendMessage(ChatMessageRequest.of("sess-p2", "chargers and cases"), "user-1");
+
+            assertThat(response.widgets()).singleElement().satisfies(widget -> {
+                ProductListCard card = (ProductListCard) widget.payload();
+                assertThat(card.products()).extracting(ProductListCard.Product::sku)
+                        .containsExactly("NG-CHARGER-01", "NG-CHARGER-02", "NG-CASE-01");
+                assertThat(card.products().getFirst().stockQuantity()).isEqualTo(198);
+            });
+        }
+
+        @Test
+        @DisplayName("Given an empty or failed search, when the turn ends, then no PRODUCT_LIST card is returned")
+        void empty_or_failed_search_returns_no_card() throws Exception {
+            ToolCall empty = new ToolCall("search_available_products", Map.of("query", "zzz"));
+            ToolCall failing = new ToolCall("search_available_products", Map.of("page", -1));
+            when(polarisMcpClient.callTool(eq("search_available_products"), eq(Map.of("query", "zzz"))))
+                    .thenReturn(searchResult("No products found matching the specified criteria.",
+                            "{\"totalElements\": 0, \"products\": []}"));
+            when(polarisMcpClient.callTool(eq("search_available_products"), eq(Map.of("page", -1))))
+                    .thenReturn(new CallToolResult(List.of(TextContent.builder("Error searching products: bad page").build()),
+                            true, null, Map.of()));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(empty, failing)))
+                    .thenReturn(new ModelResponse("Nothing matched.", List.of()));
+
+            ChatMessageResponse response = searchChatService.sendMessage(ChatMessageRequest.of("sess-p3", "zzz"), "user-1");
+
+            assertThat(response.widgets()).isEmpty();
+            assertThat(sessionStore.persisted("sess-p3").getLast().getWidgetType()).isNull();
         }
     }
 

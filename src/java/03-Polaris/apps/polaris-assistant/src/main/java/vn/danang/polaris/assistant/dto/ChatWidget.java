@@ -26,6 +26,9 @@ public record ChatWidget(
     /** Order placed from a confirmed draft: {orderNumber, draftId, customer, items, total}. */
     public static final String ORDER_CONFIRMED = "ORDER_CONFIRMED";
 
+    /** Catalog search results, exactly as the search tool returned them: {products: [...]} ({@link ProductListCard}). */
+    public static final String PRODUCT_LIST = "PRODUCT_LIST";
+
     public ChatWidget {
         if (type == null || type.isBlank()) {
             throw new IllegalArgumentException("Widget type must not be blank.");
