@@ -2,6 +2,7 @@ package vn.danang.polaris.assistant.intent;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
@@ -16,6 +17,8 @@ import vn.danang.polaris.assistant.entity.AssistantMessage;
  * {@link ResolvedIntent} scoped to the matched {@link IntentDefinition}. The intent taxonomy
  * itself is provided by an {@link IntentManager}, which abstracts over where intents actually
  * live (local classpath resource by default, a remote store in other implementations).
+ * Below the intent's confidence threshold only read-only tools are offered (see
+ * {@link IntentToolPolicy#readOnlyTools}).
  */
 @Component
 @Primary
@@ -63,7 +66,7 @@ public class DefaultIntentResolver implements IntentResolver {
         double threshold = definition.confidenceThreshold();
         boolean meetsThreshold = confidence >= threshold;
 
-        List<Tool> acceptedTools = meetsThreshold ? filterTools(definition, tools) : tools;
+        List<Tool> acceptedTools = meetsThreshold ? filterTools(definition, tools) : readOnlyTools(intents, tools);
 
         return new ResolvedIntent(intentId, confidence, meetsThreshold, acceptedTools, definition);
     }
@@ -74,6 +77,20 @@ public class DefaultIntentResolver implements IntentResolver {
      */
     public IntentClassification resolve(String messageText, List<AssistantMessage> history) {
         return intentClassifier.classify(messageText, history, intentManager.listIntents());
+    }
+
+    /**
+     * Low-confidence fallback: only tools declared by non-mutating intents, never the full list,
+     * so an ambiguous message can't reach a write tool such as {@code place_order}.
+     */
+    private List<Tool> readOnlyTools(List<IntentDefinition> intents, List<Tool> availableTools) {
+        if (availableTools == null) {
+            return List.of();
+        }
+        Set<String> readOnly = IntentToolPolicy.readOnlyTools(intents);
+        return availableTools.stream()
+                .filter(t -> readOnly.contains(t.name()))
+                .toList();
     }
 
     private List<Tool> filterTools(IntentDefinition definition, List<Tool> availableTools) {

@@ -1,7 +1,9 @@
 package vn.danang.polaris.assistant.tools;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -28,7 +30,9 @@ import org.springframework.beans.factory.ObjectProvider;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import vn.danang.polaris.assistant.intent.DefaultIntentManager;
 import vn.danang.polaris.assistant.intent.IntentDefinition;
+import vn.danang.polaris.assistant.intent.IntentManager;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
 import vn.danang.polaris.assistant.policy.PolicyDecision;
 import vn.danang.polaris.assistant.policy.PolicyEngine;
@@ -44,7 +48,9 @@ class ExternalToolManagerTest {
 
     @BeforeEach
     void setUp() {
-        mcpHub = new PolicyToolManager(polarisMcpClient);
+        // scope checks are covered explicitly below; everything else runs with an allow-all engine
+        PolicyEngine allowAll = scope -> PolicyDecision.allow();
+        mcpHub = new PolicyToolManager(polarisMcpClient, allowAll);
     }
 
     // =========================================================================
@@ -348,6 +354,109 @@ class ExternalToolManagerTest {
     }
 
     // =========================================================================
+    // 2b. Per-tool scope & low-confidence fallback (G2)
+    // =========================================================================
+    @Nested
+    @DisplayName("2b. Per-tool scope & low-confidence fallback")
+    class PerToolScope {
+
+        private final List<String> authorizedScopes = new ArrayList<>();
+
+        private PolicyToolManager hubRecordingScopes(Set<String> grantedScopes) {
+            PolicyEngine recording = scope -> {
+                authorizedScopes.add(scope);
+                return grantedScopes.contains(scope)
+                        ? PolicyDecision.allow()
+                        : PolicyDecision.deny("Missing scope " + scope);
+            };
+            return new PolicyToolManager(polarisMcpClient, recording);
+        }
+
+        @Test
+        @DisplayName("Given empty low-confidence intent, when model calls place_order, then rejected without scope check or client call")
+        void rejects_place_order_under_low_confidence_empty_intent() {
+            PolicyToolManager hub = hubRecordingScopes(Set.of("order.write"));
+            ResolvedIntent lowConfidence = new ResolvedIntent("", 0.2, false, List.of(), IntentDefinition.empty());
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1, lowConfidence);
+
+            List<ToolResult> results = hub.handleToolCalls(
+                    List.of(new ToolCall("place_order", Map.of("sku", "PROD-1")),
+                            new ToolCall("cancel_order", Map.of("order_id", "ORD-1"))),
+                    context);
+
+            assertThat(results).allMatch(ToolResult::isError);
+            assertThat(authorizedScopes).isEmpty();
+            verify(polarisMcpClient, never()).callTool(anyString(), any());
+        }
+
+        @Test
+        @DisplayName("Given empty low-confidence intent, when model calls a read-only tool, then its own scope is still checked")
+        void checks_tool_scope_for_read_only_tool_under_low_confidence() {
+            PolicyToolManager hub = hubRecordingScopes(Set.of());
+            ResolvedIntent lowConfidence = new ResolvedIntent("", 0.2, false, List.of(), IntentDefinition.empty());
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1, lowConfidence);
+
+            ToolPolicyCheckResult result = hub.checkPolicy(new ToolCall("get_order_status", Map.of()), context);
+
+            assertThat(result.isRejected()).isTrue();
+            assert result.rejection() != null;
+            assertThat(result.rejection().isDenied()).isTrue();
+            assertThat(result.rejection().result()).isEqualTo("Missing scope order.read");
+            assertThat(authorizedScopes).containsExactly("order.read");
+        }
+
+        @Test
+        @DisplayName("Given a tool with no registered scope and a scopeless intent, when checked, then denied (fail closed)")
+        void denies_tool_whose_scope_is_missing_under_empty_intent() {
+            PolicyToolManager hub = hubRecordingScopes(Set.of("order.write"));
+            Tool unscoped = Tool.builder("unscoped_tool", Map.of()).build();
+            IntentDefinition emptyIntent = new IntentDefinition("", "", List.of(), List.of("unscoped_tool"), null, 0.1, false);
+            ResolvedIntent resolved = new ResolvedIntent("", 0.9, true, List.of(unscoped), emptyIntent);
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1, resolved);
+
+            ToolPolicyCheckResult result = hub.checkPolicy(new ToolCall("unscoped_tool", Map.of()), context);
+
+            assertThat(result.isRejected()).isTrue();
+            assert result.rejection() != null;
+            assertThat(result.rejection().isDenied()).isTrue();
+            assertThat(result.rejection().result()).contains("No required scope is registered for tool 'unscoped_tool'");
+            assertThat(authorizedScopes).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Given commerce.order.place meets threshold without order.write, when place_order called, then denied by tool scope")
+        void denies_place_order_without_order_write() {
+            PolicyToolManager hub = hubRecordingScopes(Set.of("order.read"));
+            IntentDefinition placeIntent = new IntentDefinition("commerce.order.place", "", List.of(),
+                    List.of("place_order", "search_customers_by_name"), "order.write", 0.92, true);
+            ResolvedIntent resolved = new ResolvedIntent("commerce.order.place", 0.97, true, List.of(), placeIntent);
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1, resolved);
+
+            ToolPolicyCheckResult result = hub.checkPolicy(new ToolCall("place_order", Map.of()), context);
+
+            assertThat(result.isRejected()).isTrue();
+            assert result.rejection() != null;
+            assertThat(result.rejection().isDenied()).isTrue();
+            assertThat(authorizedScopes).containsExactly("order.write");
+        }
+
+        @Test
+        @DisplayName("Given read tool reused by a mutating intent, when called under that intent, then both tool and intent scopes are required")
+        void requires_tool_and_intent_scope_for_read_tool_under_mutating_intent() {
+            PolicyToolManager hub = hubRecordingScopes(Set.of("order.read", "order.write"));
+            IntentDefinition placeIntent = new IntentDefinition("commerce.order.place", "", List.of(),
+                    List.of("place_order", "search_customers_by_name"), "order.write", 0.92, true);
+            ResolvedIntent resolved = new ResolvedIntent("commerce.order.place", 0.97, true, List.of(), placeIntent);
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1, resolved);
+
+            ToolPolicyCheckResult result = hub.checkPolicy(new ToolCall("search_customers_by_name", Map.of()), context);
+
+            assertThat(result.isOk()).isTrue();
+            assertThat(authorizedScopes).containsExactly("order.read", "order.write");
+        }
+    }
+
+    // =========================================================================
     // 3. Edge cases — null safety, failures, parallel calls grouping
     // =========================================================================
     @Nested
@@ -504,13 +613,15 @@ class ExternalToolManagerTest {
         void initializes_with_provided_beans_from_object_providers() {
             ObjectProvider<PolicyEngine> policyProvider = mock(ObjectProvider.class);
             ObjectProvider<Executor> executorProvider = mock(ObjectProvider.class);
+            ObjectProvider<IntentManager> intentManagerProvider = mock(ObjectProvider.class);
             PolicyEngine customPolicy = mock(PolicyEngine.class);
             ExecutorService customExecutor = Executors.newSingleThreadExecutor();
 
             when(policyProvider.getIfAvailable()).thenReturn(customPolicy);
             when(executorProvider.getIfAvailable()).thenReturn(customExecutor);
+            when(intentManagerProvider.getIfAvailable()).thenReturn(new DefaultIntentManager());
 
-            PolicyToolManager manager = new PolicyToolManager(polarisMcpClient, policyProvider, executorProvider);
+            PolicyToolManager manager = new PolicyToolManager(polarisMcpClient, policyProvider, executorProvider, intentManagerProvider);
 
             try {
                 manager.destroy();
@@ -525,7 +636,8 @@ class ExternalToolManagerTest {
         void falls_back_to_defaults_when_providers_null() {
             ObjectProvider<PolicyEngine> nullPolicyProvider = null;
             ObjectProvider<Executor> nullExecutorProvider = null;
-            PolicyToolManager manager = new PolicyToolManager(polarisMcpClient, nullPolicyProvider, nullExecutorProvider);
+            ObjectProvider<IntentManager> nullIntentManagerProvider = null;
+            PolicyToolManager manager = new PolicyToolManager(polarisMcpClient, nullPolicyProvider, nullExecutorProvider, nullIntentManagerProvider);
             manager.destroy();
         }
     }
