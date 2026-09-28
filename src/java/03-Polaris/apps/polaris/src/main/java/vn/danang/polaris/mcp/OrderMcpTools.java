@@ -1,6 +1,8 @@
 package vn.danang.polaris.mcp;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -33,7 +35,9 @@ import vn.danang.polaris.order.entity.OrderStatus;
 import vn.danang.polaris.order.security.CallerIdentity;
 import vn.danang.polaris.order.service.CustomerService;
 import vn.danang.polaris.order.service.OrderService;
+import vn.danang.polaris.web.exception.IdempotencyKeyReusedException;
 import vn.danang.polaris.web.exception.InsufficientStockException;
+import vn.danang.polaris.web.exception.PriceChangedException;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
 
 /**
@@ -102,6 +106,11 @@ public class OrderMcpTools {
                   "quantity": {
                     "type": "integer",
                     "description": "Quantity to order (minimum 1)"
+                  },
+                  "expected_unit_price": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Optional unit price the shopper confirmed. If the live price differs, nothing is ordered and the error carries the changed lines"
                   }
                 },
                 "required": ["sku", "quantity"]
@@ -109,7 +118,7 @@ public class OrderMcpTools {
             },
             "idempotency_key": {
               "type": "string",
-              "description": "Optional unique idempotency key to prevent duplicate orders during retries"
+              "description": "Optional unique idempotency key to prevent duplicate orders during retries. A retry returns the original order; a key already used for another customer is rejected"
             }
           },
           "required": ["items"]
@@ -489,15 +498,25 @@ public class OrderMcpTools {
                             .build();
                 }
 
-                reqItems.add(new OrderItemRequest(sku, qty));
+                Object rawExpected = itemMap.get("expected_unit_price") != null
+                        ? itemMap.get("expected_unit_price") : itemMap.get("expectedUnitPrice");
+                BigDecimal expectedUnitPrice = parseBigDecimal(rawExpected);
+                if (rawExpected != null && (expectedUnitPrice == null || expectedUnitPrice.signum() < 0)) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("Item 'expected_unit_price' must be a non-negative number for SKU '" + sku + "'.")
+                            .isError(true)
+                            .build();
+                }
+
+                reqItems.add(new OrderItemRequest(sku, qty, expectedUnitPrice));
             }
 
             Object rawKey = arguments.get("idempotency_key") != null ? arguments.get("idempotency_key") : arguments.get("idempotencyKey");
             String idempotencyKey = rawKey != null ? rawKey.toString().trim() : null;
 
             try {
-                Order order = orderService.placeOrder(customerId, reqItems, idempotencyKey);
-                String confirmation = formatOrderPlaced(order);
+                OrderService.Placement placement = orderService.place(customerId, reqItems, idempotencyKey);
+                String confirmation = formatOrderPlaced(placement.order(), placement.replayed());
                 return McpSchema.CallToolResult.builder().addTextContent(confirmation).isError(false).build();
             } catch (InsufficientStockException ex) {
                 String errorMsg = String.format(
@@ -505,7 +524,26 @@ public class OrderMcpTools {
                         ex.getSku(), ex.getRequestedQuantity(), ex.getAvailableQuantity(),
                         ex.getSku(), ex.getAvailableQuantity()
                 );
-                return McpSchema.CallToolResult.builder().addTextContent(errorMsg).isError(true).build();
+                Map<String, Object> problem = problem(InsufficientStockException.TYPE, "Insufficient Stock", 400, ex.getMessage());
+                problem.put("sku", ex.getSku());
+                problem.put("requested_quantity", ex.getRequestedQuantity());
+                problem.put("available_quantity", ex.getAvailableQuantity());
+                return problemResult(errorMsg, problem);
+            } catch (PriceChangedException ex) {
+                Map<String, Object> problem = problem(PriceChangedException.TYPE, "Price Changed", 409, ex.getMessage());
+                List<Map<String, Object>> changedLines = new ArrayList<>();
+                for (PriceChangedException.ChangedLine line : ex.getChangedLines()) {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("sku", line.sku());
+                    entry.put("expected_unit_price", line.expectedUnitPrice());
+                    entry.put("current_unit_price", line.currentUnitPrice());
+                    changedLines.add(entry);
+                }
+                problem.put("changed_lines", changedLines);
+                return problemResult(ex.getMessage() + " No order was placed. Remedy: review the current prices and confirm again.", problem);
+            } catch (IdempotencyKeyReusedException ex) {
+                return problemResult(ex.getMessage(),
+                        problem(IdempotencyKeyReusedException.TYPE, "Idempotency Key Reused", 422, ex.getMessage()));
             } catch (ResourceNotFoundException ex) {
                 return McpSchema.CallToolResult.builder().addTextContent(ex.getMessage()).isError(true).build();
             } catch (Exception ex) {
@@ -679,10 +717,33 @@ public class OrderMcpTools {
         return String.join("\n", lines);
     }
 
-    private String formatOrderPlaced(Order order) {
+    /**
+     * RFC 7807-shaped map carried as {@code structuredContent} of a failed {@code place_order} call, so an
+     * orchestrator can branch on {@code type} (price-changed, out-of-stock, idempotency-key-reused) like a REST client.
+     */
+    private static Map<String, Object> problem(String type, String title, int status, String detail) {
+        Map<String, Object> problem = new LinkedHashMap<>();
+        problem.put("type", type);
+        problem.put("title", title);
+        problem.put("status", status);
+        problem.put("detail", detail);
+        return problem;
+    }
+
+    private static McpSchema.CallToolResult problemResult(String text, Map<String, Object> problem) {
+        return McpSchema.CallToolResult.builder()
+                .addTextContent(text)
+                .structuredContent(problem)
+                .isError(true)
+                .build();
+    }
+
+    private String formatOrderPlaced(Order order, boolean replayed) {
         String customerName = order.getCustomer() != null ? order.getCustomer().getFullName() : "Customer";
         List<String> lines = new ArrayList<>();
-        lines.add("Order successfully placed!");
+        lines.add(replayed
+                ? "Order already placed for this idempotency key; no new order was created."
+                : "Order successfully placed!");
         lines.add("- Order Number: " + order.getOrderNumber());
         lines.add("- Status: " + order.getStatus());
         lines.add("- Customer: " + customerName);
@@ -751,6 +812,15 @@ public class OrderMcpTools {
         if (val instanceof Number n) return n.intValue();
         try {
             return Integer.parseInt(val.toString().trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private BigDecimal parseBigDecimal(Object val) {
+        if (val == null) return null;
+        try {
+            return new BigDecimal(val.toString().trim());
         } catch (NumberFormatException e) {
             return null;
         }

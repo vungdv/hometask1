@@ -58,14 +58,34 @@ public class OrderController {
         summary = "Place a new order",
         description = "Create and submit a new multi-item purchase order with live stock deduction and idempotency support. "
             + "Staff (staff, admin, purchase-management roles) must supply customerId. Any other caller always "
-            + "orders for the customer linked to their own identity; customerId may be omitted, and a different one is rejected with 403."
+            + "orders for the customer linked to their own identity; customerId may be omitted, and a different one is rejected with 403. "
+            + "Lines repeating a SKU are merged. A line's optional expectedUnitPrice is checked against the live price under row lock; "
+            + "any difference rejects the whole order with 409 price-changed. Retrying with the same Idempotency-Key returns the "
+            + "original order with 200, also when two retries race."
     )
     @ApiResponses({
         @ApiResponse(
             responseCode = "201",
-            description = "Order successfully created or existing order returned for idempotent retry",
+            description = "Order successfully created",
             headers = @Header(name = HttpHeaders.LOCATION, description = "URI of the created order resource", schema = @Schema(type = "string")),
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = OrderResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "200",
+            description = "Idempotent replay: an order already exists for this Idempotency-Key and customer; it is returned unchanged",
+            headers = @Header(name = HttpHeaders.CONTENT_LOCATION, description = "URI of the existing order resource", schema = @Schema(type = "string")),
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = OrderResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "409",
+            description = "price-changed: the live unit price of at least one line differs from its expectedUnitPrice; "
+                + "changed_lines lists them. No order is created and no stock is deducted",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))
+        ),
+        @ApiResponse(
+            responseCode = "422",
+            description = "idempotency-key-reused: the Idempotency-Key already identifies an order of a different customer",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))
         ),
         @ApiResponse(
             responseCode = "400",
@@ -97,8 +117,13 @@ public class OrderController {
                         : null);
 
         Long customerId = customerService.resolveOrderingCustomerId(CallerIdentity.from(authentication), request.customerId());
-        Order order = orderService.placeOrder(customerId, request.items(), idempotencyKey);
+        OrderService.Placement placement = orderService.place(customerId, request.items(), idempotencyKey);
+        Order order = placement.order();
         URI location = URI.create("/api/v1/orders/" + order.getOrderNumber());
+        if (placement.replayed()) {
+            // Idempotent replay: nothing was created by this request, so 200 with the original order
+            return ResponseEntity.ok().header(HttpHeaders.CONTENT_LOCATION, location.toString()).body(OrderResponse.from(order));
+        }
         return ResponseEntity.created(location).body(OrderResponse.from(order));
     }
 
