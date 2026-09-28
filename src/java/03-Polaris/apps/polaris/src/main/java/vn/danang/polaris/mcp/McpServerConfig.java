@@ -59,6 +59,7 @@ public class McpServerConfig {
             HttpServletStreamableServerTransportProvider transport,
             ProductMcpTools productMcpTools,
             OrderMcpTools orderMcpTools,
+            OrderQuoteMcpTools orderQuoteMcpTools,
             JacksonMcpJsonMapper jsonMapper) {
         return McpServer.sync(transport)
                 .serverInfo("polaris-mcp", "1.0.0")
@@ -71,6 +72,7 @@ public class McpServerConfig {
                 .toolCall(orderMcpTools.getListCustomerOrdersTool(jsonMapper), (exchange, request) -> orderMcpTools.listCustomerOrders(request.arguments()))
                 .toolCall(orderMcpTools.getCancelOrderTool(jsonMapper), (exchange, request) -> orderMcpTools.cancelOrder(request.arguments()))
                 .toolCall(orderMcpTools.getSearchCustomersByNameTool(jsonMapper), (exchange, request) -> orderMcpTools.searchCustomersByName(request.arguments()))
+                .toolCall(orderQuoteMcpTools.getQuoteOrderTool(jsonMapper), (exchange, request) -> orderQuoteMcpTools.quoteOrder(request.arguments()))
                 .build();
     }
 
@@ -97,6 +99,7 @@ public class McpServerConfig {
             HttpServletStatelessServerTransport transport,
             ProductMcpTools productMcpTools,
             OrderMcpTools orderMcpTools,
+            OrderQuoteMcpTools orderQuoteMcpTools,
             JacksonMcpJsonMapper jsonMapper) {
         return McpServer.sync(transport)
                 .serverInfo("polaris-mcp", "1.0.0")
@@ -109,6 +112,7 @@ public class McpServerConfig {
                 .toolCall(orderMcpTools.getListCustomerOrdersTool(jsonMapper), (exchange, request) -> orderMcpTools.listCustomerOrders(request.arguments()))
                 .toolCall(orderMcpTools.getCancelOrderTool(jsonMapper), (exchange, request) -> orderMcpTools.cancelOrder(request.arguments()))
                 .toolCall(orderMcpTools.getSearchCustomersByNameTool(jsonMapper), (exchange, request) -> orderMcpTools.searchCustomersByName(request.arguments()))
+                .toolCall(orderQuoteMcpTools.getQuoteOrderTool(jsonMapper), (exchange, request) -> orderQuoteMcpTools.quoteOrder(request.arguments()))
                 .build();
     }
 }
