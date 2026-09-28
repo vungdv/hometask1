@@ -27,7 +27,7 @@ tf 08 rmo OrderStatus ->> 07
 | :--- | :--- |
 | `ui` | The acting party's trigger — a screen, chat turn, or button click that issues the next command. |
 | `cmd` | An intent to change state, named as an imperative verb phrase: `PlaceOrder`. |
-| `evt` | A fact that already happened, named in past tense: `OrderPlaced`. This repo has no event bus or domain-event classes (see [EM-001](EM-001-order-staging-out-of-stock-exception.md) Gap Analysis), so an `evt` frame here means a durable fact committed to the database, not a published object. |
+| `evt` | A fact that already happened, named in past tense: `OrderPlaced`. By default an `evt` frame means a durable fact committed to the database, not a published object (see [EM-001](EM-001-order-staging-out-of-stock-exception.md) Gap Analysis). Models that introduce Kafka (from [EM-002](EM-002-order-lifecycle-notifications-and-fulfilment.md)) state explicitly when an `evt` is also published as a CloudEvent. |
 | `rmo` | A read model / view projected from state. `->> NN` names the `evt` frame it was built from; a bare `rmo` with no `->>` is a live query or a response with no new event behind it — including a **rejected command**, which is always shown as a `rmo` with no `->>` rather than invented as a fake `evt`, since a rejection changes nothing. |
 
 The frame immediately consulted by a `cmd` (its "Given") is whichever `rmo` precedes it in the timeline.
@@ -42,3 +42,4 @@ Event Models are numbered `EM-NNN`, sequentially, independent of the `ADR-NNNN`/
 ## Index
 
 - [EM-001 — Out-of-Stock at Order Staging](EM-001-order-staging-out-of-stock-exception.md) — the exception path branching off [Business Process: Shopper Search & Order Placement](../../business/README.md#exception-path-out-of-stock-at-order-staging); as-designed draft-staging flow (PRD-003 / ADR-0004) vs. as-built single atomic `place_order` command.
+- [EM-002 — Order Lifecycle Notifications & Fulfilment (Kafka)](EM-002-order-lifecycle-notifications-and-fulfilment.md) — design-only model for [PRD-007](../../business/prds/PRD-007-order-notifications-and-fulfilment-emulator.md): order milestones published to Kafka, a Fulfilment emulator driving `CONFIRMED → DELIVERED`, and email notifications via Mailpit.
