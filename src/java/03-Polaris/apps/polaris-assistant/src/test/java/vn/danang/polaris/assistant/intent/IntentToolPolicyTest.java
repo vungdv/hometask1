@@ -36,18 +36,25 @@ class IntentToolPolicyTest {
                 .filter(tool -> !declaredByReadOnly.contains(tool))
                 .toList();
 
-        assertThat(mutatingOnly).contains("place_order", "cancel_order");
+        assertThat(mutatingOnly).contains("stage_order_draft", "cancel_order");
         assertThat(IntentToolPolicy.readOnlyTools(shipped)).doesNotContainAnyElementsOf(mutatingOnly);
     }
 
     @Test
     @DisplayName("Given shipped taxonomy, each tool maps to the scope of its declaring intents")
     void maps_each_tool_to_its_scope() {
-        assertThat(IntentToolPolicy.requiredScopes("place_order", shipped)).containsExactly("order.write");
+        assertThat(IntentToolPolicy.requiredScopes("stage_order_draft", shipped)).containsExactly("order.write");
         assertThat(IntentToolPolicy.requiredScopes("cancel_order", shipped)).containsExactly("order.write");
         assertThat(IntentToolPolicy.requiredScopes("get_product_by_sku", shipped)).containsExactly("catalog.read");
         // reused by commerce.order.place, but its own scope comes from the read-only declarer
         assertThat(IntentToolPolicy.requiredScopes("search_customers_by_name", shipped)).containsExactly("order.read");
+    }
+
+    @Test
+    @DisplayName("Given shipped taxonomy, place_order is declared by no intent: only the confirm endpoint places orders (S7)")
+    void place_order_is_not_in_the_taxonomy() {
+        assertThat(shipped).noneMatch(def -> def.allowedTools().contains("place_order"));
+        assertThat(IntentToolPolicy.requiredScopes("place_order", shipped)).isEmpty();
     }
 
     @Test

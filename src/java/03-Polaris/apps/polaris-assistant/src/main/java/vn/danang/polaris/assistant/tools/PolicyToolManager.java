@@ -49,11 +49,18 @@ import vn.danang.polaris.assistant.observability.trace.SpanTag;
  * {@link LocalTool}s (implemented inside the assistant, e.g. {@code stage_order_draft}) are listed next to
  * the remote tools and pass the very same {@link #checkPolicy} gate; only the dispatch differs, and a local
  * tool takes precedence over a remote tool of the same name.
+ * <p>
+ * {@link #ORCHESTRATOR_ONLY_TOOLS} (e.g. {@code place_order}) are never offered to the model and are rejected
+ * if it names them, whatever the intent taxonomy says: an order is placed only by the confirm endpoint after
+ * the shopper's click (ADR-0004 §1.B).
  */
 @Component
 public class PolicyToolManager implements ToolManager, DisposableBean {
 
     private static final Logger log = LoggerFactory.getLogger(PolicyToolManager.class);
+
+    /** Domain writes only the orchestrator may call, never the model (deny-list, checked before the taxonomy). */
+    public static final Set<String> ORCHESTRATOR_ONLY_TOOLS = Set.of("place_order", "cancel_order");
 
     private final PolarisMcpClient polarisMcpClient;
     private final PolicyEngine policyEngine;
@@ -172,12 +179,12 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
     )
     public List<Tool> discoverAllTools() {
         List<Tool> remote = polarisMcpClient.listAvailableTools();
-        if (localTools.isEmpty()) {
-            return remote;
-        }
         List<Tool> tools = new ArrayList<>();
         if (remote != null) {
             for (Tool tool : remote) {
+                if (ORCHESTRATOR_ONLY_TOOLS.contains(tool.name())) {
+                    continue;
+                }
                 if (localTools.containsKey(tool.name())) {
                     log.warn("Local tool '{}' shadows a remote MCP tool of the same name; the remote tool is not offered", tool.name());
                 } else {
@@ -295,6 +302,16 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
         IntentDefinition intentDef = resolvedIntent != null ? resolvedIntent.intentDefinition() : null;
 
         log.info("Model requested tool call: '{}' with arguments: {}", toolCall.name(), toolCall.arguments());
+
+        // 0. Orchestrator-only tools are out of the model's reach under any intent
+        if (ORCHESTRATOR_ONLY_TOOLS.contains(toolCall.name())) {
+            log.warn("Denied model call of orchestrator-only tool '{}' for user '{}' under intent '{}'", toolCall.name(), userId, intentId);
+            String reason = "Tool '" + toolCall.name() + "' is not available to the assistant: an order is placed or cancelled only by "
+                    + "the shopper's explicit action outside the chat (e.g. 'Submit Order' on a draft card). "
+                    + "To prepare an order, use stage_order_draft.";
+            String semanticNote = "Tool '" + toolCall.name() + "' is orchestrator-only and never executed for the model.";
+            return ToolPolicyCheckResult.reject(toolCall, ToolResult.denied(toolCall, reason, semanticNote));
+        }
 
         List<IntentDefinition> intents = this.intentManager.listIntents();
 

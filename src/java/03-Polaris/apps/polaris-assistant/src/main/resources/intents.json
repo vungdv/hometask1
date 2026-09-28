@@ -145,8 +145,7 @@
       "stage_order_draft",
       "discard_order_draft",
       "search_available_products",
-      "search_customers_by_name",
-      "place_order"
+      "search_customers_by_name"
     ],
     "requiredScope": "order.write",
     "confidenceThreshold": 0.92,

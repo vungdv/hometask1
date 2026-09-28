@@ -95,7 +95,7 @@ class ExternalToolManagerTest {
             PolicyToolManager proxy = factory.getProxy();
 
             Tool tool1 = Tool.builder("search_available_products", Map.of()).build();
-            Tool tool2 = Tool.builder("place_order", Map.of()).build();
+            Tool tool2 = Tool.builder("get_product_by_sku", Map.of()).build();
             when(polarisMcpClient.listAvailableTools()).thenReturn(List.of(tool1, tool2));
 
             List<Tool> tools = proxy.discoverAllTools();
@@ -183,7 +183,7 @@ class ExternalToolManagerTest {
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, resolvedIntent
             );
-            List<ToolCall> toolCalls = List.of(new ToolCall("cancel_order", Map.of("order_id", "123")));
+            List<ToolCall> toolCalls = List.of(new ToolCall("get_order_status", Map.of("order_id", "123")));
 
             List<ToolResult> results = mcpHub.handleToolCalls(toolCalls, context);
 
@@ -192,7 +192,7 @@ class ExternalToolManagerTest {
             assertThat(result.isError()).isTrue();
             assertThat(result.status()).isEqualTo(ToolResult.Status.ERROR);
             assertThat(result.result()).contains("not permitted for intent 'catalog.product.search'");
-            assertThat(result.errorDescription()).isEqualTo("Tool 'cancel_order' is not permitted under intent 'catalog.product.search'.");
+            assertThat(result.errorDescription()).isEqualTo("Tool 'get_order_status' is not permitted under intent 'catalog.product.search'.");
             verify(polarisMcpClient, never()).callTool(anyString(), any());
         }
 
@@ -205,9 +205,9 @@ class ExternalToolManagerTest {
 
             PolicyToolManager hubWithPolicy = new PolicyToolManager(polarisMcpClient, mockPolicy);
 
-            Tool tool = Tool.builder("place_order", Map.of()).build();
+            Tool tool = Tool.builder("stage_order_draft", Map.of()).build();
             IntentDefinition intentDef = mock(IntentDefinition.class);
-            when(intentDef.allowedTools()).thenReturn(List.of("place_order"));
+            when(intentDef.allowedTools()).thenReturn(List.of("stage_order_draft"));
             when(intentDef.requiredScope()).thenReturn("order.write");
 
             ResolvedIntent resolvedIntent = mock(ResolvedIntent.class);
@@ -219,7 +219,7 @@ class ExternalToolManagerTest {
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, resolvedIntent
             );
-            List<ToolCall> toolCalls = List.of(new ToolCall("place_order", Map.of("sku", "PROD-1")));
+            List<ToolCall> toolCalls = List.of(new ToolCall("stage_order_draft", Map.of("sku", "PROD-1")));
 
             List<ToolResult> results = hubWithPolicy.handleToolCalls(toolCalls, context);
 
@@ -228,7 +228,7 @@ class ExternalToolManagerTest {
             assertThat(result.isDenied()).isTrue();
             assertThat(result.status()).isEqualTo(ToolResult.Status.DENIED);
             assertThat(result.result()).isEqualTo("Missing scope order.write");
-            assertThat(result.errorDescription()).isEqualTo("Policy authorization denied execution of tool 'place_order' for user 'user-1': Missing scope order.write");
+            assertThat(result.errorDescription()).isEqualTo("Policy authorization denied execution of tool 'stage_order_draft' for user 'user-1': Missing scope order.write");
             verify(polarisMcpClient, never()).callTool(anyString(), any());
         }
 
@@ -244,7 +244,7 @@ class ExternalToolManagerTest {
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, resolvedIntent
             );
-            ToolCall toolCall = new ToolCall("cancel_order", Map.of());
+            ToolCall toolCall = new ToolCall("get_order_status", Map.of());
 
             ToolPolicyCheckResult checkResult = mcpHub.checkPolicy(toolCall, context);
 
@@ -263,9 +263,9 @@ class ExternalToolManagerTest {
 
             PolicyToolManager hubWithPolicy = new PolicyToolManager(polarisMcpClient, mockPolicy);
 
-            Tool tool = Tool.builder("place_order", Map.of()).build();
+            Tool tool = Tool.builder("stage_order_draft", Map.of()).build();
             IntentDefinition intentDef = mock(IntentDefinition.class);
-            when(intentDef.allowedTools()).thenReturn(List.of("place_order"));
+            when(intentDef.allowedTools()).thenReturn(List.of("stage_order_draft"));
             when(intentDef.requiredScope()).thenReturn("order.write");
 
             ResolvedIntent resolvedIntent = mock(ResolvedIntent.class);
@@ -277,7 +277,7 @@ class ExternalToolManagerTest {
             ToolExecutionContext context = new ToolExecutionContext(
                     "sess-1", "user-1", 1, resolvedIntent
             );
-            ToolCall toolCall = new ToolCall("place_order", Map.of("sku", "PROD-1"));
+            ToolCall toolCall = new ToolCall("stage_order_draft", Map.of("sku", "PROD-1"));
 
             ToolPolicyCheckResult checkResult = hubWithPolicy.checkPolicy(toolCall, context);
 
@@ -288,7 +288,7 @@ class ExternalToolManagerTest {
             assertThat(checkResult.rejection().status()).isEqualTo(ToolResult.Status.DENIED);
             assertThat(checkResult.rejection().result()).isEqualTo("Missing scope order.write");
             assertThat(checkResult.rejection().errorDescription())
-                    .isEqualTo("Policy authorization denied execution of tool 'place_order' for user 'user-1': Missing scope order.write");
+                    .isEqualTo("Policy authorization denied execution of tool 'stage_order_draft' for user 'user-1': Missing scope order.write");
         }
 
         @Test
@@ -331,10 +331,10 @@ class ExternalToolManagerTest {
                     .thenReturn(PolicyDecision.allow());
 
             PolicyToolManager hub = new PolicyToolManager(polarisMcpClient, mockPolicy);
-            Tool tool = Tool.builder("place_order", Map.of()).build();
+            Tool tool = Tool.builder("stage_order_draft", Map.of()).build();
 
             IntentDefinition intentDef = mock(IntentDefinition.class);
-            when(intentDef.allowedTools()).thenReturn(List.of("place_order"));
+            when(intentDef.allowedTools()).thenReturn(List.of("stage_order_draft"));
             when(intentDef.requiredScope()).thenReturn("order.write");
 
             ResolvedIntent resolvedIntent = mock(ResolvedIntent.class);
@@ -344,7 +344,7 @@ class ExternalToolManagerTest {
             when(resolvedIntent.intentDefinition()).thenReturn(intentDef);
 
             ToolExecutionContext context = new ToolExecutionContext("sess-43", "user-43", 1, resolvedIntent);
-            ToolCall toolCall = new ToolCall("place_order", Map.of());
+            ToolCall toolCall = new ToolCall("stage_order_draft", Map.of());
 
             ToolPolicyCheckResult checkResult = hub.checkPolicy(toolCall, context);
 
@@ -384,7 +384,7 @@ class ExternalToolManagerTest {
                             new ToolCall("cancel_order", Map.of("order_id", "ORD-1"))),
                     context);
 
-            assertThat(results).allMatch(ToolResult::isError);
+            assertThat(results).noneMatch(ToolResult::isSuccess);
             assertThat(authorizedScopes).isEmpty();
             verify(polarisMcpClient, never()).callTool(anyString(), any());
         }
@@ -424,15 +424,15 @@ class ExternalToolManagerTest {
         }
 
         @Test
-        @DisplayName("Given commerce.order.place meets threshold without order.write, when place_order called, then denied by tool scope")
-        void denies_place_order_without_order_write() {
+        @DisplayName("Given commerce.order.place meets threshold without order.write, when stage_order_draft called, then denied by tool scope")
+        void denies_stage_order_draft_without_order_write() {
             PolicyToolManager hub = hubRecordingScopes(Set.of("order.read"));
             IntentDefinition placeIntent = new IntentDefinition("commerce.order.place", "", List.of(),
-                    List.of("place_order", "search_customers_by_name"), "order.write", 0.92, true);
+                    List.of("stage_order_draft", "search_customers_by_name"), "order.write", 0.92, true);
             ResolvedIntent resolved = new ResolvedIntent("commerce.order.place", 0.97, true, List.of(), placeIntent);
             ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1, resolved);
 
-            ToolPolicyCheckResult result = hub.checkPolicy(new ToolCall("place_order", Map.of()), context);
+            ToolPolicyCheckResult result = hub.checkPolicy(new ToolCall("stage_order_draft", Map.of()), context);
 
             assertThat(result.isRejected()).isTrue();
             assert result.rejection() != null;
@@ -453,8 +453,7 @@ class ExternalToolManagerTest {
             List<ToolResult> results = hub.handleToolCalls(List.of(new ToolCall("place_order", Map.of("sku", "PROD-1"))), context);
 
             assertThat(results).hasSize(1);
-            assertThat(results.getFirst().isError()).isTrue();
-            assertThat(results.getFirst().result()).contains("not permitted for intent 'commerce.order.place'");
+            assertThat(results.getFirst().isSuccess()).isFalse();
             assertThat(authorizedScopes).isEmpty();
             verify(polarisMcpClient, never()).callTool(anyString(), any());
         }
@@ -856,6 +855,72 @@ class ExternalToolManagerTest {
             assertThat(results).hasSize(2).allMatch(ToolResult::isError);
             assertThat(executed).isEmpty();
             assertThat(authorizedScopes).isEmpty();
+        }
+    }
+
+    // =========================================================================
+    // 5. Orchestrator-only deny-list (S7): the model can never place or cancel an order
+    // =========================================================================
+    @Nested
+    @DisplayName("5. Orchestrator-only deny-list")
+    class OrchestratorOnlyTools {
+
+        private final List<String> authorizedScopes = new ArrayList<>();
+
+        private PolicyToolManager allowAllRecording(IntentManager taxonomy) {
+            PolicyEngine allowAll = scope -> {
+                authorizedScopes.add(scope);
+                return PolicyDecision.allow();
+            };
+            return new PolicyToolManager(polarisMcpClient, allowAll, null, taxonomy);
+        }
+
+        @Test
+        @DisplayName("Given Polaris Core exposes place_order and cancel_order, when tools are discovered, then neither is offered to the model")
+        void discovery_never_offers_orchestrator_only_tools() {
+            when(polarisMcpClient.listAvailableTools()).thenReturn(List.of(
+                    Tool.builder("search_available_products", Map.of()).build(),
+                    Tool.builder("place_order", Map.of()).build(),
+                    Tool.builder("cancel_order", Map.of()).build()));
+
+            assertThat(mcpHub.discoverAllTools()).extracting(Tool::name).containsExactly("search_available_products");
+        }
+
+        @Test
+        @DisplayName("Given a taxonomy that (wrongly) allows place_order and cancel_order with every scope granted, when the model calls them, then denied and never executed")
+        void rejects_orchestrator_only_tools_even_if_taxonomy_allows_them() {
+            IntentDefinition permissive = new IntentDefinition("commerce.order.place", "", List.of(),
+                    List.of("place_order", "cancel_order"), "order.write", 0.5, true);
+            PolicyToolManager hub = allowAllRecording(new DefaultIntentManager(List.of(permissive)));
+            ResolvedIntent resolved = new ResolvedIntent("commerce.order.place", 0.99, true,
+                    List.of(Tool.builder("place_order", Map.of()).build(), Tool.builder("cancel_order", Map.of()).build()), permissive);
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1, resolved);
+
+            List<ToolResult> results = hub.handleToolCalls(List.of(
+                    new ToolCall("place_order", Map.of("items", List.of(Map.of("sku", "NG-CHARGER-01", "quantity", 1)))),
+                    new ToolCall("cancel_order", Map.of("order_number", "ORD-000001"))), context);
+
+            assertThat(results).hasSize(2).allMatch(ToolResult::isDenied);
+            assertThat(results.getFirst().result()).contains("not available to the assistant").contains("stage_order_draft");
+            assertThat(results.getFirst().errorDescription()).isEqualTo("Tool 'place_order' is orchestrator-only and never executed for the model.");
+            assertThat(authorizedScopes).isEmpty();
+            verify(polarisMcpClient, never()).callTool(anyString(), any());
+        }
+
+        @Test
+        @DisplayName("Given the shipped taxonomy, when the model calls place_order under commerce.order.place, then denied by the deny-list")
+        void shipped_order_intent_cannot_place_order() {
+            PolicyToolManager hub = allowAllRecording(new DefaultIntentManager());
+            IntentDefinition placeIntent = new DefaultIntentManager().getIntent("commerce.order.place").orElseThrow();
+            ResolvedIntent resolved = new ResolvedIntent("commerce.order.place", 0.99, true, List.of(), placeIntent);
+
+            ToolPolicyCheckResult result = hub.checkPolicy(new ToolCall("place_order", Map.of()),
+                    new ToolExecutionContext("sess-1", "user-1", 1, resolved));
+
+            assertThat(placeIntent.allowedTools()).doesNotContain("place_order");
+            assertThat(result.isRejected()).isTrue();
+            assert result.rejection() != null;
+            assertThat(result.rejection().isDenied()).isTrue();
         }
     }
 }

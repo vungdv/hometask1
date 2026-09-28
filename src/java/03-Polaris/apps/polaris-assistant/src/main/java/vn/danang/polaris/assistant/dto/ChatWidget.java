@@ -23,6 +23,9 @@ public record ChatWidget(
     /** Staged order awaiting the shopper's "Submit Order" click: {draftId, items, total, expiresAt}. */
     public static final String ORDER_DRAFT = "ORDER_DRAFT";
 
+    /** Order placed from a confirmed draft: {orderNumber, draftId, customer, items, total}. */
+    public static final String ORDER_CONFIRMED = "ORDER_CONFIRMED";
+
     public ChatWidget {
         if (type == null || type.isBlank()) {
             throw new IllegalArgumentException("Widget type must not be blank.");
