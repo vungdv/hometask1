@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import vn.danang.polaris.assistant.entity.AssistantMessage;
@@ -90,6 +91,11 @@ public class JpaSessionStore implements SessionStore {
      * so the caller's owner check decides (same user continues, another user gets a 403).
      */
     private AssistantSession openSession(String sessionId, String userId) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            // A caller's transaction would still see its own snapshot after our REQUIRES_NEW insert
+            // races, and would mask the owner check; see SessionStore#loadHistory.
+            throw new IllegalStateException("SessionStore.loadHistory must not be called inside an active transaction.");
+        }
         try {
             AssistantSession opened = newTransaction.execute(status ->
                     sessionRepository.saveAndFlush(AssistantSession.open(sessionId, userId, clock.instant())));

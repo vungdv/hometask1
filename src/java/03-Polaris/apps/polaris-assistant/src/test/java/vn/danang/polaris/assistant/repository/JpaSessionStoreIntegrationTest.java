@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import vn.danang.polaris.assistant.TestcontainersConfiguration;
@@ -53,6 +54,9 @@ class JpaSessionStoreIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private TransactionTemplate tx;
 
     private static String freshSessionId() {
         return "sess-" + UUID.randomUUID();
@@ -213,6 +217,17 @@ class JpaSessionStoreIntegrationTest {
                 pool.shutdownNow();
             }
             assertThat(sessionRepository.findById(sessionId).orElseThrow().getUserId()).isEqualTo("user-alice");
+        }
+
+        @Test
+        @DisplayName("Given an active transaction, when a new session would be opened, then IllegalStateException and no session is created")
+        void refuses_to_open_session_inside_active_transaction() {
+            String sessionId = freshSessionId();
+
+            assertThatThrownBy(() -> tx.executeWithoutResult(s -> sessionStore.loadHistory(sessionId, "user-alice")))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("must not be called inside an active transaction");
+            assertThat(sessionRepository.findById(sessionId)).isEmpty();
         }
 
         @Test

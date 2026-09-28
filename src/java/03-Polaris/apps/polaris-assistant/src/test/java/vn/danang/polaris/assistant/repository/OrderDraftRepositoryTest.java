@@ -269,7 +269,7 @@ class OrderDraftRepositoryTest {
 
             OrderDraft old = draftRepository.findByIdAndSessionId(oldId, sessionId).orElseThrow();
 
-            assertThatThrownBy(() -> old.confirm("ORD-1", "idem-1", NOW)).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> old.requireConfirmable(NOW)).isInstanceOf(IllegalStateException.class);
         }
 
         @Test

@@ -122,18 +122,26 @@ class OrderDraftTest {
         }
 
         @Test
-        @DisplayName("Given an open draft past its TTL, when confirmed, then DraftExpiredException and it stays open so it can be expired")
-        void cannot_confirm_after_ttl() {
+        @DisplayName("Given an open draft past its TTL, when the confirm gate is checked, then DraftExpiredException and it stays open so it can be expired")
+        void gate_rejects_after_ttl() {
             OrderDraft draft = staged();
 
-            assertThatThrownBy(() -> draft.confirm("ORD-1", "idem-1", AFTER_TTL))
+            assertThatThrownBy(() -> draft.requireConfirmable(AFTER_TTL))
                     .isInstanceOf(DraftExpiredException.class)
                     .extracting(e -> ((DraftExpiredException) e).getDraftId()).isEqualTo(draft.getId());
             assertThat(draft.isOpen()).isTrue();
-            assertThat(draft.getConfirmedOrderNumber()).isNull();
 
             draft.expire(AFTER_TTL);
             assertThat(draft.getStatus()).isEqualTo(DraftStatus.EXPIRED);
+        }
+
+        @Test
+        @DisplayName("Given a draft that is no longer open, when the confirm gate is checked, then IllegalStateException")
+        void gate_rejects_non_open_draft() {
+            OrderDraft draft = staged();
+            draft.cancel(NOW);
+
+            assertThatThrownBy(() -> draft.requireConfirmable(NOW)).isInstanceOf(IllegalStateException.class);
         }
 
         @Test
@@ -174,13 +182,25 @@ class OrderDraftTest {
     class EdgeCases {
 
         @Test
-        @DisplayName("Given one millisecond before expiry, when confirmed, then it succeeds")
-        void confirms_just_before_expiry() {
+        @DisplayName("Given one millisecond before expiry, when the confirm gate is checked, then it passes")
+        void gate_passes_just_before_expiry() {
             OrderDraft draft = staged();
 
-            draft.confirm("ORD-1", null, AFTER_TTL.minusMillis(1));
+            draft.requireConfirmable(AFTER_TTL.minusMillis(1));
+
+            assertThat(draft.isOpen()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Given the gate passed in time but the placed order returned after the TTL, when confirmed, then the order is still recorded")
+        void confirm_records_order_placed_across_the_ttl_boundary() {
+            OrderDraft draft = staged();
+            draft.requireConfirmable(AFTER_TTL.minusSeconds(1));
+
+            draft.confirm("ORD-000042", "idem-1", AFTER_TTL.plusSeconds(5));
 
             assertThat(draft.getStatus()).isEqualTo(DraftStatus.CONFIRMED);
+            assertThat(draft.getConfirmedOrderNumber()).isEqualTo("ORD-000042");
         }
 
         @Test

@@ -28,6 +28,10 @@ public interface OrderDraftRepository extends JpaRepository<OrderDraft, String> 
      * cancelled and flushed <em>before</em> the replacement is inserted. The flush matters because
      * Hibernate runs inserts before updates, so without it the new row would hit the UNIQUE
      * {@code open_session_id} while the old one still holds it. Joins the caller's transaction.
+     * <p>
+     * Lock ordering: if the same transaction also appends messages to the session, lock the session
+     * first ({@link AssistantSessionRepository#findByIdForUpdate}) and only then call this, so draft
+     * writers and {@code SessionStore#append} always lock session before drafts.
      *
      * @param replacement a freshly {@linkplain OrderDraft#stage staged} draft
      * @return the persisted replacement

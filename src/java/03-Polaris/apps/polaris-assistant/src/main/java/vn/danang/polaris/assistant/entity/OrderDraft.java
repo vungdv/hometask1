@@ -108,16 +108,26 @@ public class OrderDraft {
     }
 
     /**
-     * WAITING_CONFIRMATION → CONFIRMED, recording the placed order and the confirming request's key.
+     * Confirmation gate, called <em>before</em> the order is placed: the draft must be open and
+     * within its TTL.
      *
+     * @throws IllegalStateException if the draft is no longer open
      * @throws DraftExpiredException if the TTL has elapsed; the draft stays open so the caller can
      *                               {@link #expire} it
      */
-    public void confirm(String orderNumber, String idempotencyKey, Instant now) {
-        requireOpen("move to " + DraftStatus.CONFIRMED);
-        if (isPastExpiry(now)) {
+    public void requireConfirmable(Instant now) {
+        requireOpen("be confirmed");
+        if (isPastExpiry(Objects.requireNonNull(now, "now must not be null"))) {
             throw new DraftExpiredException(id, "Order draft " + id + " expired at " + expiresAt + ".");
         }
+    }
+
+    /**
+     * WAITING_CONFIRMATION → CONFIRMED, recording the order that was placed and the confirming
+     * request's key. Only records the outcome: the TTL was checked by {@link #requireConfirmable}
+     * before placing, and an order that exists must be recorded even if it returned after expiry.
+     */
+    public void confirm(String orderNumber, String idempotencyKey, Instant now) {
         transitionTo(DraftStatus.CONFIRMED, now);
         this.confirmedOrderNumber = requireText(orderNumber, "orderNumber");
         this.idempotencyKey = idempotencyKey;
