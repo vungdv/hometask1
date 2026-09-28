@@ -23,6 +23,9 @@ public record ChatWidget(
     /** Staged order awaiting the shopper's "Submit Order" click: {draftId, items, total, expiresAt}. */
     public static final String ORDER_DRAFT = "ORDER_DRAFT";
 
+    /** Catalog search results, exactly as the search tool returned them: {products: [...]} ({@link ProductListCard}). */
+    public static final String PRODUCT_LIST = "PRODUCT_LIST";
+
     public ChatWidget {
         if (type == null || type.isBlank()) {
             throw new IllegalArgumentException("Widget type must not be blank.");

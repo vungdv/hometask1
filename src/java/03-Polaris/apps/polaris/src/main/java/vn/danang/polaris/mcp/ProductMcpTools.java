@@ -28,6 +28,9 @@ import vn.danang.polaris.web.validator.PageableValidator;
 
 /**
  * Dedicated Presentation Facade exposing catalog and product tools for MCP clients.
+ * <p>
+ * Successful results carry {@code structuredContent} ({@link ProductToolContent}, declared as each tool's
+ * {@code outputSchema}) for product cards, plus the text summary the model reads. Errors are text only.
  */
 @Component
 public class ProductMcpTools {
@@ -88,6 +91,55 @@ public class ProductMcpTools {
         }
         """;
 
+    // Mirrors ProductToolContent.Product: one product as shown on a product card.
+    private static final String PRODUCT_OUTPUT_PROPERTIES = """
+                "sku": { "type": "string" },
+                "name": { "type": "string" },
+                "category": { "type": ["string", "null"] },
+                "price": { "type": "number" },
+                "stockQuantity": { "type": "integer", "description": "Live stock on hand" },
+                "available": { "type": "boolean", "description": "Active and in stock" }
+        """;
+
+    private static final String PRODUCT_OUTPUT_REQUIRED =
+            "[\"sku\", \"name\", \"category\", \"price\", \"stockQuantity\", \"available\"]";
+
+    // Mirrors ProductToolContent.SearchResult: the published structuredContent contract consumed by the AI Assistant.
+    private static final String SEARCH_PRODUCTS_OUTPUT_SCHEMA = """
+        {
+          "type": "object",
+          "properties": {
+            "products": {
+              "type": "array",
+              "description": "Products on the requested page, in result order; empty when nothing matched",
+              "items": {
+                "type": "object",
+                "properties": {
+        %s
+                },
+                "required": %s
+              }
+            },
+            "totalElements": {
+              "type": "integer",
+              "description": "Total number of matching products across all pages"
+            }
+          },
+          "required": ["products", "totalElements"]
+        }
+        """.formatted(PRODUCT_OUTPUT_PROPERTIES, PRODUCT_OUTPUT_REQUIRED);
+
+    // Mirrors ProductToolContent.Product.
+    private static final String GET_PRODUCT_BY_SKU_OUTPUT_SCHEMA = """
+        {
+          "type": "object",
+          "properties": {
+        %s
+          },
+          "required": %s
+        }
+        """.formatted(PRODUCT_OUTPUT_PROPERTIES, PRODUCT_OUTPUT_REQUIRED);
+
     private final ProductService productService;
     @Nullable
     private final Tracer tracer;
@@ -106,6 +158,7 @@ public class ProductMcpTools {
 
     public McpSchema.Tool getSearchProductsTool(McpJsonMapper jsonMapper) {
         return McpSchema.Tool.builder(TOOL_SEARCH_AVAILABLE_PRODUCTS, jsonMapper, SEARCH_PRODUCTS_SCHEMA)
+                .outputSchema(jsonMapper, SEARCH_PRODUCTS_OUTPUT_SCHEMA)
                 .description("Search catalog for available products matching query, category, and price filters with pagination")
                 .build();
     }
@@ -116,6 +169,7 @@ public class ProductMcpTools {
 
     public McpSchema.Tool getProductBySkuTool(McpJsonMapper jsonMapper) {
         return McpSchema.Tool.builder(TOOL_GET_PRODUCT_BY_SKU, jsonMapper, GET_PRODUCT_BY_SKU_SCHEMA)
+                .outputSchema(jsonMapper, GET_PRODUCT_BY_SKU_OUTPUT_SCHEMA)
                 .description("Retrieve detailed product specifications and live inventory by SKU code")
                 .build();
     }
@@ -177,7 +231,11 @@ public class ProductMcpTools {
                 );
 
                 String formatted = formatSearchResults(result);
-                return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent(formatted)
+                        .structuredContent(toSearchResult(result))
+                        .isError(false)
+                        .build();
             } catch (Exception ex) {
                 return McpSchema.CallToolResult.builder()
                         .addTextContent("Error searching products: " + ex.getMessage())
@@ -204,7 +262,11 @@ public class ProductMcpTools {
             try {
                 ProductResponse product = productService.getProductBySku(sku.trim());
                 String formatted = formatProductDetails(product);
-                return McpSchema.CallToolResult.builder().addTextContent(formatted).isError(false).build();
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent(formatted)
+                        .structuredContent(ProductToolContent.Product.from(product))
+                        .isError(false)
+                        .build();
             } catch (ResourceNotFoundException ex) {
                 return McpSchema.CallToolResult.builder()
                         .addTextContent("Product not found with SKU: " + sku.trim())
@@ -217,6 +279,15 @@ public class ProductMcpTools {
                         .build();
             }
         });
+    }
+
+    private ProductToolContent.SearchResult toSearchResult(Page<ProductResponse> result) {
+        if (result == null) {
+            return new ProductToolContent.SearchResult(List.of(), 0);
+        }
+        return new ProductToolContent.SearchResult(
+                result.getContent().stream().map(ProductToolContent.Product::from).toList(),
+                result.getTotalElements());
     }
 
     private String formatSearchResults(Page<ProductResponse> result) {

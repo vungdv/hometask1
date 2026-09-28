@@ -379,7 +379,8 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
             }
 
             String content = extractText(mcpResult);
-            return ToolResult.success(toolCall, content);
+            // structuredContent never reaches the model; it only becomes a card (e.g. PRODUCT_LIST)
+            return RemoteToolWidgets.attach(ToolResult.success(toolCall, content), mcpResult);
         } catch (Exception ex) {
             log.error("Tool execution error for '{}': {}", toolCall.name(), ex.getMessage(), ex);
             return ToolResult.error(toolCall, "Tool execution error: " + ex.getMessage(), ex.getMessage());
