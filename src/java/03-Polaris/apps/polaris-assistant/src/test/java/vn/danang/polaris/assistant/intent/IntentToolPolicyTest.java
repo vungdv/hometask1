@@ -1,6 +1,8 @@
 package vn.danang.polaris.assistant.intent;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +23,21 @@ class IntentToolPolicyTest {
                 .contains("search_available_products", "get_product_by_sku", "get_order_status",
                         "search_customers_by_name")
                 .doesNotContain("place_order", "cancel_order");
+    }
+
+    @Test
+    @DisplayName("Given shipped taxonomy, read-only tools never include a tool declared only by mutating intents")
+    void read_only_tools_never_include_mutating_only_tools() {
+        Set<String> declaredByReadOnly = new HashSet<>();
+        shipped.stream().filter(def -> !def.mutating()).forEach(def -> declaredByReadOnly.addAll(def.allowedTools()));
+        List<String> mutatingOnly = shipped.stream()
+                .filter(IntentDefinition::mutating)
+                .flatMap(def -> def.allowedTools().stream())
+                .filter(tool -> !declaredByReadOnly.contains(tool))
+                .toList();
+
+        assertThat(mutatingOnly).contains("place_order", "cancel_order");
+        assertThat(IntentToolPolicy.readOnlyTools(shipped)).doesNotContainAnyElementsOf(mutatingOnly);
     }
 
     @Test

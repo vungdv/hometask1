@@ -441,6 +441,63 @@ class ExternalToolManagerTest {
         }
 
         @Test
+        @DisplayName("Given a real commerce.order.place definition below threshold, when place_order handled, then rejected and never executed")
+        void rejects_place_order_when_order_intent_below_threshold() {
+            PolicyToolManager hub = hubRecordingScopes(Set.of("order.write", "order.read", "catalog.read"));
+            IntentDefinition placeIntent = new DefaultIntentManager().getIntent("commerce.order.place").orElseThrow();
+            Tool placeOrder = Tool.builder("place_order", Map.of()).build();
+            // even if a caller wrongly put place_order into the accepted tools, execution must still reject it
+            ResolvedIntent resolved = new ResolvedIntent("commerce.order.place", 0.6, false, List.of(placeOrder), placeIntent);
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1, resolved);
+
+            List<ToolResult> results = hub.handleToolCalls(List.of(new ToolCall("place_order", Map.of("sku", "PROD-1"))), context);
+
+            assertThat(results).hasSize(1);
+            assertThat(results.getFirst().isError()).isTrue();
+            assertThat(results.getFirst().result()).contains("not permitted for intent 'commerce.order.place'");
+            assertThat(authorizedScopes).isEmpty();
+            verify(polarisMcpClient, never()).callTool(anyString(), any());
+        }
+
+        @Test
+        @DisplayName("Given an empty taxonomy, when any tool is called, then everything is denied and nothing executes")
+        void empty_taxonomy_denies_everything() {
+            PolicyEngine allowAll = scope -> PolicyDecision.allow();
+            PolicyToolManager hub = new PolicyToolManager(polarisMcpClient, allowAll, null, new DefaultIntentManager(List.of()));
+            Tool search = Tool.builder("search_available_products", Map.of()).build();
+            ResolvedIntent low = new ResolvedIntent("", 0.2, false, List.of(search), IntentDefinition.empty());
+            ResolvedIntent high = new ResolvedIntent("custom", 0.99, true, List.of(search),
+                    new IntentDefinition("custom", "", List.of(), List.of("search_available_products"), null, 0.5, false));
+
+            List<ToolResult> results = new ArrayList<>();
+            for (ResolvedIntent resolved : List.of(low, high)) {
+                ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1, resolved);
+                results.addAll(hub.handleToolCalls(List.of(
+                        new ToolCall("search_available_products", Map.of()),
+                        new ToolCall("place_order", Map.of())), context));
+            }
+
+            assertThat(results).hasSize(4).noneMatch(ToolResult::isSuccess);
+            verify(polarisMcpClient, never()).callTool(anyString(), any());
+        }
+
+        @Test
+        @DisplayName("Given the default policy engine and an anonymous caller, when a read tool is called under low confidence, then denied")
+        void default_policy_engine_denies_anonymous_caller_under_low_confidence() {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            PolicyToolManager hub = new PolicyToolManager(polarisMcpClient);
+            ResolvedIntent lowConfidence = new ResolvedIntent("", 0.2, false, List.of(), IntentDefinition.empty());
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "anonymous", 1, lowConfidence);
+
+            ToolPolicyCheckResult result = hub.checkPolicy(new ToolCall("search_available_products", Map.of()), context);
+
+            assertThat(result.isRejected()).isTrue();
+            assert result.rejection() != null;
+            assertThat(result.rejection().isDenied()).isTrue();
+            assertThat(result.rejection().result()).startsWith("Authentication required");
+        }
+
+        @Test
         @DisplayName("Given read tool reused by a mutating intent, when called under that intent, then both tool and intent scopes are required")
         void requires_tool_and_intent_scope_for_read_tool_under_mutating_intent() {
             PolicyToolManager hub = hubRecordingScopes(Set.of("order.read", "order.write"));
