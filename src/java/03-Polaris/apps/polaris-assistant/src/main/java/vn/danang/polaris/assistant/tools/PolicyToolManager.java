@@ -1,5 +1,8 @@
 package vn.danang.polaris.assistant.tools;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +45,10 @@ import vn.danang.polaris.assistant.observability.trace.SpanTag;
  * with policy validation and concurrent execution for remote tool calls.
  * Authorization is per tool: each tool's required scope is derived from the intent taxonomy
  * ({@link IntentToolPolicy}), so a low-confidence or empty intent can't skip the scope check.
+ * <p>
+ * {@link LocalTool}s (implemented inside the assistant, e.g. {@code stage_order_draft}) are listed next to
+ * the remote tools and pass the very same {@link #checkPolicy} gate; only the dispatch differs, and a local
+ * tool takes precedence over a remote tool of the same name.
  */
 @Component
 public class PolicyToolManager implements ToolManager, DisposableBean {
@@ -53,14 +60,17 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
     private final IntentManager intentManager;
     private final Executor executor;
     private final boolean managedExecutor;
+    private final Map<String, LocalTool> localTools;
 
     @Autowired
     public PolicyToolManager(
             PolarisMcpClient polarisMcpClient,
             ObjectProvider<PolicyEngine> policyEngineProvider,
             ObjectProvider<Executor> executorProvider,
-            ObjectProvider<IntentManager> intentManagerProvider) {
+            ObjectProvider<IntentManager> intentManagerProvider,
+            ObjectProvider<LocalTool> localToolsProvider) {
         this.polarisMcpClient = polarisMcpClient;
+        this.localTools = indexByName(localToolsProvider != null ? localToolsProvider.orderedStream().toList() : List.of());
         this.policyEngine = policyEngineProvider != null && policyEngineProvider.getIfAvailable() != null
                 ? policyEngineProvider.getIfAvailable()
                 : new DefaultPolicyEngine();
@@ -74,6 +84,14 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
             this.executor = Executors.newVirtualThreadPerTaskExecutor();
             this.managedExecutor = true;
         }
+    }
+
+    public PolicyToolManager(
+            PolarisMcpClient polarisMcpClient,
+            ObjectProvider<PolicyEngine> policyEngineProvider,
+            ObjectProvider<Executor> executorProvider,
+            ObjectProvider<IntentManager> intentManagerProvider) {
+        this(polarisMcpClient, policyEngineProvider, executorProvider, intentManagerProvider, null);
     }
 
     public PolicyToolManager(PolarisMcpClient polarisMcpClient) {
@@ -98,7 +116,17 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
             @Nullable PolicyEngine policyEngine,
             @Nullable Executor executor,
             @Nullable IntentManager intentManager) {
+        this(polarisMcpClient, policyEngine, executor, intentManager, List.of());
+    }
+
+    public PolicyToolManager(
+            PolarisMcpClient polarisMcpClient,
+            @Nullable PolicyEngine policyEngine,
+            @Nullable Executor executor,
+            @Nullable IntentManager intentManager,
+            @Nullable List<LocalTool> localTools) {
         this.polarisMcpClient = polarisMcpClient;
+        this.localTools = indexByName(localTools != null ? localTools : List.of());
         this.policyEngine = policyEngine != null
                 ? policyEngine
                 : new DefaultPolicyEngine();
@@ -114,6 +142,16 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
         }
     }
 
+    private static Map<String, LocalTool> indexByName(List<LocalTool> tools) {
+        Map<String, LocalTool> byName = new LinkedHashMap<>();
+        for (LocalTool tool : tools) {
+            if (byName.putIfAbsent(tool.name(), tool) != null) {
+                throw new IllegalStateException("Duplicate local tool name: " + tool.name());
+            }
+        }
+        return Collections.unmodifiableMap(byName);
+    }
+
     @Override
     public void destroy() {
         if (this.managedExecutor && this.executor instanceof ExecutorService es && !es.isShutdown()) {
@@ -122,7 +160,8 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
     }
 
     /**
-     * Discovers all tools available from Polaris Core.
+     * Discovers all tools available from Polaris Core, plus the assistant's own {@link LocalTool}s
+     * (which replace a remote tool of the same name).
      */
     @Override
     @CustomNextSpan(
@@ -132,7 +171,16 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
             }
     )
     public List<Tool> discoverAllTools() {
-        return polarisMcpClient.listAvailableTools();
+        List<Tool> remote = polarisMcpClient.listAvailableTools();
+        if (localTools.isEmpty()) {
+            return remote;
+        }
+        List<Tool> tools = new ArrayList<>();
+        if (remote != null) {
+            remote.stream().filter(t -> !localTools.containsKey(t.name())).forEach(tools::add);
+        }
+        localTools.values().forEach(local -> tools.add(local.definition()));
+        return tools;
     }
 
     @Override
@@ -171,7 +219,7 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
                         // step-2: if it's ok pass to execute it concurrently; otherwise mark done
                         .map(checkResult ->
                                 checkResult.isOk()?
-                                executeConcurrently(checkResult.toolCall(), delegatingExecutor)
+                                executeConcurrently(checkResult.toolCall(), context, delegatingExecutor)
                                 : CompletableFuture.completedFuture(checkResult.rejection()))
                         .toList();
 
@@ -280,8 +328,26 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
 
     private CompletableFuture<ToolResult> executeConcurrently(
             ToolCall toolCall,
+            @Nullable ToolExecutionContext context,
             Executor executor) {
+        LocalTool localTool = localTools.get(toolCall.name());
+        if (localTool != null) {
+            return CompletableFuture.supplyAsync(() -> executeLocalToolCall(localTool, toolCall, context), executor);
+        }
         return CompletableFuture.supplyAsync(() -> executeRemoteToolCall(toolCall), executor);
+    }
+
+    private ToolResult executeLocalToolCall(LocalTool localTool, ToolCall toolCall, @Nullable ToolExecutionContext context) {
+        log.info("Dispatching execution for local tool: {}", toolCall.name());
+        try {
+            ToolResult result = localTool.execute(toolCall, context);
+            return result != null
+                    ? result
+                    : ToolResult.error(toolCall, "Null result returned from tool: " + toolCall.name(), "Tool execution failure");
+        } catch (Exception ex) {
+            log.error("Local tool execution error for '{}': {}", toolCall.name(), ex.getMessage(), ex);
+            return ToolResult.error(toolCall, "Tool execution error: " + ex.getMessage(), ex.getMessage());
+        }
     }
 
     private ToolResult executeRemoteToolCall(ToolCall toolCall) {

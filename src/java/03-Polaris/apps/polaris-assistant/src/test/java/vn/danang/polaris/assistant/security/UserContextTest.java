@@ -157,4 +157,53 @@ class UserContextTest {
             assertThat(defaultContext.getCurrentUserId()).isEmpty();
         }
     }
+
+    // =========================================================================
+    // 4. Caller-only token and staff detection (draft tools)
+    // =========================================================================
+    @Nested
+    @DisplayName("4. Caller token and staff")
+    class CallerTokenAndStaff {
+
+        private void authenticate(org.springframework.security.core.Authentication auth) {
+            SecurityContext context = SecurityContextHolder.createEmptyContext();
+            context.setAuthentication(auth);
+            SecurityContextHolder.setContext(context);
+        }
+
+        @Test
+        @DisplayName("Given a JWT caller, when resolving the caller token, then returns it")
+        void caller_token_from_jwt() {
+            Jwt jwt = Jwt.withTokenValue("ey-user").header("alg", "none").claim("sub", "alice").build();
+            authenticate(new JwtAuthenticationToken(jwt, java.util.List.of()));
+
+            assertThat(userContext.resolveCallerBearerToken()).contains("ey-user");
+        }
+
+        @Test
+        @DisplayName("Given an anonymous caller and a configured service token, when resolving the caller token, then empty (never the service token)")
+        void caller_token_never_falls_back_to_service_token() {
+            properties.getCore().setAuthToken("service-token");
+            authenticate(new org.springframework.security.authentication.AnonymousAuthenticationToken(
+                    "key", "anonymousUser",
+                    org.springframework.security.core.authority.AuthorityUtils.createAuthorityList("ROLE_ANONYMOUS")));
+
+            assertThat(userContext.resolveCallerBearerToken()).isEmpty();
+            assertThat(userContext.resolveBearerToken()).isEqualTo("service-token");
+            assertThat(userContext.isStaff()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Given staff roles, when checking isStaff, then true; for a plain shopper false")
+        void staff_detection() {
+            Jwt jwt = Jwt.withTokenValue("t").header("alg", "none").claim("sub", "bob").build();
+            authenticate(new JwtAuthenticationToken(jwt, org.springframework.security.core.authority.AuthorityUtils
+                    .createAuthorityList("ROLE_PURCHASE_MANAGEMENT")));
+            assertThat(userContext.isStaff()).isTrue();
+
+            authenticate(new JwtAuthenticationToken(jwt, org.springframework.security.core.authority.AuthorityUtils
+                    .createAuthorityList("ROLE_SHOPPER", "PERM_order.write")));
+            assertThat(userContext.isStaff()).isFalse();
+        }
+    }
 }

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 import vn.danang.polaris.assistant.ai.ToolCall;
+import vn.danang.polaris.assistant.dto.ChatWidget;
 
 /**
  * Represents the execution outcome of an individual {@link ToolCall}.
@@ -15,6 +16,7 @@ import vn.danang.polaris.assistant.ai.ToolCall;
  * @param result the text result or explanation from the tool execution
  * @param status the outcome status of the execution (SUCCESS, DENIED, ERROR)
  * @param errorDescription a semantic note explaining the failure context when the tool execution is not successful, or null if successful
+ * @param widget structured card for the chat client produced by a successful call, or null
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -24,7 +26,8 @@ public record ToolResult(
         @JsonProperty("status") Status status,
         @JsonProperty("error-description")
         @JsonAlias({"error_description", "errorDescription"})
-        String errorDescription
+        String errorDescription,
+        @JsonProperty("widget") ChatWidget widget
 ) {
 
     public enum Status {
@@ -34,9 +37,14 @@ public record ToolResult(
     }
 
     public ToolResult(ToolCall toolCall, String result, Status status) {
-        this(toolCall, result, status, null);
+        this(toolCall, result, status, null, null);
     }
 
+    public ToolResult(ToolCall toolCall, String result, Status status, String errorDescription) {
+        this(toolCall, result, status, errorDescription, null);
+    }
+
+    // A widget is carried only by successful results.
     public ToolResult {
         Objects.requireNonNull(toolCall, "toolCall must not be null");
         Objects.requireNonNull(status, "status must not be null");
@@ -47,9 +55,18 @@ public record ToolResult(
             if (errorDescription == null || errorDescription.isBlank()) {
                 errorDescription = defaultSemanticNote(status, toolCall, result);
             }
+            widget = null;
         } else {
             errorDescription = null;
         }
+    }
+
+    /**
+     * Attaches a card for the chat client (e.g. {@code ORDER_DRAFT}). The text {@link #result} stays what
+     * the model sees; the widget only reaches the response.
+     */
+    public ToolResult withWidget(ChatWidget widget) {
+        return new ToolResult(toolCall, result, status, errorDescription, widget);
     }
 
     private static String defaultSemanticNote(Status status, ToolCall toolCall, String result) {

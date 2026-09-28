@@ -365,4 +365,38 @@ class HttpPolarisMcpClientTest {
             verify(provider).getIfAvailable();
         }
     }
+
+    @Nested
+    @DisplayName("Structured content money precision")
+    class StructuredContentPrecision {
+
+        @Test
+        @DisplayName("Given structuredContent with decimal prices, when a tool is called, then numbers arrive as exact BigDecimal")
+        @SuppressWarnings("unchecked")
+        void decimals_in_structured_content_are_big_decimal() throws Exception {
+            String jsonResponse = """
+                {
+                  "jsonrpc": "2.0",
+                  "id": "q-1",
+                  "result": {
+                    "content": [{"type": "text", "text": "Quote"}],
+                    "structuredContent": {"orderable": true, "totalAmount": 0.30,
+                      "lines": [{"sku": "A", "unitPrice": 0.10, "requestedQuantity": 3, "lineTotal": 0.30}]},
+                    "isError": false
+                  }
+                }
+                """;
+            when(mockHttpResponse.statusCode()).thenReturn(200);
+            when(mockHttpResponse.body()).thenReturn(jsonResponse);
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+            CallToolResult result = client.callTool("quote_order", Map.of());
+
+            Map<String, Object> structured = (Map<String, Object>) result.structuredContent();
+            assertThat(structured.get("totalAmount")).isEqualTo(new java.math.BigDecimal("0.30"));
+            Map<String, Object> line = ((List<Map<String, Object>>) structured.get("lines")).get(0);
+            assertThat(line.get("unitPrice")).isEqualTo(new java.math.BigDecimal("0.10"));
+            assertThat(line.get("requestedQuantity")).isEqualTo(3);
+        }
+    }
 }

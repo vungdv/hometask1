@@ -2,6 +2,7 @@ package vn.danang.polaris.assistant.service;
 
 import java.util.List;
 import jakarta.annotation.Nullable;
+import vn.danang.polaris.assistant.dto.ChatWidget;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 
 /**
@@ -10,13 +11,20 @@ import vn.danang.polaris.assistant.entity.AssistantMessage;
  * @param turns the generated conversation turns (model turns followed by tool turns)
  * @param policyDenied whether any tool call was denied by policy authorization
  * @param denialMessage user-facing denial explanation if policy denied, or null
+ * @param widgets cards produced by the batch's successful tool calls, in call order
  */
 public record ToolExecutionOutcome(
         List<AssistantMessage> turns,
         boolean policyDenied,
-        @Nullable String denialMessage
+        @Nullable String denialMessage,
+        List<ChatWidget> widgets
 ) {
     public ToolExecutionOutcome {
         turns = turns != null ? List.copyOf(turns) : List.of();
+        widgets = widgets != null ? List.copyOf(widgets) : List.of();
+    }
+
+    public ToolExecutionOutcome(List<AssistantMessage> turns, boolean policyDenied, @Nullable String denialMessage) {
+        this(turns, policyDenied, denialMessage, List.of());
     }
 }
