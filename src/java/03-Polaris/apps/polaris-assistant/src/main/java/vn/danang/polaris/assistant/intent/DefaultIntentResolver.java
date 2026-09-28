@@ -2,7 +2,6 @@ package vn.danang.polaris.assistant.intent;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
@@ -17,8 +16,8 @@ import vn.danang.polaris.assistant.entity.AssistantMessage;
  * {@link ResolvedIntent} scoped to the matched {@link IntentDefinition}. The intent taxonomy
  * itself is provided by an {@link IntentManager}, which abstracts over where intents actually
  * live (local classpath resource by default, a remote store in other implementations).
- * Below the intent's confidence threshold only read-only tools are offered (see
- * {@link IntentToolPolicy#readOnlyTools}).
+ * Below the intent's confidence threshold the turn falls back to {@value #DEFAULT_INTENT} and is offered
+ * only that intent's tools, so an ambiguous message can't reach a write tool.
  */
 @Component
 @Primary
@@ -63,12 +62,14 @@ public class DefaultIntentResolver implements IntentResolver {
         IntentDefinition definition = intentManager.getIntent(intentId).orElse(IntentDefinition.empty());
 
         double confidence = classification.confidence();
-        double threshold = definition.confidenceThreshold();
-        boolean meetsThreshold = confidence >= threshold;
+        boolean meetsThreshold = confidence >= definition.confidenceThreshold();
+        if (!meetsThreshold) {
+            // Low confidence: fall back to general conversation and offer its tools only
+            intentId = DEFAULT_INTENT;
+            definition = intentManager.getIntent(DEFAULT_INTENT).orElse(IntentDefinition.empty());
+        }
 
-        List<Tool> acceptedTools = meetsThreshold ? filterTools(definition, tools) : readOnlyTools(intents, tools);
-
-        return new ResolvedIntent(intentId, confidence, meetsThreshold, acceptedTools, definition);
+        return new ResolvedIntent(intentId, confidence, meetsThreshold, filterTools(definition, tools), definition);
     }
 
     /**
@@ -79,21 +80,10 @@ public class DefaultIntentResolver implements IntentResolver {
         return intentClassifier.classify(messageText, history, intentManager.listIntents());
     }
 
-    /**
-     * Low-confidence fallback: only tools declared by non-mutating intents, never the full list,
-     * so an ambiguous message can't reach a write tool such as {@code place_order}.
-     */
-    private List<Tool> readOnlyTools(List<IntentDefinition> intents, List<Tool> availableTools) {
+    private List<Tool> filterTools(IntentDefinition definition, List<Tool> availableTools) {
         if (availableTools == null) {
             return List.of();
         }
-        Set<String> readOnly = IntentToolPolicy.readOnlyTools(intents);
-        return availableTools.stream()
-                .filter(t -> readOnly.contains(t.name()))
-                .toList();
-    }
-
-    private List<Tool> filterTools(IntentDefinition definition, List<Tool> availableTools) {
         if (definition == null) {
             return availableTools;
         }

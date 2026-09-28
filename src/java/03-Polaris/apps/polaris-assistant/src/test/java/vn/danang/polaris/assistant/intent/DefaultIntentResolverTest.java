@@ -98,8 +98,8 @@ class DefaultIntentResolverTest {
         }
 
         @Test
-        @DisplayName("Given a low-confidence classification below threshold, when resolve called with tools, then falls back to read-only tools only")
-        void resolves_with_read_only_tools_when_confidence_below_threshold() {
+        @DisplayName("Given a low-confidence classification below threshold, when resolve called with tools, then falls back to general.conversation with no tool")
+        void falls_back_to_general_conversation_when_confidence_below_threshold() {
             classifier.nextResult = new IntentClassification("general.conversation", 0.1);
             List<Tool> allTools = tools("search_available_products", "get_product_by_sku", "get_order_status",
                     "search_customers_by_name", "place_order", "cancel_order", "unknown_tool");
@@ -108,42 +108,41 @@ class DefaultIntentResolverTest {
 
             assertThat(resolved.intentId()).isEqualTo("general.conversation");
             assertThat(resolved.meetsThreshold()).isFalse();
-            assertThat(resolved.acceptedTools()).extracting(Tool::name).containsExactly(
-                    "search_available_products", "get_product_by_sku", "get_order_status", "search_customers_by_name");
+            assertThat(resolved.acceptedTools()).isEmpty();
         }
 
         @Test
-        @DisplayName("Given commerce.order.place below its threshold (e.g. a vague 'yes do it'), when resolved, then place_order and cancel_order are excluded")
-        void excludes_mutating_tools_when_order_intent_is_below_threshold() {
+        @DisplayName("Given commerce.order.place below its threshold (e.g. a vague 'yes do it'), when resolved, then falls back to general.conversation with no tool")
+        void falls_back_to_general_conversation_when_order_intent_is_below_threshold() {
             classifier.nextResult = new IntentClassification("commerce.order.place", 0.6);
-            List<Tool> allTools = tools("search_available_products", "place_order", "cancel_order");
+            List<Tool> allTools = tools("search_available_products", "stage_order_draft", "cancel_order");
 
             ResolvedIntent resolved = resolver.resolve("yes do it", List.of(), allTools);
 
             assertThat(resolved.meetsThreshold()).isFalse();
-            assertThat(resolved.acceptedTools()).extracting(Tool::name)
-                    .doesNotContain("place_order", "cancel_order")
-                    .containsExactly("search_available_products");
+            assertThat(resolved.confidence()).isEqualTo(0.6);
+            assertThat(resolved.intentId()).isEqualTo("general.conversation");
+            assertThat(resolved.intentDefinition().id()).isEqualTo("general.conversation");
+            assertThat(resolved.acceptedTools()).isEmpty();
         }
 
         @Test
-        @DisplayName("Given an unknown intent id, when resolved, then the empty intent exposes no mutating tool")
-        void excludes_mutating_tools_for_unknown_intent() {
+        @DisplayName("Given an unknown intent id, when resolved, then the empty intent exposes no tool")
+        void offers_no_tools_for_unknown_intent() {
             classifier.nextResult = new IntentClassification("does.not.exist", 0.99);
             List<Tool> allTools = tools("search_available_products", "place_order", "cancel_order");
 
             ResolvedIntent resolved = resolver.resolve("do the thing", List.of(), allTools);
 
-            assertThat(resolved.acceptedTools()).extracting(Tool::name)
-                    .doesNotContain("place_order", "cancel_order");
+            assertThat(resolved.acceptedTools()).isEmpty();
         }
 
         @Test
         @DisplayName("Given a custom taxonomy and classifier choice, when resolved, then returns exactly what the classifier chose")
         void returns_exactly_what_classifier_chose_for_custom_taxonomy() {
             List<IntentDefinition> customIntents = List.of(
-                    new IntentDefinition("first.intent", "First", List.of("same utterance"), List.of(), null, 0.80, false),
-                    new IntentDefinition("second.intent", "Second", List.of("same utterance"), List.of(), null, 0.80, false)
+                    new IntentDefinition("first.intent", "First", List.of("same utterance"), List.of(), 0.80),
+                    new IntentDefinition("second.intent", "Second", List.of("same utterance"), List.of(), 0.80)
             );
             classifier.nextResult = new IntentClassification("first.intent", 1.0);
             DefaultIntentResolver customResolver = new DefaultIntentResolver(classifier, customIntents);

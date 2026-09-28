@@ -40,10 +40,10 @@ import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.DefaultIntentManager;
 import vn.danang.polaris.assistant.intent.IntentDefinition;
+import vn.danang.polaris.assistant.intent.IntentToolExecutor;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
-import vn.danang.polaris.assistant.policy.PolicyDecision;
+import vn.danang.polaris.assistant.tools.DefaultToolManager;
 import vn.danang.polaris.assistant.tools.PolarisMcpClient;
-import vn.danang.polaris.assistant.tools.PolicyToolManager;
 import vn.danang.polaris.assistant.tools.ToolExecutionContext;
 import vn.danang.polaris.assistant.tools.ToolResult;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
@@ -127,7 +127,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.success(toolCall, "Found: Fast Charger 65W ($24.90)")));
 
             ChatMessageRequest request = ChatMessageRequest.of("Find fast chargers");
@@ -135,7 +135,7 @@ class AssistantChatServiceTest {
 
             assertThat(response).isNotNull();
             assertThat(response.reply()).isEqualTo("I found the Fast Charger 65W for $24.90.");
-            verify(intentResolutionFacade, times(1)).executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class));
+            verify(intentResolutionFacade, times(1)).executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any());
             verify(modelClient, times(2)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
         }
 
@@ -173,7 +173,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenReturn(new ModelResponse("", List.of(toolCall)))
                     .thenReturn(new ModelResponse("Fast Charger 65W is $24.90.", List.of()));
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.success(toolCall, "Found: Fast Charger 65W ($24.90)")));
 
             chatService.sendMessage(ChatMessageRequest.of("session-store-1", "Find fast chargers"), "user-123");
@@ -200,7 +200,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall1, toolCall2)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall1, toolCall2)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(
                             ToolResult.success(toolCall1, "Charger"),
                             ToolResult.success(toolCall2, "10% off")
@@ -253,7 +253,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenReturn(turn1Response);
 
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.denied(toolCall, "Missing scope 'order.write'.")));
 
             ChatMessageRequest request = ChatMessageRequest.of("buy wireless earbuds");
@@ -262,7 +262,7 @@ class AssistantChatServiceTest {
             assertThat(response).isNotNull();
             assertThat(response.reply()).isEqualTo("Action denied: Missing scope 'order.write'.");
             verify(modelClient, times(1)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
-            verify(intentResolutionFacade, times(1)).executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class));
+            verify(intentResolutionFacade, times(1)).executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any());
         }
 
         @Test
@@ -289,7 +289,7 @@ class AssistantChatServiceTest {
                     .isInstanceOf(RuntimeException.class);
 
             assertThat(sessionStore.persisted("session-fail")).isEmpty();
-            verify(intentResolutionFacade, never()).executeToolCalls(anyList(), any(ToolExecutionContext.class));
+            verify(intentResolutionFacade, never()).executeToolCalls(anyList(), any(ToolExecutionContext.class), any());
         }
 
         @Test
@@ -348,7 +348,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenReturn(new ModelResponse("", List.of(loopCall)));
 
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.success(loopCall, "ok")));
 
             ChatMessageRequest request = ChatMessageRequest.of("Run loop");
@@ -357,7 +357,7 @@ class AssistantChatServiceTest {
             assertThat(response).isNotNull();
             assertThat(response.reply()).isEqualTo("I have completed processing your request.");
             verify(modelClient, times(5)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
-            verify(intentResolutionFacade, times(5)).executeToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class));
+            verify(intentResolutionFacade, times(5)).executeToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class), any());
         }
 
         @Test
@@ -395,7 +395,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.success(toolCall, "Product found: Charger")));
 
             ChatMessageRequest request = ChatMessageRequest.of("Search for charger");
@@ -474,7 +474,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenReturn(new ModelResponse("", List.of(stage)))
                     .thenReturn(new ModelResponse("Please review the draft.", List.of()));
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.success(stage, "staged").withWidget(card)));
 
             ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w", "order 2"), "user-1");
@@ -495,9 +495,9 @@ class AssistantChatServiceTest {
                     .thenReturn(new ModelResponse("", List.of(first)))
                     .thenReturn(new ModelResponse("", List.of(second)))
                     .thenReturn(new ModelResponse("Updated.", List.of()));
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(first)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(first)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.success(first, "a").withWidget(new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1")))));
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(second)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(second)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.success(second, "b").withWidget(new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-2")))));
 
             ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w2", "make it 3"), "user-1");
@@ -514,7 +514,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenReturn(new ModelResponse("", List.of(stage, discard)))
                     .thenReturn(new ModelResponse("Draft discarded.", List.of()));
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage, discard)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage, discard)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(
                             ToolResult.success(stage, "a").withWidget(new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1"))),
                             ToolResult.success(discard, "b").retractingWidget(ChatWidget.ORDER_DRAFT)));
@@ -534,7 +534,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenReturn(new ModelResponse("", List.of(stage, discard)))
                     .thenReturn(new ModelResponse("Could not discard.", List.of()));
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage, discard)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage, discard)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(
                             ToolResult.success(stage, "a").withWidget(card),
                             ToolResult.error(discard, "conflict")));
@@ -588,11 +588,11 @@ class AssistantChatServiceTest {
             polarisMcpClient = mock(PolarisMcpClient.class);
             DefaultIntentManager taxonomy = new DefaultIntentManager();
             IntentDefinition search = taxonomy.getIntent("catalog.product.search").orElseThrow();
-            PolicyToolManager toolManager = new PolicyToolManager(
-                    polarisMcpClient, scope -> PolicyDecision.allow(), Runnable::run, taxonomy);
+            DefaultToolManager toolManager = new DefaultToolManager(polarisMcpClient, Runnable::run, List.of());
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     (message, history, tools) -> new ResolvedIntent(search.id(), 0.99, true, List.of(), search),
-                    toolManager);
+                    toolManager,
+                    new IntentToolExecutor(toolManager));
             searchChatService = createChatService(modelClient, null, facade);
         }
 

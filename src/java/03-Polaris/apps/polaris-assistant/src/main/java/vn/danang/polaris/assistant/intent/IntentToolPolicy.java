@@ -1,21 +1,13 @@
 package vn.danang.polaris.assistant.intent;
 
-import java.util.Collection;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
+
+import io.modelcontextprotocol.spec.McpSchema.Tool;
 
 /**
- * Derives tool-level policy from the intent taxonomy ({@code intents.json}), so authorization no
- * longer depends on which intent the classifier picked:
- * <ul>
- *   <li>{@link #readOnlyTools} — tools declared by at least one non-mutating intent. This is the
- *       only set a low-confidence turn may expose to the model.</li>
- *   <li>{@link #requiredScopes} — the scope(s) a tool needs, whatever intent is active. A tool
- *       declared by a non-mutating intent takes its scope from the non-mutating declarers only
- *       (mutating intents that merely reuse a read tool don't raise its bar); otherwise from the
- *       mutating declarers. Several distinct scopes are all required (fail closed).</li>
- * </ul>
+ * Which tools the turn's {@link ResolvedIntent} lets the model call, as enforced by
+ * {@link IntentToolExecutor}. Authorization is not decided here: Polaris Core checks the caller's token on
+ * every MCP tool call and answers 401/403 when it is refused.
  */
 public final class IntentToolPolicy {
 
@@ -23,38 +15,22 @@ public final class IntentToolPolicy {
     }
 
     /**
-     * @return names of tools declared by at least one intent with {@code mutating=false}
+     * Guards against the model calling a tool the turn's intent never offered it (a hallucinated or
+     * out-of-scope call). Accepts the resolved intent's allowed tools (a low-confidence turn is already
+     * resolved to {@link DefaultIntentResolver#DEFAULT_INTENT}), or the turn's accepted tools if no
+     * definition was matched; without a resolved intent, none.
+     *
+     * @return whether {@code toolName} may be called under {@code resolvedIntent}
      */
-    public static Set<String> readOnlyTools(Collection<IntentDefinition> intents) {
-        Set<String> tools = new LinkedHashSet<>();
-        if (intents == null) {
-            return tools;
+    public static boolean acceptsTool(ResolvedIntent resolvedIntent, String toolName) {
+        if (toolName == null || resolvedIntent == null) {
+            return false;
         }
-        intents.stream()
-                .filter(def -> def != null && !def.mutating())
-                .forEach(def -> tools.addAll(def.allowedTools()));
-        return tools;
-    }
-
-    /**
-     * @return the non-blank scopes required to call {@code toolName}; empty if no intent declares
-     *         the tool or none of its declarers names a scope
-     */
-    public static Set<String> requiredScopes(String toolName, Collection<IntentDefinition> intents) {
-        if (toolName == null || intents == null) {
-            return Set.of();
+        IntentDefinition definition = resolvedIntent.intentDefinition();
+        if (definition != null) {
+            return definition.allowedTools() != null && definition.allowedTools().contains(toolName);
         }
-        List<IntentDefinition> declarers = intents.stream()
-                .filter(def -> def != null && def.allowedTools().contains(toolName))
-                .toList();
-        boolean readOnly = declarers.stream().anyMatch(def -> !def.mutating());
-
-        Set<String> scopes = new LinkedHashSet<>();
-        declarers.stream()
-                .filter(def -> readOnly ? !def.mutating() : def.mutating())
-                .map(IntentDefinition::requiredScope)
-                .filter(scope -> scope != null && !scope.isBlank())
-                .forEach(scopes::add);
-        return scopes;
+        List<Tool> accepted = resolvedIntent.filteredTools();
+        return accepted != null && accepted.stream().anyMatch(t -> toolName.equals(t.name()));
     }
 }

@@ -7,9 +7,10 @@ import vn.danang.polaris.assistant.ai.ToolCall;
  * A model-callable tool implemented inside the assistant itself rather than by a remote MCP server
  * (e.g. staging an order draft, which only touches the assistant's own tables).
  * <p>
- * Local tools are offered and authorized exactly like remote ones: {@link PolicyToolManager} lists
- * their {@link #definition()} alongside the discovered MCP tools, runs the same intent and per-tool
- * scope checks ({@code intents.json}), and only then dispatches to {@link #execute} instead of MCP.
+ * Local tools are offered and authorized exactly like remote ones: {@link DefaultToolManager} lists
+ * their {@link #definition()} alongside the discovered MCP tools, and once a call has passed the intent
+ * layer's intent and per-tool scope checks ({@code intents.json}) dispatches it to {@link #execute}
+ * instead of MCP.
  */
 public interface LocalTool {
 

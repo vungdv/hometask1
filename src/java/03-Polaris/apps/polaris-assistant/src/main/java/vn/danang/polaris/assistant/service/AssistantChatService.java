@@ -204,11 +204,10 @@ public class AssistantChatService {
         ToolExecutionContext toolContext = new ToolExecutionContext(
                 sessionId,
                 userId,
-                iteration,
-                resolvedIntent
+                iteration
         );
 
-        List<ToolResult> toolResults = intentResolutionFacade.executeToolCalls(toolCalls, toolContext);
+        List<ToolResult> toolResults = intentResolutionFacade.executeToolCalls(toolCalls, toolContext, resolvedIntent);
         boolean policyDenied = false;
         String denialMessage = null;
         List<ToolResult> executed = new ArrayList<>();
@@ -283,7 +282,7 @@ public class AssistantChatService {
     /**
      * Applies the cards of successful tool results in call order: a later card of a type replaces the
      * earlier one (a re-staged draft supersedes the previous draft), and a retraction removes it (a
-     * discarded draft leaves no card). Mutating local tools run in call order (see PolicyToolManager), so
+     * discarded draft leaves no card). Mutating local tools run in call order (see DefaultToolManager), so
      * the {@code ORDER_DRAFT} card left at the end is the draft that is actually open.
      * <p>
      * {@code PRODUCT_LIST} is the exception: searches don't supersede each other ("chargers and cases" may

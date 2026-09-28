@@ -16,7 +16,6 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.dto.ChatWidget;
 import vn.danang.polaris.assistant.dto.ProductListCard;
-import vn.danang.polaris.assistant.policy.PolicyDecision;
 
 /**
  * Unit tests for {@link RemoteToolWidgets}: which remote tool results become cards, and that a card holds
@@ -74,8 +73,8 @@ class RemoteToolWidgetsTest {
     }
 
     @Test
-    @DisplayName("PolicyToolManager attaches the card to a successful remote search and none to a failed one")
-    void policyToolManager_attachesCardToRemoteSearch() {
+    @DisplayName("DefaultToolManager attaches the card to a successful remote search and none to a failed one")
+    void defaultToolManager_attachesCardToRemoteSearch() {
         PolarisMcpClient client = mock(PolarisMcpClient.class);
         when(client.callTool(eq("search_available_products"),
                         eq(Map.of("query", "charger"))))
@@ -83,7 +82,7 @@ class RemoteToolWidgetsTest {
         when(client.callTool(eq("search_available_products"),
                         eq(Map.of("page", -1))))
                 .thenReturn(new CallToolResult(List.of(TextContent.builder("Error").build()), true, null, Map.of()));
-        PolicyToolManager manager = new PolicyToolManager(client, scope -> PolicyDecision.allow(), Runnable::run);
+        DefaultToolManager manager = new DefaultToolManager(client, Runnable::run, List.of());
 
         List<ToolResult> results = manager.handleToolCalls(List.of(
                 new ToolCall("search_available_products", Map.of("query", "charger")),

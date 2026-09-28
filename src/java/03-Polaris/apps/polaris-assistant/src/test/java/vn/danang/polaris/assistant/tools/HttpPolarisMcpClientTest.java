@@ -12,6 +12,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -248,6 +250,21 @@ class HttpPolarisMcpClientTest {
 
             assertThat(result.isError()).isTrue();
             assertThat(((TextContent) result.content().get(0)).text()).contains("HTTP 503");
+        }
+
+        @ParameterizedTest
+        @ValueSource(ints = {401, 403})
+        @DisplayName("Given HTTP 401/403, when calling tool, then returns an error result carrying the status as an RFC 7807 problem")
+        void returns_problem_result_when_tool_call_is_refused(int status) throws Exception {
+            when(mockHttpResponse.statusCode()).thenReturn(status);
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+            CallToolResult result = client.callTool("get_order_status", Map.of("order_id", "ORD-1"));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(((TextContent) result.content().get(0)).text()).contains("HTTP " + status);
+            assertThat(result.structuredContent()).isInstanceOfSatisfying(Map.class,
+                    problem -> assertThat(problem).containsEntry("status", status).containsEntry("type", "about:blank"));
         }
 
         @Test

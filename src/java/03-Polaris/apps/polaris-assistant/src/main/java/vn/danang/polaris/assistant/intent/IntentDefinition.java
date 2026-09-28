@@ -13,9 +13,7 @@ public record IntentDefinition(
         String description,
         List<String> examples,
         List<String> allowedTools,
-        String requiredScope,
-        double confidenceThreshold,
-        boolean mutating
+        double confidenceThreshold
 ) {
     public IntentDefinition {
         examples = examples != null ? List.copyOf(examples) : List.of();
@@ -26,7 +24,7 @@ public record IntentDefinition(
     }
 
     public IntentDefinition(String id, String description, List<String> examples) {
-        this(id, description, examples, List.of(), null, 0.80, false);
+        this(id, description, examples, List.of(), 0.80);
     }
 
     /**

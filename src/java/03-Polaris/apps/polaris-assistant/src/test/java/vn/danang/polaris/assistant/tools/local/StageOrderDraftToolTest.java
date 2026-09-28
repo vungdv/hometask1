@@ -98,7 +98,7 @@ class StageOrderDraftToolTest {
     }
 
     private static ToolExecutionContext context(String userId) {
-        return new ToolExecutionContext(SESSION, userId, 1, null);
+        return new ToolExecutionContext(SESSION, userId, 1);
     }
 
     private static ToolCall stageCall(Map<String, Object> extra) {

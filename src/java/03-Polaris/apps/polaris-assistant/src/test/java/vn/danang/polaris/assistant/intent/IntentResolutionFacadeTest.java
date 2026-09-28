@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.modelcontextprotocol.spec.McpSchema.Tool;
@@ -42,7 +43,8 @@ class IntentResolutionFacadeTest {
                     new IntentClassification("catalog.product.search", 0.93);
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(stubClassifier),
-                    mockHub
+                    mockHub,
+                    mock(IntentToolExecutor.class)
             );
 
             ResolvedIntent resolved = facade.resolve("Find wireless chargers", List.of());
@@ -70,7 +72,7 @@ class IntentResolutionFacadeTest {
             ResolvedIntent expectedIntent = new ResolvedIntent("catalog.product.search", 0.95, true, tools);
             when(mockResolver.resolve(eq("Find chargers"), any(), eq(tools))).thenReturn(expectedIntent);
 
-            IntentResolutionFacade facade = new IntentResolutionFacade(mockResolver, mockHub);
+            IntentResolutionFacade facade = new IntentResolutionFacade(mockResolver, mockHub, mock(IntentToolExecutor.class));
             ResolvedIntent actual = facade.resolve("Find chargers", List.of());
 
             assertThat(actual).isEqualTo(expectedIntent);
@@ -78,49 +80,25 @@ class IntentResolutionFacadeTest {
         }
 
         @Test
-        @DisplayName("Given valid tool calls and execution context, when executeToolCalls is called, then delegates to ToolManager")
-        void delegates_tool_execution_to_configured_mcp_hub() {
-            ToolManager mockHub = mock(ToolManager.class);
+        @DisplayName("Given valid tool calls and execution context, when executeToolCalls is called, then delegates to IntentToolExecutor with the resolved intent")
+        void delegates_tool_execution_to_intent_tool_executor() {
+            IntentToolExecutor mockExecutor = mock(IntentToolExecutor.class);
             ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
             ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
-            ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, mockResolvedIntent
-            );
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1);
             List<ToolResult> expectedResults = List.of(ToolResult.success(toolCall, "Found product"));
-            when(mockHub.handleToolCalls(eq(List.of(toolCall)), eq(context))).thenReturn(expectedResults);
+            when(mockExecutor.execute(eq(List.of(toolCall)), eq(context), eq(mockResolvedIntent))).thenReturn(expectedResults);
 
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),
-                    mockHub
+                    mock(ToolManager.class),
+                    mockExecutor
             );
 
-            List<ToolResult> results = facade.executeToolCalls(List.of(toolCall), context);
+            List<ToolResult> results = facade.executeToolCalls(List.of(toolCall), context, mockResolvedIntent);
 
             assertThat(results).isEqualTo(expectedResults);
-            verify(mockHub).handleToolCalls(eq(List.of(toolCall)), eq(context));
-        }
-
-        @Test
-        @DisplayName("Given handleToolCalls alias invoked, then delegates identically to ToolManager")
-        void handle_tool_calls_alias_delegates_identically() {
-            ToolManager mockHub = mock(ToolManager.class);
-            ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
-            ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
-            ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, mockResolvedIntent
-            );
-            List<ToolResult> expectedResults = List.of(ToolResult.success(toolCall, "Found product"));
-            when(mockHub.handleToolCalls(eq(List.of(toolCall)), eq(context))).thenReturn(expectedResults);
-
-            IntentResolutionFacade facade = new IntentResolutionFacade(
-                    new DefaultIntentResolver(),
-                    mockHub
-            );
-
-            List<ToolResult> results = facade.executeToolCalls(List.of(toolCall), context);
-
-            assertThat(results).isEqualTo(expectedResults);
-            verify(mockHub).handleToolCalls(eq(List.of(toolCall)), eq(context));
+            verify(mockExecutor).execute(eq(List.of(toolCall)), eq(context), eq(mockResolvedIntent));
         }
     }
 
@@ -132,23 +110,22 @@ class IntentResolutionFacadeTest {
     class InvalidInput {
 
         @Test
-        @DisplayName("Given policy denial from ToolManager, when executeToolCalls called, then propagates denied ToolResult")
-        void propagates_policy_denial_from_mcp_hub() {
-            ToolManager mockHub = mock(ToolManager.class);
+        @DisplayName("Given policy denial from IntentToolExecutor, when executeToolCalls called, then propagates denied ToolResult")
+        void propagates_policy_denial_from_executor() {
+            IntentToolExecutor mockExecutor = mock(IntentToolExecutor.class);
             ToolCall toolCall = new ToolCall("place_order", Map.of("sku", "PROD-1"));
             ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
-            ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-no-scope", 1, mockResolvedIntent
-            );
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-no-scope", 1);
             List<ToolResult> deniedResults = List.of(ToolResult.denied(toolCall, "Missing scope order.write"));
-            when(mockHub.handleToolCalls(eq(List.of(toolCall)), eq(context))).thenReturn(deniedResults);
+            when(mockExecutor.execute(eq(List.of(toolCall)), eq(context), eq(mockResolvedIntent))).thenReturn(deniedResults);
 
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),
-                    mockHub
+                    mock(ToolManager.class),
+                    mockExecutor
             );
 
-            List<ToolResult> results = facade.executeToolCalls(List.of(toolCall), context);
+            List<ToolResult> results = facade.executeToolCalls(List.of(toolCall), context, mockResolvedIntent);
 
             assertThat(results).hasSize(1);
             assertThat(results.get(0).isDenied()).isTrue();
@@ -174,36 +151,33 @@ class IntentResolutionFacadeTest {
         }
 
         @Test
-        @DisplayName("Given null or empty tool calls, when executeToolCalls called, then returns empty list without calling hub")
+        @DisplayName("Given null or empty tool calls, when executeToolCalls called, then returns empty list without calling the executor")
         void returns_empty_list_when_tool_calls_null_or_empty() {
-            ToolManager mockHub = mock(ToolManager.class);
+            IntentToolExecutor mockExecutor = mock(IntentToolExecutor.class);
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),
-                    mockHub
+                    mock(ToolManager.class),
+                    mockExecutor
             );
-            ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
-            ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, mockResolvedIntent
-            );
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1);
 
-            assertThat(facade.executeToolCalls(null, context)).isEmpty();
-            assertThat(facade.executeToolCalls(List.of(), context)).isEmpty();
+            assertThat(facade.executeToolCalls(null, context, null)).isEmpty();
+            assertThat(facade.executeToolCalls(List.of(), context, null)).isEmpty();
+            verifyNoInteractions(mockExecutor);
         }
 
         @Test
-        @DisplayName("Given null ToolManager, when executeToolCalls called, then returns empty list gracefully")
-        void returns_empty_list_when_mcp_hub_is_null() {
+        @DisplayName("Given null IntentToolExecutor, when executeToolCalls called, then returns empty list gracefully")
+        void returns_empty_list_when_executor_is_null() {
             IntentResolutionFacade facade = new IntentResolutionFacade(
                     new DefaultIntentResolver(),
+                    null,
                     null
             );
             ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
-            ResolvedIntent mockResolvedIntent = mock(ResolvedIntent.class);
-            ToolExecutionContext context = new ToolExecutionContext(
-                    "sess-1", "user-1", 1, mockResolvedIntent
-            );
+            ToolExecutionContext context = new ToolExecutionContext("sess-1", "user-1", 1);
 
-            assertThat(facade.executeToolCalls(List.of(toolCall), context)).isEmpty();
+            assertThat(facade.executeToolCalls(List.of(toolCall), context, null)).isEmpty();
         }
     }
 }

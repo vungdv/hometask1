@@ -59,7 +59,7 @@ class DiscardOrderDraftToolTest {
     }
 
     private static ToolExecutionContext ctx(String userId) {
-        return new ToolExecutionContext("sess-1", userId, 1, null);
+        return new ToolExecutionContext("sess-1", userId, 1);
     }
 
     @Test

@@ -190,7 +190,7 @@ class OrderDraftControllerIntegrationTest {
                     .andExpect(jsonPath("$.widgets[0].payload.total").value(99.70))
                     .andReturn().getResponse().getContentAsString();
             String draftId = JsonPath.read(chat, "$.widgets[0].payload.draftId");
-            // staging never places an order, and the model is never offered the orchestrator-only tools
+            // staging never places an order, and the order intent never offers place_order or cancel_order
             verify(polarisMcpClient, never()).callTool(eq("place_order"), anyMap());
             ArgumentCaptor<List<Tool>> offered = ArgumentCaptor.forClass(List.class);
             verify(assistantModelClient, org.mockito.Mockito.atLeastOnce())
