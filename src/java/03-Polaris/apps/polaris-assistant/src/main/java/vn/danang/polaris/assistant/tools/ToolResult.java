@@ -17,6 +17,8 @@ import vn.danang.polaris.assistant.dto.ChatWidget;
  * @param status the outcome status of the execution (SUCCESS, DENIED, ERROR)
  * @param errorDescription a semantic note explaining the failure context when the tool execution is not successful, or null if successful
  * @param widget structured card for the chat client produced by a successful call, or null
+ * @param retractsWidget widget type an earlier call of the same turn produced that this successful call makes
+ *                       stale (e.g. discarding a draft retracts its {@code ORDER_DRAFT} card), or null
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -27,7 +29,8 @@ public record ToolResult(
         @JsonProperty("error-description")
         @JsonAlias({"error_description", "errorDescription"})
         String errorDescription,
-        @JsonProperty("widget") ChatWidget widget
+        @JsonProperty("widget") ChatWidget widget,
+        @JsonProperty("retractsWidget") String retractsWidget
 ) {
 
     public enum Status {
@@ -37,14 +40,14 @@ public record ToolResult(
     }
 
     public ToolResult(ToolCall toolCall, String result, Status status) {
-        this(toolCall, result, status, null, null);
+        this(toolCall, result, status, null, null, null);
     }
 
     public ToolResult(ToolCall toolCall, String result, Status status, String errorDescription) {
-        this(toolCall, result, status, errorDescription, null);
+        this(toolCall, result, status, errorDescription, null, null);
     }
 
-    // A widget is carried only by successful results.
+    // Widgets and retractions are carried only by successful results.
     public ToolResult {
         Objects.requireNonNull(toolCall, "toolCall must not be null");
         Objects.requireNonNull(status, "status must not be null");
@@ -56,6 +59,7 @@ public record ToolResult(
                 errorDescription = defaultSemanticNote(status, toolCall, result);
             }
             widget = null;
+            retractsWidget = null;
         } else {
             errorDescription = null;
         }
@@ -66,7 +70,14 @@ public record ToolResult(
      * the model sees; the widget only reaches the response.
      */
     public ToolResult withWidget(ChatWidget widget) {
-        return new ToolResult(toolCall, result, status, errorDescription, widget);
+        return new ToolResult(toolCall, result, status, errorDescription, widget, retractsWidget);
+    }
+
+    /**
+     * Marks a card type produced earlier in the turn as stale, so the response doesn't show it.
+     */
+    public ToolResult retractingWidget(String widgetType) {
+        return new ToolResult(toolCall, result, status, errorDescription, widget, widgetType);
     }
 
     private static String defaultSemanticNote(Status status, ToolCall toolCall, String result) {

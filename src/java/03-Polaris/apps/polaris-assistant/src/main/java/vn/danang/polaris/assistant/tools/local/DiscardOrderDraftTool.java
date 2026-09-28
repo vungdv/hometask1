@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.ai.ToolCall;
+import vn.danang.polaris.assistant.dto.ChatWidget;
 import vn.danang.polaris.assistant.entity.DraftStatus;
 import vn.danang.polaris.assistant.entity.OrderDraft;
 import vn.danang.polaris.assistant.security.UserContext;
@@ -79,13 +80,17 @@ public class DiscardOrderDraftTool implements LocalTool {
             return ToolResult.error(toolCall, "Could not discard the order draft: " + e.getMessage());
         }
 
+        // Either way no draft is open any more, so a draft card staged earlier in this turn is stale.
         if (discarded.isEmpty()) {
-            return ToolResult.success(toolCall, "There is no open order draft to discard. Nothing was ordered.");
+            return ToolResult.success(toolCall, "There is no open order draft to discard. Nothing was ordered.")
+                    .retractingWidget(ChatWidget.ORDER_DRAFT);
         }
         OrderDraft draft = discarded.get();
         if (draft.getStatus() == DraftStatus.EXPIRED) {
-            return ToolResult.success(toolCall, "Order draft " + draft.getId() + " had already expired and is closed. Nothing was ordered.");
+            return ToolResult.success(toolCall, "Order draft " + draft.getId() + " had already expired and is closed. Nothing was ordered.")
+                    .retractingWidget(ChatWidget.ORDER_DRAFT);
         }
-        return ToolResult.success(toolCall, "Order draft " + draft.getId() + " discarded. Nothing was ordered.");
+        return ToolResult.success(toolCall, "Order draft " + draft.getId() + " discarded. Nothing was ordered.")
+                .retractingWidget(ChatWidget.ORDER_DRAFT);
     }
 }

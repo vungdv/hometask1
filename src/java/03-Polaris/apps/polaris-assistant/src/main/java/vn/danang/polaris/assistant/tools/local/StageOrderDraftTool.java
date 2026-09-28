@@ -23,6 +23,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.customer.CurrentCustomerClient;
 import vn.danang.polaris.assistant.customer.CustomerLookupException;
+import vn.danang.polaris.assistant.customer.CustomerRef;
 import vn.danang.polaris.assistant.dto.OrderDraftCard;
 import vn.danang.polaris.assistant.entity.DraftLine;
 import vn.danang.polaris.assistant.entity.OrderDraft;
@@ -54,6 +55,8 @@ public class StageOrderDraftTool implements LocalTool {
 
     public static final String NAME = "stage_order_draft";
     static final String QUOTE_ORDER_TOOL = "quote_order";
+    static final String CUSTOMER_LOOKUP_FAILED =
+            "Could not look up the customer account right now, so nothing was staged. Please try again later.";
 
     private static final Logger log = LoggerFactory.getLogger(StageOrderDraftTool.class);
 
@@ -140,16 +143,17 @@ public class StageOrderDraftTool implements LocalTool {
         }
 
         // 1. Customer: from the caller's identity; only staff may name another customer
-        Long customerId;
+        CustomerRef customer;
         try {
             CustomerChoice choice = resolveCustomer(toolCall.arguments().get("customer_id"), caller);
             if (choice.rejection() != null) {
                 return choice.rejection().apply(toolCall);
             }
-            customerId = choice.customerId();
+            customer = choice.customer();
         } catch (CustomerLookupException e) {
-            log.warn("Could not resolve the caller's customer sessionId={} error={}", sessionId, e.getMessage());
-            return ToolResult.error(toolCall, "Could not look up your customer account right now: " + e.getMessage());
+            // details are logged by the client; the model only gets a fixed message
+            log.warn("Could not resolve the caller's customer sessionId={}", sessionId);
+            return ToolResult.error(toolCall, CUSTOMER_LOOKUP_FAILED);
         }
 
         // 2. Re-verify live price and stock (read-only)
@@ -175,7 +179,7 @@ public class StageOrderDraftTool implements LocalTool {
         // 3. Stage the snapshot (supersedes any open draft of the session)
         OrderDraft draft;
         try {
-            draft = orderDraftService.stage(sessionId, caller.userId(), customerId, toDraftLines(quote));
+            draft = orderDraftService.stage(sessionId, caller.userId(), customer.id(), toDraftLines(quote));
         } catch (SessionAccessDeniedException e) {
             return ToolResult.denied(toolCall, e.getMessage());
         } catch (DraftConflictException e) {
@@ -184,7 +188,10 @@ public class StageOrderDraftTool implements LocalTool {
             return ToolResult.error(toolCall, "Could not stage the order draft: " + e.getMessage());
         }
 
-        OrderDraftCard card = OrderDraftCard.from(draft);
+        String customerName = customer.fullName() != null
+                ? customer.fullName()
+                : currentCustomerClient.findCustomerName(customer.id(), caller.bearerToken()).orElse(null);
+        OrderDraftCard card = OrderDraftCard.from(draft, customerName);
         return ToolResult.success(toolCall, describeDraft(card)).withWidget(card.toWidget());
     }
 
@@ -198,10 +205,11 @@ public class StageOrderDraftTool implements LocalTool {
         }
 
         if (userContext.isStaff() && requested != null) {
-            return CustomerChoice.of(requested);
+            // name resolved best-effort after staging
+            return CustomerChoice.of(new CustomerRef(requested, null));
         }
 
-        Optional<Long> own = currentCustomerClient.findCurrentCustomerId(caller.bearerToken());
+        Optional<CustomerRef> own = currentCustomerClient.findCurrentCustomer(caller.bearerToken());
         if (userContext.isStaff()) {
             return own.map(CustomerChoice::of).orElseGet(() -> CustomerChoice.reject(call -> ToolResult.error(call,
                     "Pass 'customer_id' for the customer this order is for (look it up with search_customers_by_name).")));
@@ -210,7 +218,7 @@ public class StageOrderDraftTool implements LocalTool {
             return CustomerChoice.reject(call -> ToolResult.error(call,
                     "No customer account is linked to your sign-in, so an order cannot be staged."));
         }
-        if (requested != null && !requested.equals(own.get())) {
+        if (requested != null && !requested.equals(own.get().id())) {
             log.warn("Shopper tried to stage a draft for another customer userId={} requestedCustomerId={}", caller.userId(), requested);
             return CustomerChoice.reject(call -> ToolResult.denied(call,
                     "Forbidden: shoppers can only stage orders for their own customer account."));
@@ -259,7 +267,10 @@ public class StageOrderDraftTool implements LocalTool {
                 .map(line -> "  * [%s] %s x %d @ $%s = $%s".formatted(
                         line.sku(), line.name(), line.quantity(), line.unitPrice(), line.lineTotal()))
                 .collect(Collectors.joining("\n"));
-        return "Order draft " + card.draftId() + " staged for the shopper's confirmation. The order is NOT placed.\n"
+        String customer = card.customerName() != null
+                ? card.customerName() + " (customer " + card.customerId() + ")"
+                : "customer " + card.customerId();
+        return "Order draft " + card.draftId() + " for " + customer + " staged for the shopper's confirmation. The order is NOT placed.\n"
                 + lines + "\n- Total: $" + card.total()
                 + "\n- Price held until " + card.expiresAt() + " (15 minutes)."
                 + "\nThe shopper must review the draft card and click 'Submit Order' to place it. Never say the order is placed.";
@@ -277,10 +288,10 @@ public class StageOrderDraftTool implements LocalTool {
     }
 
     /** Either the customer to stage for, or how to reject the call. */
-    private record CustomerChoice(Long customerId, Function<ToolCall, ToolResult> rejection) {
+    private record CustomerChoice(CustomerRef customer, Function<ToolCall, ToolResult> rejection) {
 
-        static CustomerChoice of(Long customerId) {
-            return new CustomerChoice(customerId, null);
+        static CustomerChoice of(CustomerRef customer) {
+            return new CustomerChoice(customer, null);
         }
 
         static CustomerChoice reject(Function<ToolCall, ToolResult> rejection) {

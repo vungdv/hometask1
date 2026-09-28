@@ -149,7 +149,7 @@ public class AssistantChatService {
         int iterations = 0;
         String finalReply = null;
         String finalThoughtSignature = null;
-        // One card per type: a later card of the same type (e.g. a re-staged draft) replaces the earlier one.
+        // One card per type, updated in call order (see applyWidgetChanges).
         Map<String, ChatWidget> widgets = new LinkedHashMap<>();
 
         while (iterations < MAX_TOOL_ITERATIONS) {
@@ -168,10 +168,7 @@ public class AssistantChatService {
             if (modelResponse.hasToolCalls()) {
                 ToolExecutionOutcome outcome = executeToolBatch(sessionId, userId, iterations, resolvedIntent, modelResponse.toolCalls());
                 history.addAll(outcome.turns());
-                outcome.widgets().forEach(widget -> {
-                    widgets.remove(widget.type());
-                    widgets.put(widget.type(), widget);
-                });
+                applyWidgetChanges(outcome.results(), widgets);
 
                 if (outcome.policyDenied()) {
                     finalReply = outcome.denialMessage();
@@ -213,14 +210,12 @@ public class AssistantChatService {
         List<ToolResult> toolResults = intentResolutionFacade.executeToolCalls(toolCalls, toolContext);
         boolean policyDenied = false;
         String denialMessage = null;
-        List<ChatWidget> widgets = new ArrayList<>();
+        List<ToolResult> executed = new ArrayList<>();
 
         if (toolResults != null) {
             for (ToolResult result : toolResults) {
                 turns.add(toToolTurn(result));
-                if (result.isSuccess() && result.widget() != null) {
-                    widgets.add(result.widget());
-                }
+                executed.add(result);
                 if (result.isDenied()) {
                     String reason = (result.result() != null && !result.result().isBlank())
                             ? result.result()
@@ -232,7 +227,7 @@ public class AssistantChatService {
             }
         }
 
-        return new ToolExecutionOutcome(turns, policyDenied, denialMessage, widgets);
+        return new ToolExecutionOutcome(turns, policyDenied, denialMessage, executed);
     }
 
     private ModelResponse queryModel(List<AssistantMessage> history, List<Tool> tools, ModelRequestContext context) {
@@ -282,6 +277,27 @@ public class AssistantChatService {
         toolTurn.setContent(toolResult.result());
         toolTurn.setCreatedAt(Instant.now());
         return toolTurn;
+    }
+
+    /**
+     * Applies the cards of successful tool results in call order: a later card of a type replaces the
+     * earlier one (a re-staged draft supersedes the previous draft), and a retraction removes it (a
+     * discarded draft leaves no card). Mutating local tools run in call order (see PolicyToolManager), so
+     * the {@code ORDER_DRAFT} card left at the end is the draft that is actually open.
+     */
+    private static void applyWidgetChanges(List<ToolResult> results, Map<String, ChatWidget> widgets) {
+        for (ToolResult result : results) {
+            if (!result.isSuccess()) {
+                continue;
+            }
+            if (result.retractsWidget() != null) {
+                widgets.remove(result.retractsWidget());
+            }
+            if (result.widget() != null) {
+                widgets.remove(result.widget().type());
+                widgets.put(result.widget().type(), result.widget());
+            }
+        }
     }
 
     /**

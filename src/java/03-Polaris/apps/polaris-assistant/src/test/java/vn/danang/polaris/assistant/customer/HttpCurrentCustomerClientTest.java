@@ -49,7 +49,7 @@ class HttpCurrentCustomerClientTest {
         when(response.body()).thenReturn("{\"id\":7,\"fullName\":\"Alice Tran\"}");
         doReturn(response).when(httpClient).send(any(HttpRequest.class), any());
 
-        assertThat(client.findCurrentCustomerId("user-token")).contains(7L);
+        assertThat(client.findCurrentCustomer("user-token")).contains(new CustomerRef(7L, "Alice Tran"));
 
         ArgumentCaptor<HttpRequest> request = ArgumentCaptor.forClass(HttpRequest.class);
         verify(httpClient).send(request.capture(), any());
@@ -59,12 +59,48 @@ class HttpCurrentCustomerClientTest {
     }
 
     @Test
-    @DisplayName("Given no linked customer (404), when resolved, then empty")
+    @DisplayName("Given Order Management's not-linked problem (404), when resolved, then empty")
     void not_linked_is_empty() throws Exception {
         when(response.statusCode()).thenReturn(404);
+        when(response.body()).thenReturn("{\"type\":\"https://polaris.local/errors/not-found\",\"title\":\"Resource Not Found\","
+                + "\"status\":404,\"detail\":\"No customer is linked to the authenticated user.\"}");
         doReturn(response).when(httpClient).send(any(HttpRequest.class), any());
 
-        assertThat(client.findCurrentCustomerId("user-token")).isEmpty();
+        assertThat(client.findCurrentCustomer("user-token")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Given a 404 that is not Order Management's problem (e.g. gateway page), when resolved, then CustomerLookupException")
+    void foreign_404_is_a_failure() throws Exception {
+        when(response.statusCode()).thenReturn(404);
+        when(response.body()).thenReturn("<html><body>404 Not Found</body></html>");
+        doReturn(response).when(httpClient).send(any(HttpRequest.class), any());
+
+        assertThatThrownBy(() -> client.findCurrentCustomer("user-token")).isInstanceOf(CustomerLookupException.class);
+    }
+
+    @Test
+    @DisplayName("Given a 404 problem of another type, when resolved, then CustomerLookupException")
+    void other_problem_404_is_a_failure() throws Exception {
+        when(response.statusCode()).thenReturn(404);
+        when(response.body()).thenReturn("{\"type\":\"about:blank\",\"status\":404}");
+        doReturn(response).when(httpClient).send(any(HttpRequest.class), any());
+
+        assertThatThrownBy(() -> client.findCurrentCustomer("user-token")).isInstanceOf(CustomerLookupException.class);
+    }
+
+    @Test
+    @DisplayName("Given staff names a customer, when its name is looked up, then GET /customers/{id} returns fullName; failures yield empty")
+    void customer_name_is_best_effort() throws Exception {
+        when(response.statusCode()).thenReturn(200, 403);
+        when(response.body()).thenReturn("{\"id\":42,\"fullName\":\"Bob Le\"}");
+        doReturn(response).when(httpClient).send(any(HttpRequest.class), any());
+
+        assertThat(client.findCustomerName(42L, "staff-token")).contains("Bob Le");
+        assertThat(client.findCustomerName(42L, "staff-token")).isEmpty();
+
+        doThrow(new IOException("down")).when(httpClient).send(any(HttpRequest.class), any());
+        assertThat(client.findCustomerName(42L, "staff-token")).isEmpty();
     }
 
     @Test
@@ -73,8 +109,8 @@ class HttpCurrentCustomerClientTest {
         when(response.statusCode()).thenReturn(401);
         doReturn(response).when(httpClient).send(any(HttpRequest.class), any());
 
-        assertThatThrownBy(() -> client.findCurrentCustomerId("user-token"))
-                .isInstanceOf(CustomerLookupException.class).hasMessageContaining("401");
+        assertThatThrownBy(() -> client.findCurrentCustomer("user-token"))
+                .isInstanceOf(CustomerLookupException.class).message().doesNotContain("401");
     }
 
     @Test
@@ -82,8 +118,8 @@ class HttpCurrentCustomerClientTest {
     void unreachable_fails() throws Exception {
         doThrow(new IOException("connection refused")).when(httpClient).send(any(HttpRequest.class), any());
 
-        assertThatThrownBy(() -> client.findCurrentCustomerId("user-token"))
-                .isInstanceOf(CustomerLookupException.class).hasMessageContaining("connection refused");
+        assertThatThrownBy(() -> client.findCurrentCustomer("user-token"))
+                .isInstanceOf(CustomerLookupException.class).message().doesNotContain("connection refused");
     }
 
     @Test
@@ -93,13 +129,13 @@ class HttpCurrentCustomerClientTest {
         when(response.body()).thenReturn("{\"fullName\":\"Alice\"}");
         doReturn(response).when(httpClient).send(any(HttpRequest.class), any());
 
-        assertThatThrownBy(() -> client.findCurrentCustomerId("user-token")).isInstanceOf(CustomerLookupException.class);
+        assertThatThrownBy(() -> client.findCurrentCustomer("user-token")).isInstanceOf(CustomerLookupException.class);
     }
 
     @Test
     @DisplayName("Given no caller token, when resolved, then refused without any request")
     void blank_token_is_refused() {
-        assertThatThrownBy(() -> client.findCurrentCustomerId(" ")).isInstanceOf(CustomerLookupException.class);
+        assertThatThrownBy(() -> client.findCurrentCustomer(" ")).isInstanceOf(CustomerLookupException.class);
         verifyNoInteractions(httpClient);
     }
 }

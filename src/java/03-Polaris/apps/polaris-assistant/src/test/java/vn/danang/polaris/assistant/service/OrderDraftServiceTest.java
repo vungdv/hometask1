@@ -73,9 +73,20 @@ class OrderDraftServiceTest {
     @DisplayName("Given every attempt hits the open-draft unique constraint, when staging, then DraftConflictException")
     void gives_up_after_second_conflict() {
         when(draftRepository.supersedeOpenDraft(any(), any()))
-                .thenThrow(new DataIntegrityViolationException("uq_assistant_drafts_open_session"));
+                .thenThrow(new DataIntegrityViolationException("could not execute statement",
+                        new RuntimeException("duplicate key value violates unique constraint \"uq_assistant_drafts_open_session\"")));
 
         assertThatThrownBy(() -> service.stage("s1", "alice", 7L, LINES)).isInstanceOf(DraftConflictException.class);
         verify(transactionManager, times(2)).rollback(any());
+    }
+
+    @Test
+    @DisplayName("Given an integrity violation other than the open-draft constraint, when staging, then it propagates without retry")
+    void other_integrity_violations_are_not_retried() {
+        when(draftRepository.supersedeOpenDraft(any(), any()))
+                .thenThrow(new DataIntegrityViolationException("violates check constraint \"chk_assistant_drafts_status\""));
+
+        assertThatThrownBy(() -> service.stage("s1", "alice", 7L, LINES)).isInstanceOf(DataIntegrityViolationException.class);
+        verify(transactionManager, times(1)).rollback(any());
     }
 }

@@ -496,6 +496,44 @@ class AssistantChatServiceTest {
         }
 
         @Test
+        @DisplayName("Given stage then discard in one batch, when the turn ends, then no ORDER_DRAFT card is returned")
+        void discard_after_stage_retracts_card() {
+            ToolCall stage = new ToolCall("stage_order_draft", Map.of());
+            ToolCall discard = new ToolCall("discard_order_draft", Map.of());
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(stage, discard)))
+                    .thenReturn(new ModelResponse("Draft discarded.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage, discard)), any(ToolExecutionContext.class)))
+                    .thenReturn(List.of(
+                            ToolResult.success(stage, "a").withWidget(new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1"))),
+                            ToolResult.success(discard, "b").retractingWidget(ChatWidget.ORDER_DRAFT)));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w4", "never mind"), "user-1");
+
+            assertThat(response.widgets()).isEmpty();
+            assertThat(sessionStore.persisted("sess-w4").getLast().getWidgetType()).isNull();
+        }
+
+        @Test
+        @DisplayName("Given a failed discard after a stage, when the turn ends, then the staged card is kept")
+        void failed_discard_keeps_card() {
+            ToolCall stage = new ToolCall("stage_order_draft", Map.of());
+            ToolCall discard = new ToolCall("discard_order_draft", Map.of());
+            ChatWidget card = new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1"));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(stage, discard)))
+                    .thenReturn(new ModelResponse("Could not discard.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage, discard)), any(ToolExecutionContext.class)))
+                    .thenReturn(List.of(
+                            ToolResult.success(stage, "a").withWidget(card),
+                            ToolResult.error(discard, "conflict")));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w5", "drop it"), "user-1");
+
+            assertThat(response.widgets()).containsExactly(card);
+        }
+
+        @Test
         @DisplayName("Given no tool produced a card, when the turn ends, then widgets is empty and nothing is persisted as a widget")
         void no_widgets_by_default() {
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))

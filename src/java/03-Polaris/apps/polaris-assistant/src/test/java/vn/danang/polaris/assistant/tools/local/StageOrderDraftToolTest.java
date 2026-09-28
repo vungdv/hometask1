@@ -41,6 +41,7 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.customer.CurrentCustomerClient;
 import vn.danang.polaris.assistant.customer.CustomerLookupException;
+import vn.danang.polaris.assistant.customer.CustomerRef;
 import vn.danang.polaris.assistant.dto.ChatWidget;
 import vn.danang.polaris.assistant.dto.OrderDraftCard;
 import vn.danang.polaris.assistant.entity.DraftLine;
@@ -64,6 +65,7 @@ class StageOrderDraftToolTest {
     private static final String SESSION = "sess-1";
     private static final String USER = "shopper-sub";
     private static final Instant NOW = Instant.parse("2026-09-28T10:00:00Z");
+    private static final CustomerRef ALICE = new CustomerRef(7L, "Alice Tran");
 
     private PolarisMcpClient mcpClient;
     private CurrentCustomerClient customerClient;
@@ -126,7 +128,7 @@ class StageOrderDraftToolTest {
         @Test
         @DisplayName("Given an orderable quote, when a shopper stages, then the draft is staged for their own customer with an ORDER_DRAFT widget")
         void stages_draft_for_shoppers_own_customer() throws Exception {
-            when(customerClient.findCurrentCustomerId("token-" + USER)).thenReturn(Optional.of(7L));
+            when(customerClient.findCurrentCustomer("token-" + USER)).thenReturn(Optional.of(ALICE));
             quoteReturns(ORDERABLE_QUOTE);
 
             ToolResult result = tool.execute(stageCall(Map.of()), context(USER));
@@ -144,6 +146,9 @@ class StageOrderDraftToolTest {
             assertThat(widget.type()).isEqualTo(ChatWidget.ORDER_DRAFT);
             OrderDraftCard card = (OrderDraftCard) widget.payload();
             assertThat(card.draftId()).startsWith("dft-");
+            assertThat(card.customerId()).isEqualTo(7L);
+            assertThat(card.customerName()).isEqualTo("Alice Tran");
+            assertThat(result.result()).contains("for Alice Tran (customer 7)");
             assertThat(card.total()).isEqualByComparingTo("49.80");
             assertThat(card.expiresAt()).isEqualTo(NOW.plus(OrderDraft.DEFAULT_TTL));
             assertThat(card.items()).hasSize(1);
@@ -152,7 +157,7 @@ class StageOrderDraftToolTest {
         @Test
         @DisplayName("Given the quote_order call, then the model's items are forwarded unchanged and nothing but quote_order is called")
         void forwards_items_to_quote_order_only() throws Exception {
-            when(customerClient.findCurrentCustomerId(anyString())).thenReturn(Optional.of(7L));
+            when(customerClient.findCurrentCustomer(anyString())).thenReturn(Optional.of(ALICE));
             quoteReturns(ORDERABLE_QUOTE);
 
             tool.execute(stageCall(Map.of()), context(USER));
@@ -171,13 +176,30 @@ class StageOrderDraftToolTest {
 
             assertThat(result.isSuccess()).isTrue();
             verify(draftService).stage(eq(SESSION), eq("staff-sub"), eq(42L), anyList());
-            verifyNoInteractions(customerClient);
+            verify(customerClient, never()).findCurrentCustomer(anyString());
+            OrderDraftCard card = (OrderDraftCard) result.widget().payload();
+            assertThat(card.customerId()).isEqualTo(42L);
+            assertThat(card.customerName()).isNull();
+        }
+
+        @Test
+        @DisplayName("Given staff names a customer whose name Order Management returns, when staging, then the card shows it")
+        void staff_card_shows_name_when_available() throws Exception {
+            signIn("staff-sub", "ROLE_STAFF");
+            quoteReturns(ORDERABLE_QUOTE);
+            when(customerClient.findCustomerName(42L, "token-staff-sub")).thenReturn(Optional.of("Bob Le"));
+
+            ToolResult result = tool.execute(stageCall(Map.of("customer_id", 42)), context("staff-sub"));
+
+            OrderDraftCard card = (OrderDraftCard) result.widget().payload();
+            assertThat(card.customerId()).isEqualTo(42L);
+            assertThat(card.customerName()).isEqualTo("Bob Le");
         }
 
         @Test
         @DisplayName("Given a shopper passes their own customer_id, when staging, then it is accepted")
         void shopper_may_repeat_own_customer_id() throws Exception {
-            when(customerClient.findCurrentCustomerId(anyString())).thenReturn(Optional.of(7L));
+            when(customerClient.findCurrentCustomer(anyString())).thenReturn(Optional.of(ALICE));
             quoteReturns(ORDERABLE_QUOTE);
 
             ToolResult result = tool.execute(stageCall(Map.of("customer_id", "7")), context(USER));
@@ -194,7 +216,7 @@ class StageOrderDraftToolTest {
         @Test
         @DisplayName("Given a shortage, when staging, then no draft is staged and the per-line problem is returned to the model")
         void shortage_returns_problems_without_staging() throws Exception {
-            when(customerClient.findCurrentCustomerId(anyString())).thenReturn(Optional.of(7L));
+            when(customerClient.findCurrentCustomer(anyString())).thenReturn(Optional.of(ALICE));
             quoteReturns("""
                 {"orderable": false, "totalAmount": 0, "lines": [
                   {"sku": "NG-CHARGER-01", "name": "Nova 65W Fast Charger", "requestedQuantity": 2,
@@ -214,7 +236,7 @@ class StageOrderDraftToolTest {
         @Test
         @DisplayName("Given an unknown SKU, when staging, then not_found is reported and nothing is staged")
         void unknown_sku_returns_problem() throws Exception {
-            when(customerClient.findCurrentCustomerId(anyString())).thenReturn(Optional.of(7L));
+            when(customerClient.findCurrentCustomer(anyString())).thenReturn(Optional.of(ALICE));
             quoteReturns("""
                 {"orderable": false, "totalAmount": 0, "lines": [
                   {"sku": "NOPE", "name": null, "requestedQuantity": 2, "unitPrice": null,
@@ -231,7 +253,7 @@ class StageOrderDraftToolTest {
         @Test
         @DisplayName("Given quote_order fails, when staging, then a tool error is returned and nothing is staged")
         void quote_error_is_tool_error() {
-            when(customerClient.findCurrentCustomerId(anyString())).thenReturn(Optional.of(7L));
+            when(customerClient.findCurrentCustomer(anyString())).thenReturn(Optional.of(ALICE));
             when(mcpClient.callTool(eq("quote_order"), anyMap())).thenReturn(new CallToolResult(
                     List.of(TextContent.builder("Item 'quantity' must be a whole number").build()), true, null, Map.of()));
 
@@ -245,7 +267,7 @@ class StageOrderDraftToolTest {
         @Test
         @DisplayName("Given orderable=true but a line without a price, when staging, then it is not staged")
         void incomplete_line_is_not_staged() throws Exception {
-            when(customerClient.findCurrentCustomerId(anyString())).thenReturn(Optional.of(7L));
+            when(customerClient.findCurrentCustomer(anyString())).thenReturn(Optional.of(ALICE));
             quoteReturns("""
                 {"orderable": true, "totalAmount": 0, "lines": [
                   {"sku": "NG-CHARGER-01", "name": "X", "requestedQuantity": 2, "unitPrice": null,
@@ -266,7 +288,7 @@ class StageOrderDraftToolTest {
         @Test
         @DisplayName("Given a shopper names another customer_id, when staging, then denied and neither quoted nor staged")
         void shopper_cannot_override_customer() {
-            when(customerClient.findCurrentCustomerId(anyString())).thenReturn(Optional.of(7L));
+            when(customerClient.findCurrentCustomer(anyString())).thenReturn(Optional.of(ALICE));
 
             ToolResult result = tool.execute(stageCall(Map.of("customer_id", 99)), context(USER));
 
@@ -302,7 +324,7 @@ class StageOrderDraftToolTest {
         @Test
         @DisplayName("Given no customer is linked to the shopper, when staging, then a tool error and nothing staged")
         void unlinked_shopper_gets_error() {
-            when(customerClient.findCurrentCustomerId(anyString())).thenReturn(Optional.empty());
+            when(customerClient.findCurrentCustomer(anyString())).thenReturn(Optional.empty());
 
             ToolResult result = tool.execute(stageCall(Map.of()), context(USER));
 
@@ -315,7 +337,7 @@ class StageOrderDraftToolTest {
         @DisplayName("Given staff without customer_id and no own link, when staging, then asked for customer_id")
         void staff_without_customer_is_asked_for_one() {
             signIn("staff-sub", "ROLE_ADMIN");
-            when(customerClient.findCurrentCustomerId(anyString())).thenReturn(Optional.empty());
+            when(customerClient.findCurrentCustomer(anyString())).thenReturn(Optional.empty());
 
             ToolResult result = tool.execute(stageCall(Map.of()), context("staff-sub"));
 
@@ -327,12 +349,13 @@ class StageOrderDraftToolTest {
         @Test
         @DisplayName("Given the /me lookup fails, when staging, then a tool error")
         void customer_lookup_failure_is_tool_error() {
-            when(customerClient.findCurrentCustomerId(anyString())).thenThrow(new CustomerLookupException("HTTP 503"));
+            when(customerClient.findCurrentCustomer(anyString()))
+                    .thenThrow(new CustomerLookupException("internal detail: HTTP 503 from polaris:8080"));
 
             ToolResult result = tool.execute(stageCall(Map.of()), context(USER));
 
             assertThat(result.isError()).isTrue();
-            assertThat(result.result()).contains("HTTP 503");
+            assertThat(result.result()).isEqualTo(StageOrderDraftTool.CUSTOMER_LOOKUP_FAILED).doesNotContain("503");
         }
     }
 
@@ -361,7 +384,7 @@ class StageOrderDraftToolTest {
         @Test
         @DisplayName("Given a concurrent draft change keeps winning, when staging, then a clean tool error")
         void conflict_is_clean_tool_error() throws Exception {
-            when(customerClient.findCurrentCustomerId(anyString())).thenReturn(Optional.of(7L));
+            when(customerClient.findCurrentCustomer(anyString())).thenReturn(Optional.of(ALICE));
             quoteReturns(ORDERABLE_QUOTE);
             doThrow(new DraftConflictException(SESSION, new RuntimeException("lost")))
                     .when(draftService).stage(anyString(), anyString(), anyLong(), anyList());

@@ -174,6 +174,19 @@ class OrderDraftServiceIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("Given a real second open draft insert, then PostgreSQL's violation is recognized as the open-draft race the service retries")
+    void recognizes_real_open_draft_unique_violation() {
+        String sessionId = newSession("alice");
+        serviceAt(NOW).stage(sessionId, "alice", 7L, LINES);
+
+        Throwable violation = org.assertj.core.api.Assertions.catchThrowable(() ->
+                draftRepository.saveAndFlush(OrderDraft.stage(sessionId, 7L, LINES, OrderDraft.DEFAULT_TTL, NOW)));
+
+        assertThat(violation).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThat(OrderDraftService.isOpenDraftUniqueViolation(violation)).isTrue();
+    }
+
     @Nested
     @DisplayName("2. Discarding")
     class Discarding {

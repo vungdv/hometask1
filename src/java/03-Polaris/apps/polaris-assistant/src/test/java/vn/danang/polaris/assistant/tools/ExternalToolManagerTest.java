@@ -791,9 +791,59 @@ class ExternalToolManagerTest {
                     .containsExactly("order.write");
             assertThat(vn.danang.polaris.assistant.intent.IntentToolPolicy.requiredScopes("discard_order_draft", intents))
                     .containsExactly("order.write");
+            // discard is also offered when the shopper phrases it as cancelling
+            assertThat(new DefaultIntentManager().getIntent("commerce.order.cancel").orElseThrow().allowedTools())
+                    .contains("discard_order_draft");
             // reused read tool keeps its own read scope
             assertThat(vn.danang.polaris.assistant.intent.IntentToolPolicy.requiredScopes("search_available_products", intents))
                     .containsExactly("catalog.read");
+        }
+
+        @Test
+        @DisplayName("Given stage then discard in one batch, when handled, then the mutating local tools run one after another in call order")
+        void mutating_local_tools_run_sequentially_in_call_order() {
+            List<String> events = java.util.Collections.synchronizedList(new ArrayList<>());
+            LocalTool slowStage = new LocalTool() {
+                @Override
+                public Tool definition() {
+                    return Tool.builder("stage_order_draft", Map.of()).build();
+                }
+
+                @Override
+                public ToolResult execute(ToolCall toolCall, ToolExecutionContext context) {
+                    events.add("start " + toolCall.args().get("n"));
+                    try {
+                        Thread.sleep(150);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    events.add("end " + toolCall.args().get("n"));
+                    return ToolResult.success(toolCall, "staged");
+                }
+            };
+            LocalTool discard = new LocalTool() {
+                @Override
+                public Tool definition() {
+                    return Tool.builder("discard_order_draft", Map.of()).build();
+                }
+
+                @Override
+                public ToolResult execute(ToolCall toolCall, ToolExecutionContext context) {
+                    events.add("start discard");
+                    events.add("end discard");
+                    return ToolResult.success(toolCall, "discarded");
+                }
+            };
+            PolicyToolManager hub = new PolicyToolManager(polarisMcpClient, scope -> PolicyDecision.allow(), null,
+                    new DefaultIntentManager(), List.of(slowStage, discard));
+
+            List<ToolResult> results = hub.handleToolCalls(List.of(
+                    new ToolCall("stage_order_draft", Map.of("n", 1)),
+                    new ToolCall("stage_order_draft", Map.of("n", 2)),
+                    new ToolCall("discard_order_draft", Map.of())), placeIntent(0.97, true));
+
+            assertThat(results).extracting(ToolResult::result).containsExactly("staged", "staged", "discarded");
+            assertThat(events).containsExactly("start 1", "end 1", "start 2", "end 2", "start discard", "end discard");
         }
 
         @Test

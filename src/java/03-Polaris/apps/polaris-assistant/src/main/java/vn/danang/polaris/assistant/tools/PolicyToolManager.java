@@ -177,7 +177,13 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
         }
         List<Tool> tools = new ArrayList<>();
         if (remote != null) {
-            remote.stream().filter(t -> !localTools.containsKey(t.name())).forEach(tools::add);
+            for (Tool tool : remote) {
+                if (localTools.containsKey(tool.name())) {
+                    log.warn("Local tool '{}' shadows a remote MCP tool of the same name; the remote tool is not offered", tool.name());
+                } else {
+                    tools.add(tool);
+                }
+            }
         }
         localTools.values().forEach(local -> tools.add(local.definition()));
         return tools;
@@ -209,19 +215,29 @@ public class PolicyToolManager implements ToolManager, DisposableBean {
                 this.executor, SecurityContextHolder.getContext()
         );
 
-        // use stream to build a pipeline to process each tool:
+        // Pipeline per tool call, results kept in call order:
         // step-1: policy evaluation
-        // step-2: if it's ok pass to execute it concurrently; otherwise mark done
-        List<CompletableFuture<ToolResult>> futures =
-                toolCalls.stream()
-                        // step-1: policy evaluation
-                        .map(toolCall -> checkPolicy(toolCall, context))
-                        // step-2: if it's ok pass to execute it concurrently; otherwise mark done
-                        .map(checkResult ->
-                                checkResult.isOk()?
-                                executeConcurrently(checkResult.toolCall(), context, delegatingExecutor)
-                                : CompletableFuture.completedFuture(checkResult.rejection()))
-                        .toList();
+        // step-2: if it's ok, execute it; otherwise mark done. Remote calls run concurrently, while
+        //         mutating local tools (e.g. stage then discard a draft) run one after another in call
+        //         order, so their effects, and the cards they return, follow the order the model asked for.
+        List<CompletableFuture<ToolResult>> futures = new ArrayList<>(toolCalls.size());
+        CompletableFuture<ToolResult> lastMutation = CompletableFuture.completedFuture(null);
+        for (ToolCall toolCall : toolCalls) {
+            ToolPolicyCheckResult checkResult = checkPolicy(toolCall, context);
+            if (!checkResult.isOk()) {
+                futures.add(CompletableFuture.completedFuture(checkResult.rejection()));
+                continue;
+            }
+            LocalTool localTool = localTools.get(checkResult.toolCall().name());
+            if (localTool != null && localTool.mutating()) {
+                // executeLocalToolCall never completes exceptionally, so the chain always continues
+                lastMutation = lastMutation.thenApplyAsync(
+                        previous -> executeLocalToolCall(localTool, checkResult.toolCall(), context), delegatingExecutor);
+                futures.add(lastMutation);
+            } else {
+                futures.add(executeConcurrently(checkResult.toolCall(), context, delegatingExecutor));
+            }
+        }
 
         // last step: collect results.
         try {

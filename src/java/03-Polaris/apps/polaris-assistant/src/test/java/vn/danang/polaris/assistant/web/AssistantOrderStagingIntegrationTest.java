@@ -43,6 +43,7 @@ import vn.danang.polaris.assistant.ai.ModelRequestContext;
 import vn.danang.polaris.assistant.ai.ModelResponse;
 import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.customer.CurrentCustomerClient;
+import vn.danang.polaris.assistant.customer.CustomerRef;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.DraftStatus;
 import vn.danang.polaris.assistant.entity.OrderDraft;
@@ -116,7 +117,7 @@ class AssistantOrderStagingIntegrationTest {
                 .readValue(QUOTE, Map.class);
         when(polarisMcpClient.callTool(eq("quote_order"), anyMap())).thenReturn(new CallToolResult(
                 List.of(TextContent.builder("Quote").build()), false, structured, Map.of()));
-        when(currentCustomerClient.findCurrentCustomerId(anyString())).thenReturn(Optional.of(7L));
+        when(currentCustomerClient.findCurrentCustomer(anyString())).thenReturn(Optional.of(new CustomerRef(7L, "Alice Tran")));
 
         when(assistantModelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                 .thenReturn(new ModelResponse("", List.of(stageCall)))
@@ -140,6 +141,8 @@ class AssistantOrderStagingIntegrationTest {
                 .andExpect(jsonPath("$.widgets.length()").value(1))
                 .andExpect(jsonPath("$.widgets[0].type").value("ORDER_DRAFT"))
                 .andExpect(jsonPath("$.widgets[0].payload.draftId").isNotEmpty())
+                .andExpect(jsonPath("$.widgets[0].payload.customerId").value(7))
+                .andExpect(jsonPath("$.widgets[0].payload.customerName").value("Alice Tran"))
                 .andExpect(jsonPath("$.widgets[0].payload.total").value(49.80))
                 .andExpect(jsonPath("$.widgets[0].payload.expiresAt").isNotEmpty())
                 .andExpect(jsonPath("$.widgets[0].payload.items[0].sku").value("NG-CHARGER-01"))
@@ -163,6 +166,54 @@ class AssistantOrderStagingIntegrationTest {
         AssistantMessage reply = history.getLast();
         assertThat(reply.getWidgetType()).isEqualTo("ORDER_DRAFT");
         assertThat(reply.getWidgetPayload()).contains(draft.getId()).contains("\"total\":49.80");
+    }
+
+    private org.springframework.test.web.servlet.ResultActions chatAsShopper(String sessionId, String message) throws Exception {
+        return mockMvc.perform(post("/api/v1/assistant/chat")
+                .with(jwt().jwt(j -> j.subject("alice"))
+                        .authorities(new SimpleGrantedAuthority("PERM_order.write"),
+                                new SimpleGrantedAuthority("PERM_catalog.read")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"sessionId\":\"" + sessionId + "\",\"message\":\"" + message + "\"}"));
+    }
+
+    @Test
+    @DisplayName("Given stage then stage again in one model batch, then they run in order and the one card returned is the draft that is open")
+    void stage_twice_in_one_turn_returns_card_of_open_draft() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        ToolCall restage = new ToolCall("stage_order_draft",
+                Map.of("items", List.of(Map.of("sku", "NG-CHARGER-01", "quantity", 3))));
+        when(assistantModelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                .thenReturn(new ModelResponse("", List.of(stageCall, restage)))
+                .thenReturn(new ModelResponse("Updated your draft.", List.of()));
+
+        String body = chatAsShopper(sessionId, "actually make it 3")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.widgets.length()").value(1))
+                .andReturn().getResponse().getContentAsString();
+
+        OrderDraft open = draftRepository.findOpenDraft(sessionId).orElseThrow();
+        assertThat(com.jayway.jsonpath.JsonPath.<String>read(body, "$.widgets[0].payload.draftId")).isEqualTo(open.getId());
+        assertThat(draftRepository.findAll()).filteredOn(d -> d.belongsTo(sessionId)).hasSize(2)
+                .filteredOn(d -> d.getStatus() == DraftStatus.CANCELLED).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Given stage then discard in one model batch, then no card is returned, no draft stays open and no order is placed")
+    void stage_then_discard_in_one_turn_returns_no_card() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        when(assistantModelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                .thenReturn(new ModelResponse("", List.of(stageCall, new ToolCall("discard_order_draft", Map.of()))))
+                .thenReturn(new ModelResponse("Okay, I dropped it.", List.of()));
+
+        chatAsShopper(sessionId, "stage it and then drop it")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.widgets.length()").value(0));
+
+        assertThat(draftRepository.findOpenDraft(sessionId)).isEmpty();
+        assertThat(draftRepository.findAll()).filteredOn(d -> d.belongsTo(sessionId))
+                .singleElement().extracting(OrderDraft::getStatus).isEqualTo(DraftStatus.CANCELLED);
+        verify(polarisMcpClient, never()).callTool(eq("place_order"), anyMap());
     }
 
     @Test

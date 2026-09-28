@@ -74,6 +74,7 @@ class DiscardOrderDraftToolTest {
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.result()).contains(draft.getId()).contains("discarded").contains("Nothing was ordered");
+        assertThat(result.retractsWidget()).isEqualTo("ORDER_DRAFT");
     }
 
     @Test
@@ -85,6 +86,7 @@ class DiscardOrderDraftToolTest {
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.result()).contains("no open order draft");
+        assertThat(result.retractsWidget()).isEqualTo("ORDER_DRAFT");
     }
 
     @Test

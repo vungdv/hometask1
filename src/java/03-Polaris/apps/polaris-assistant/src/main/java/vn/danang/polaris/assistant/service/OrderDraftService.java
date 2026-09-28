@@ -33,14 +33,17 @@ import vn.danang.polaris.assistant.repository.OrderDraftRepository;
  * ({@link AssistantSessionRepository#findByIdForUpdate}), which both owner-checks the caller and keeps the
  * lock order session → drafts shared with {@code SessionStore#append}. Concurrent stagers of one session
  * are therefore serialized; if a concurrent writer that does not take the session lock still wins a race
- * (optimistic-lock or unique-constraint conflict), the whole transaction is rolled back and retried once
- * in a fresh transaction, never continued.
+ * (optimistic-lock conflict, or the {@code uq_assistant_drafts_open_session} unique violation), the whole
+ * transaction is rolled back and retried once in a fresh transaction, never continued. Any other integrity
+ * violation is not a race and propagates unchanged.
  */
 @Service
 public class OrderDraftService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderDraftService.class);
     private static final int MAX_ATTEMPTS = 2;
+    /** V14's UNIQUE (open_session_id): the only integrity violation that means "lost a staging race". */
+    static final String OPEN_DRAFT_UNIQUE_CONSTRAINT = "uq_assistant_drafts_open_session";
 
     private final AssistantSessionRepository sessionRepository;
     private final OrderDraftRepository draftRepository;
@@ -146,6 +149,20 @@ public class OrderDraftService {
                 });
     }
 
+    /** True only for the "one open draft per session" constraint; other integrity errors are real bugs. */
+    static boolean isOpenDraftUniqueViolation(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String message = t.getMessage();
+            if (message != null && message.toLowerCase(java.util.Locale.ROOT).contains(OPEN_DRAFT_UNIQUE_CONSTRAINT)) {
+                return true;
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return false;
+    }
+
     private <T> T inTransaction(String sessionId, Supplier<T> work) {
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             // A retry needs a fresh transaction; joining the caller's would continue a rollback-only one.
@@ -155,6 +172,9 @@ public class OrderDraftService {
             try {
                 return transaction.execute(status -> work.get());
             } catch (ConcurrencyFailureException | DataIntegrityViolationException e) {
+                if (e instanceof DataIntegrityViolationException && !isOpenDraftUniqueViolation(e)) {
+                    throw e;
+                }
                 if (attempt >= MAX_ATTEMPTS) {
                     log.warn("Order draft change lost to a concurrent writer sessionId={} attempts={}", sessionId, attempt);
                     throw new DraftConflictException(sessionId, e);

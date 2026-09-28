@@ -23,6 +23,14 @@ public interface LocalTool {
     }
 
     /**
+     * Whether the tool changes state (e.g. drafts). Mutating local tools of one batch run sequentially in
+     * call order rather than concurrently. Defaults to true, the safe choice.
+     */
+    default boolean mutating() {
+        return true;
+    }
+
+    /**
      * Runs an already-authorized call. Implementations report failures as {@link ToolResult#error} or
      * {@link ToolResult#denied} rather than throwing.
      *

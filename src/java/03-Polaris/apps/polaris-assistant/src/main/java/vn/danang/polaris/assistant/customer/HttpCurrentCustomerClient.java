@@ -24,15 +24,22 @@ import io.micrometer.tracing.Tracer;
 import jakarta.annotation.Nullable;
 
 /**
- * {@link CurrentCustomerClient} over Order Management's REST contract {@code GET /api/v1/customers/me},
+ * {@link CurrentCustomerClient} over Order Management's REST contract ({@code /api/v1/customers/...}),
  * authenticated with the caller's own bearer token and carrying W3C {@code traceparent}.
+ * <p>
+ * Failure details (status codes, transport errors) are logged here and never put into exception messages,
+ * because those messages end up in the model's context.
  */
 @Component
 public class HttpCurrentCustomerClient implements CurrentCustomerClient {
 
     static final String CURRENT_CUSTOMER_PATH = "/api/v1/customers/me";
+    static final String CUSTOMER_PATH = "/api/v1/customers/";
+    /** RFC 7807 type Order Management (S2) returns from {@code /customers/me} when no customer is linked. */
+    static final String NOT_LINKED_PROBLEM_TYPE = "https://polaris.local/errors/not-found";
 
     private static final Logger log = LoggerFactory.getLogger(HttpCurrentCustomerClient.class);
+    private static final String LOOKUP_FAILED = "The customer account could not be looked up in Order Management.";
 
     private final PolarisCoreApiProperties properties;
     private final ObjectMapper objectMapper;
@@ -55,49 +62,105 @@ public class HttpCurrentCustomerClient implements CurrentCustomerClient {
     }
 
     @Override
-    public Optional<Long> findCurrentCustomerId(String callerBearerToken) {
+    public Optional<CustomerRef> findCurrentCustomer(String callerBearerToken) {
         if (callerBearerToken == null || callerBearerToken.isBlank()) {
-            throw new CustomerLookupException("A caller access token is required to resolve the current customer.");
+            log.warn("Current customer lookup attempted without a caller token");
+            throw new CustomerLookupException(LOOKUP_FAILED);
         }
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(properties.getBaseUrl().replaceAll("/+$", "") + CURRENT_CUSTOMER_PATH))
-                .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
-                .header("Accept", "application/json")
-                .header("Authorization", "Bearer " + callerBearerToken)
-                .GET();
-        injectTraceParent(builder);
-
         HttpResponse<String> response;
         try {
-            response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            response = get(CURRENT_CUSTOMER_PATH, callerBearerToken);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new CustomerLookupException("Interrupted while resolving the current customer.", e);
+            log.warn("Interrupted while resolving the current customer");
+            throw new CustomerLookupException(LOOKUP_FAILED, e);
         } catch (Exception e) {
-            log.error("Current customer lookup failed: error={}", e.getMessage());
-            throw new CustomerLookupException("Order Management is unreachable: " + e.getMessage(), e);
+            log.error("Current customer lookup failed: error={}", e.toString());
+            throw new CustomerLookupException(LOOKUP_FAILED, e);
         }
 
         int status = response.statusCode();
-        if (status == 404) {
+        if (status == 404 && isNotLinkedProblem(response.body())) {
             log.info("No customer linked to the caller: status=404");
             return Optional.empty();
         }
         if (status != 200) {
-            log.warn("Current customer lookup rejected: status={}", status);
-            throw new CustomerLookupException("Order Management rejected the customer lookup with HTTP " + status + ".");
+            log.warn("Current customer lookup rejected: status={} body={}", status, abbreviate(response.body()));
+            throw new CustomerLookupException(LOOKUP_FAILED);
         }
         try {
-            JsonNode id = objectMapper.readTree(response.body()).get("id");
+            JsonNode body = objectMapper.readTree(response.body());
+            JsonNode id = body.get("id");
             if (id == null || !id.canConvertToLong()) {
-                throw new CustomerLookupException("Order Management returned a customer without an id.");
+                log.warn("Current customer payload has no id: body={}", abbreviate(response.body()));
+                throw new CustomerLookupException(LOOKUP_FAILED);
             }
-            return Optional.of(id.asLong());
+            return Optional.of(new CustomerRef(id.asLong(), textOrNull(body.get("fullName"))));
         } catch (CustomerLookupException e) {
             throw e;
         } catch (Exception e) {
-            throw new CustomerLookupException("Order Management returned an unreadable customer payload.", e);
+            log.warn("Current customer payload unreadable: error={}", e.toString());
+            throw new CustomerLookupException(LOOKUP_FAILED, e);
         }
+    }
+
+    @Override
+    public Optional<String> findCustomerName(Long customerId, String callerBearerToken) {
+        if (customerId == null || callerBearerToken == null || callerBearerToken.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            HttpResponse<String> response = get(CUSTOMER_PATH + customerId, callerBearerToken);
+            if (response.statusCode() != 200) {
+                log.info("Customer name lookup skipped: customerId={} status={}", customerId, response.statusCode());
+                return Optional.empty();
+            }
+            return Optional.ofNullable(textOrNull(objectMapper.readTree(response.body()).get("fullName")));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        } catch (Exception e) {
+            log.info("Customer name lookup failed: customerId={} error={}", customerId, e.toString());
+            return Optional.empty();
+        }
+    }
+
+    private HttpResponse<String> get(String path, String bearerToken) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(properties.getBaseUrl().replaceAll("/+$", "") + path))
+                .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
+                .header("Accept", "application/json, application/problem+json")
+                .header("Authorization", "Bearer " + bearerToken)
+                .GET();
+        injectTraceParent(builder);
+        return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Only Order Management's own "no customer linked" problem counts as "not linked"; any other 404
+     * (e.g. a gateway or a wrong base URL) is a failed lookup.
+     */
+    private boolean isNotLinkedProblem(String body) {
+        try {
+            JsonNode problem = objectMapper.readTree(body);
+            return problem != null
+                    && NOT_LINKED_PROBLEM_TYPE.equals(textOrNull(problem.get("type")))
+                    && problem.path("status").asInt() == 404;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Nullable
+    private static String textOrNull(@Nullable JsonNode node) {
+        return node != null && node.isTextual() && !node.asText().isBlank() ? node.asText() : null;
+    }
+
+    private static String abbreviate(@Nullable String body) {
+        if (body == null) {
+            return "";
+        }
+        return body.length() > 200 ? body.substring(0, 200) + "..." : body;
     }
 
     private void injectTraceParent(HttpRequest.Builder builder) {

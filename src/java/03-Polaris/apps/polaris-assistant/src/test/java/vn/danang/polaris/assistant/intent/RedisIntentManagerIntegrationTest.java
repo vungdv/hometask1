@@ -64,8 +64,9 @@ class RedisIntentManagerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Given intents already present in Redis, when constructed, then serves those instead of the fallback taxonomy")
-    void reads_existing_intents_without_overwriting() throws Exception {
+    @DisplayName("Given Redis was seeded by this taxonomy and then edited at runtime, when restarted, then the runtime edit is served, not overwritten")
+    void keeps_runtime_edits_while_classpath_taxonomy_is_unchanged() throws Exception {
+        new RedisIntentManager(redisTemplate, fallback, properties);
         String json = new ObjectMapper().writeValueAsString(
                 List.of(new IntentDefinition("catalog.product.search", "from redis", List.of("find product"))));
         redisTemplate.opsForValue().set(properties.getKey(), json);
@@ -75,5 +76,27 @@ class RedisIntentManagerIntegrationTest {
         assertThat(manager.listIntents())
                 .extracting(IntentDefinition::id)
                 .containsExactly("catalog.product.search");
+    }
+
+    @Test
+    @DisplayName("Given Redis holds a taxonomy from an older release, when a release with a changed taxonomy starts, then the classpath taxonomy wins")
+    void classpath_taxonomy_overwrites_stale_redis() throws Exception {
+        // Seeded by an older release: with SETNX-only seeding (no source hash), this content was never replaced.
+        String stale = new ObjectMapper().writeValueAsString(
+                List.of(new IntentDefinition("commerce.order.place", "old tools", List.of("order"))));
+        redisTemplate.opsForValue().set(properties.getKey(), stale);
+
+        RedisIntentManager manager = new RedisIntentManager(redisTemplate, fallback, properties);
+
+        assertThat(manager.listIntents())
+                .extracting(IntentDefinition::id)
+                .containsExactly("general.conversation");
+        assertThat(redisTemplate.opsForValue().get(properties.getKey() + ":source-sha256")).isNotBlank();
+
+        // A later release changes the taxonomy again: the new hash differs, so Redis is overwritten again.
+        DefaultIntentManager newer = new DefaultIntentManager(List.of(
+                new IntentDefinition("general.conversation", "fallback v2", List.of("hi"))));
+        RedisIntentManager upgraded = new RedisIntentManager(redisTemplate, newer, properties);
+        assertThat(upgraded.listIntents()).extracting(IntentDefinition::description).containsExactly("fallback v2");
     }
 }

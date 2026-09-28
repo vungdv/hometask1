@@ -162,7 +162,8 @@
       "abort order ORD-999"
     ],
     "allowedTools": [
-      "cancel_order"
+      "cancel_order",
+      "discard_order_draft"
     ],
     "requiredScope": "order.write",
     "confidenceThreshold": 0.92,
