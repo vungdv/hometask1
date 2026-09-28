@@ -23,6 +23,9 @@ public record ChatWidget(
     /** Staged order awaiting the shopper's "Submit Order" click: {draftId, items, total, expiresAt}. */
     public static final String ORDER_DRAFT = "ORDER_DRAFT";
 
+    /** Order placed from a confirmed draft: {orderNumber, draftId, customer, items, total}. */
+    public static final String ORDER_CONFIRMED = "ORDER_CONFIRMED";
+
     /** Catalog search results, exactly as the search tool returned them: {products: [...]} ({@link ProductListCard}). */
     public static final String PRODUCT_LIST = "PRODUCT_LIST";
 
