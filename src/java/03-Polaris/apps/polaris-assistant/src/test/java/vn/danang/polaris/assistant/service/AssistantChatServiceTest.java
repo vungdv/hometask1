@@ -15,6 +15,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -51,12 +52,14 @@ class AssistantChatServiceTest {
 
     private AssistantModelClient modelClient;
     private IntentResolutionFacade intentResolutionFacade;
+    private InMemorySessionStore sessionStore;
     private AssistantChatService chatService;
 
     @BeforeEach
     void setUp() {
         modelClient = mock(AssistantModelClient.class);
         intentResolutionFacade = mock(IntentResolutionFacade.class);
+        sessionStore = new InMemorySessionStore();
 
         when(intentResolutionFacade.resolve(anyString(), anyList()))
                 .thenReturn(new ResolvedIntent(
@@ -152,6 +155,26 @@ class AssistantChatServiceTest {
         }
 
         @Test
+        @DisplayName("Given a tool-using turn, when it completes, then persists user, tool call, tool result and reply to the session store in order")
+        void persists_the_whole_turn_to_the_session_store() {
+            ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(toolCall)))
+                    .thenReturn(new ModelResponse("Fast Charger 65W is $24.90.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
+                    .thenReturn(List.of(ToolResult.success(toolCall, "Found: Fast Charger 65W ($24.90)")));
+
+            chatService.sendMessage(ChatMessageRequest.of("session-store-1", "Find fast chargers"), "user-123");
+
+            List<AssistantMessage> persisted = sessionStore.persisted("session-store-1");
+            assertThat(persisted).extracting(AssistantMessage::getRole).containsExactly(
+                    MessageRole.USER, MessageRole.ASSISTANT, MessageRole.TOOL, MessageRole.ASSISTANT);
+            assertThat(persisted.getFirst().getContent()).isEqualTo("Find fast chargers");
+            assertThat(persisted.getLast().getContent()).isEqualTo("Fast Charger 65W is $24.90.");
+            assertThat(persisted).allSatisfy(m -> assertThat(m.getSessionId()).isEqualTo("session-store-1"));
+        }
+
+        @Test
         @DisplayName("Given parallel tool calls returned by model, when appended to history, then groups all ASSISTANT turns before TOOL turns")
         @SuppressWarnings("unchecked")
         void groups_parallel_model_turns_before_tool_turns_in_history() {
@@ -228,6 +251,33 @@ class AssistantChatServiceTest {
             assertThat(response.reply()).isEqualTo("Action denied: Missing scope 'order.write'.");
             verify(modelClient, times(1)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
             verify(intentResolutionFacade, times(1)).executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class));
+        }
+
+        @Test
+        @DisplayName("Given a session opened by another user, when sendMessage is called, then throws SessionAccessDeniedException and never calls the model")
+        void rejects_access_to_another_users_session() {
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("Your cart has 2 chargers.", List.of()));
+            chatService.sendMessage(ChatMessageRequest.of("session-alice", "What is in my cart?"), "user-alice");
+
+            assertThatThrownBy(() -> chatService.sendMessage(ChatMessageRequest.of("session-alice", "Show me"), "user-mallory"))
+                    .isInstanceOf(SessionAccessDeniedException.class);
+
+            verify(modelClient, times(1)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
+            assertThat(sessionStore.persisted("session-alice")).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("Given the model fails mid-turn, when sendMessage throws, then nothing from the failed turn is persisted")
+        void persists_nothing_when_the_turn_fails() {
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenThrow(new RuntimeException("Gemini model failure"));
+
+            assertThatThrownBy(() -> chatService.sendMessage(ChatMessageRequest.of("session-fail", "Hi"), "user-123"))
+                    .isInstanceOf(RuntimeException.class);
+
+            assertThat(sessionStore.persisted("session-fail")).isEmpty();
+            verify(intentResolutionFacade, never()).executeToolCalls(anyList(), any(ToolExecutionContext.class));
         }
 
         @Test
@@ -405,6 +455,7 @@ class AssistantChatServiceTest {
                 modelClient,
                 providerOf(tracer),
                 facade != null ? facade : intentResolutionFacade,
+                sessionStore,
                 new ObjectMapper()
         );
         if (tracer != null) {

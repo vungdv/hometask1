@@ -11,7 +11,8 @@ public record ChatMessageRequest(
 
         @Schema(
                 description = "Optional session identifier. If omitted, a session is automatically generated.",
-                example = "123e4567-e89b-12d3-a456-426614174000"
+                example = "123e4567-e89b-12d3-a456-426614174000",
+                maxLength = MAX_SESSION_ID_LENGTH
         )
         String sessionId,
 
@@ -28,6 +29,9 @@ public record ChatMessageRequest(
     // that could otherwise slip past isBlank() checks while looking empty.
     private static final Pattern INVISIBLE_OR_CONTROL = Pattern.compile("[\\p{Cf}\\p{Cc}]");
 
+    // Matches assistant_sessions.id.
+    public static final int MAX_SESSION_ID_LENGTH = 64;
+
     public ChatMessageRequest(String message) {
         this(null, message);
     }
@@ -41,6 +45,10 @@ public record ChatMessageRequest(
 
         if (message.isEmpty()) {
             throw new IllegalArgumentException("Message content must not be blank.");
+        }
+
+        if (sessionId != null && sessionId.length() > MAX_SESSION_ID_LENGTH) {
+            throw new IllegalArgumentException("Session id must be at most " + MAX_SESSION_ID_LENGTH + " characters.");
         }
 
         sessionId = (sessionId == null || sessionId.isBlank())
