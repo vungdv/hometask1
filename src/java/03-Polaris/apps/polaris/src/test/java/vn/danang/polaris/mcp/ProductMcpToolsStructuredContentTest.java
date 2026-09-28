@@ -1,8 +1,11 @@
 package vn.danang.polaris.mcp;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +15,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,6 +26,8 @@ import io.modelcontextprotocol.json.schema.jackson2.DefaultJsonSchemaValidator;
 import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
 import io.modelcontextprotocol.spec.McpSchema;
 import vn.danang.polaris.TestcontainersConfiguration;
+import vn.danang.polaris.catalog.entity.Product;
+import vn.danang.polaris.catalog.repository.ProductRepository;
 
 /**
  * S8 (G8): the catalog tools return {@code structuredContent} for product cards next to the model's text.
@@ -39,6 +45,9 @@ class ProductMcpToolsStructuredContentTest {
 
     @Autowired
     private HttpServletStatelessServerTransport statelessTransport;
+
+    @Autowired
+    private ProductRepository productRepository;
 
     @Test
     @DisplayName("search_available_products and get_product_by_sku declare an outputSchema")
@@ -141,6 +150,37 @@ class ProductMcpToolsStructuredContentTest {
         assertThat(structured.path("name").asText()).isEqualTo("Nova Wireless Earbuds");
         assertThat(structured.path("price").decimalValue()).isEqualByComparingTo("49.90");
         assertConformsTo(productMcpTools.getProductBySkuTool().outputSchema(), structured);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED) // the MCP server reads on its own thread: commit the row
+    @DisplayName("a product without a category over MCP wire: isError=false and category null, conforming to the outputSchema")
+    void productWithoutCategory_overWire_categoryNull() throws Exception {
+        String sku = "S8-NOCAT-" + UUID.randomUUID().toString().substring(0, 8);
+        Product product = new Product();
+        product.setSku(sku);
+        product.setName("Uncategorised " + sku);
+        product.setPrice(new BigDecimal("9.90"));
+        product.setStockQty(3);
+        product.setIsActive(true);
+        product.setCreatedAt(Instant.now());
+        Long id = productRepository.save(product).getId();
+        try {
+            JsonNode bySku = callTool("get_product_by_sku", "{\"sku\":\"" + sku + "\"}");
+            assertThat(bySku.path("isError").asBoolean()).isFalse();
+            assertThat(bySku.path("structuredContent").has("category")).isTrue();
+            assertThat(bySku.path("structuredContent").path("category").isNull()).isTrue();
+            assertConformsTo(productMcpTools.getProductBySkuTool().outputSchema(), bySku.path("structuredContent"));
+
+            JsonNode search = callTool("search_available_products", "{\"query\":\"" + sku + "\"}");
+            assertThat(search.path("isError").asBoolean()).isFalse();
+            JsonNode found = search.path("structuredContent").path("products").get(0);
+            assertThat(found.path("sku").asText()).isEqualTo(sku);
+            assertThat(found.path("category").isNull()).isTrue();
+            assertConformsTo(productMcpTools.getSearchProductsTool().outputSchema(), search.path("structuredContent"));
+        } finally {
+            productRepository.deleteById(id);
+        }
     }
 
     private static void assertConformsTo(Map<String, Object> schema, JsonNode structured) {
