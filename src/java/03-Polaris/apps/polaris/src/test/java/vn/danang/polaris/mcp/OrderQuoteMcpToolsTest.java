@@ -18,10 +18,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.modelcontextprotocol.json.schema.jackson2.DefaultJsonSchemaValidator;
 import io.modelcontextprotocol.server.transport.HttpServletStatelessServerTransport;
 import io.modelcontextprotocol.spec.McpSchema;
 import vn.danang.polaris.TestcontainersConfiguration;
 import vn.danang.polaris.catalog.repository.ProductRepository;
+import vn.danang.polaris.order.dto.QuoteRequest;
 import vn.danang.polaris.order.dto.QuoteResponse;
 
 @SpringBootTest
@@ -50,6 +52,14 @@ class OrderQuoteMcpToolsTest {
         @SuppressWarnings("unchecked")
         List<String> required = (List<String>) tool.inputSchema().get("required");
         assertThat(required).containsExactly("items");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> itemsSchema = (Map<String, Object>) properties.get("items");
+        assertThat(itemsSchema).containsEntry("maxItems", QuoteRequest.MAX_ITEMS);
+
+        assertThat(tool.outputSchema()).isNotNull();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> outputProps = (Map<String, Object>) tool.outputSchema().get("properties");
+        assertThat(outputProps).containsOnlyKeys("orderable", "lines", "totalAmount");
     }
 
     @Test
@@ -88,6 +98,38 @@ class OrderQuoteMcpToolsTest {
         assertThat(orderQuoteMcpTools.quoteOrder(Map.of("items", List.of(Map.of("sku", "NG-CASE-01", "quantity", 0))))
                 .isError()).isTrue();
         assertThat(orderQuoteMcpTools.quoteOrder(Map.of("items", List.of(Map.of("quantity", 1)))).isError()).isTrue();
+        List<Map<String, Object>> tooMany = java.util.stream.IntStream.rangeClosed(0, QuoteRequest.MAX_ITEMS)
+                .mapToObj(i -> Map.<String, Object>of("sku", "NG-CASE-01", "quantity", 1)).toList();
+        assertThat(orderQuoteMcpTools.quoteOrder(Map.of("items", tooMany)).isError()).isTrue();
+    }
+
+    @Test
+    @DisplayName("quote_order rejects fractional quantities instead of truncating them")
+    void quoteOrder_fractionalQuantity_rejected() {
+        McpSchema.CallToolResult result = orderQuoteMcpTools.quoteOrder(
+                Map.of("items", List.of(Map.of("sku", "NG-CASE-01", "quantity", 2.7))));
+        assertThat(result.isError()).isTrue();
+        assertThat(((McpSchema.TextContent) result.content().get(0)).text()).contains("whole number");
+        assertThat(orderQuoteMcpTools.quoteOrder(Map.of("items", List.of(Map.of("sku", "NG-CASE-01", "quantity", "2.7"))))
+                .isError()).isTrue();
+
+        McpSchema.CallToolResult whole = orderQuoteMcpTools.quoteOrder(
+                Map.of("items", List.of(Map.of("sku", "NG-CASE-01", "quantity", 2.0))));
+        assertThat(whole.isError()).isFalse();
+        assertThat(((QuoteResponse) whole.structuredContent()).lines().get(0).requestedQuantity()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("quote_order merges repeated SKUs and says so in the text summary")
+    void quoteOrder_repeatedSku_merged() {
+        McpSchema.CallToolResult result = orderQuoteMcpTools.quoteOrder(Map.of("items", List.of(
+                Map.of("sku", "NG-CHARGER-01", "quantity", 1),
+                Map.of("sku", "ng-charger-01", "quantity", 2))));
+
+        QuoteResponse quote = (QuoteResponse) result.structuredContent();
+        assertThat(quote.lines()).hasSize(1);
+        assertThat(quote.lines().get(0).requestedQuantity()).isEqualTo(3);
+        assertThat(((McpSchema.TextContent) result.content().get(0)).text()).contains("merged");
     }
 
     @Test
@@ -114,6 +156,14 @@ class OrderQuoteMcpToolsTest {
         assertThat(first.path("availableQuantity").isInt()).isTrue();
         assertThat(first.path("lineTotal").decimalValue()).isEqualByComparingTo("49.80");
         assertThat(structured.path("lines").get(1).path("problem").asText()).isEqualTo("not_found");
+
+        // The wire payload conforms to the declared outputSchema (the S6 contract)
+        ObjectMapper mapper = new ObjectMapper();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> structuredMap = mapper.convertValue(structured, Map.class);
+        var validation = new DefaultJsonSchemaValidator(mapper)
+                .validate(orderQuoteMcpTools.getQuoteOrderTool().outputSchema(), structuredMap);
+        assertThat(validation.valid()).as(validation.errorMessage()).isTrue();
     }
 
     @Test

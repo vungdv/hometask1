@@ -21,6 +21,7 @@ import vn.danang.polaris.catalog.entity.Product;
 import vn.danang.polaris.catalog.repository.ProductRepository;
 import vn.danang.polaris.catalog.service.ProductService;
 import vn.danang.polaris.config.PolarisPermissions;
+import vn.danang.polaris.order.dto.QuoteRequest;
 import vn.danang.polaris.order.repository.OrderRepository;
 import vn.danang.polaris.web.support.JwtMockFactory;
 
@@ -156,6 +157,40 @@ class OrderQuoteApiIntegrationTest {
                         .with(JwtMockFactory.purchaseManagement()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("POST /orders/quote with more than 50 items returns RFC 7807 400")
+    void quote_tooManyItems_returns400Problem() throws Exception {
+        String items = java.util.stream.IntStream.rangeClosed(0, QuoteRequest.MAX_ITEMS)
+                .mapToObj(i -> "{ \"sku\": \"NG-CASE-01\", \"quantity\": 1 }")
+                .collect(java.util.stream.Collectors.joining(","));
+
+        mockMvc.perform(post("/api/v1/orders/quote")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"items\": [" + items + "] }")
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/validation-error"));
+    }
+
+    @Test
+    @DisplayName("POST /orders/quote merges lines repeating a SKU")
+    void quote_repeatedSku_merged() throws Exception {
+        mockMvc.perform(post("/api/v1/orders/quote")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                            { "items": [
+                                { "sku": "NG-CHARGER-01", "quantity": 1 },
+                                { "sku": "ng-charger-01", "quantity": 2 }
+                            ] }
+                            """)
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lines.length()").value(1))
+                .andExpect(jsonPath("$.lines[0].requestedQuantity").value(3))
+                .andExpect(jsonPath("$.lines[0].lineTotal").value(74.70))
+                .andExpect(jsonPath("$.totalAmount").value(74.70));
     }
 
     @Test

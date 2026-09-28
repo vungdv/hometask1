@@ -127,20 +127,45 @@ class OrderQuoteServiceTest {
     }
 
     @Test
-    @DisplayName("Repeated SKU: stock judged on cumulative quantity; product read once, case-insensitively")
-    void quote_repeatedSku_cumulativeStock() {
+    @DisplayName("Repeated SKU (any case): merged into one line with summed quantity, first-appearance order")
+    void quote_repeatedSku_mergedIntoOneLine() {
         when(productRepository.findBySkuIgnoreCase("ng-speaker-01"))
                 .thenReturn(Optional.of(product("NG-SPEAKER-01", "Nova Bluetooth Speaker", "39.90", 5, true)));
+        when(productRepository.findBySkuIgnoreCase("NG-CASE-01"))
+                .thenReturn(Optional.of(product("NG-CASE-01", "Nova Phone Case", "14.90", 300, true)));
 
         QuoteResponse quote = service.quote(List.of(
                 new QuoteRequest.Item("ng-speaker-01", 3),
+                new QuoteRequest.Item("NG-CASE-01", 1),
                 new QuoteRequest.Item("NG-SPEAKER-01", 3)));
 
-        assertThat(quote.lines().get(0).problem()).isNull();
-        assertThat(quote.lines().get(0).sku()).isEqualTo("NG-SPEAKER-01");
-        assertThat(quote.lines().get(1).problem()).isEqualTo(QuoteResponse.Problem.INSUFFICIENT_STOCK);
+        assertThat(quote.lines()).hasSize(2);
+        QuoteResponse.Line speaker = quote.lines().get(0);
+        assertThat(speaker.sku()).isEqualTo("NG-SPEAKER-01");
+        assertThat(speaker.requestedQuantity()).isEqualTo(6);
+        assertThat(speaker.availableQuantity()).isEqualTo(5);
+        assertThat(speaker.problem()).isEqualTo(QuoteResponse.Problem.INSUFFICIENT_STOCK);
+        assertThat(quote.lines().get(1).sku()).isEqualTo("NG-CASE-01");
         assertThat(quote.orderable()).isFalse();
+        assertThat(quote.totalAmount()).isEqualByComparingTo("14.90");
         verify(productRepository, times(1)).findBySkuIgnoreCase("ng-speaker-01");
+    }
+
+    @Test
+    @DisplayName("Repeated SKU within stock: merged line is orderable and priced on the summed quantity")
+    void quote_repeatedSku_withinStock() {
+        when(productRepository.findBySkuIgnoreCase("NG-SPEAKER-01"))
+                .thenReturn(Optional.of(product("NG-SPEAKER-01", "Nova Bluetooth Speaker", "39.90", 5, true)));
+
+        QuoteResponse quote = service.quote(List.of(
+                new QuoteRequest.Item("NG-SPEAKER-01", 2),
+                new QuoteRequest.Item("NG-SPEAKER-01", 2)));
+
+        assertThat(quote.lines()).hasSize(1);
+        assertThat(quote.lines().get(0).requestedQuantity()).isEqualTo(4);
+        assertThat(quote.lines().get(0).lineTotal()).isEqualByComparingTo("159.60");
+        assertThat(quote.orderable()).isTrue();
+        assertThat(quote.totalAmount()).isEqualByComparingTo("159.60");
     }
 
     @Test
@@ -156,12 +181,18 @@ class OrderQuoteServiceTest {
     }
 
     @Test
-    @DisplayName("Invalid input: empty items or quantity < 1 is rejected")
+    @DisplayName("Invalid input: empty, too many items, blank SKU, quantity < 1 or overflowing merged quantity is rejected")
     void quote_invalidInput() {
         assertThatThrownBy(() -> service.quote(List.of())).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.quote(List.of(new QuoteRequest.Item("NG-CASE-01", 0))))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.quote(List.of(new QuoteRequest.Item(" ", 1))))
                 .isInstanceOf(IllegalArgumentException.class);
+        List<QuoteRequest.Item> tooMany = java.util.stream.IntStream.rangeClosed(0, QuoteRequest.MAX_ITEMS)
+                .mapToObj(i -> new QuoteRequest.Item("SKU-" + i, 1)).toList();
+        assertThatThrownBy(() -> service.quote(tooMany)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.quote(List.of(
+                new QuoteRequest.Item("NG-CASE-01", Integer.MAX_VALUE),
+                new QuoteRequest.Item("NG-CASE-01", 1)))).isInstanceOf(IllegalArgumentException.class);
     }
 }

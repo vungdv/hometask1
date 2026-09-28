@@ -2,7 +2,7 @@ package vn.danang.polaris.order.service;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -37,19 +37,20 @@ public class OrderQuoteService {
         this.productRepo = productRepo;
     }
 
+    /**
+     * Quote the given lines. Lines repeating a SKU (case-insensitive) are merged into one line with
+     * the summed quantity, in order of first appearance, since they draw on the same stock.
+     */
     public QuoteResponse quote(List<QuoteRequest.Item> items) {
         if (items == null || items.isEmpty()) {
             throw new IllegalArgumentException("Quote must contain at least one item");
         }
+        if (items.size() > QuoteRequest.MAX_ITEMS) {
+            throw new IllegalArgumentException("Quote must contain at most " + QuoteRequest.MAX_ITEMS + " items");
+        }
 
-        Map<String, Optional<Product>> products = new HashMap<>();
-        // Repeated SKUs draw on the same stock, so shortage is judged on the cumulative quantity.
-        Map<String, Integer> requestedSoFar = new HashMap<>();
-
-        List<QuoteResponse.Line> lines = new ArrayList<>();
-        BigDecimal total = BigDecimal.ZERO;
-        boolean orderable = true;
-
+        record MergedItem(String sku, int quantity) {}
+        Map<String, MergedItem> merged = new LinkedHashMap<>();
         for (QuoteRequest.Item item : items) {
             if (item == null || item.sku() == null || item.sku().isBlank()) {
                 throw new IllegalArgumentException("Item 'sku' is required");
@@ -58,12 +59,19 @@ public class OrderQuoteService {
                 throw new IllegalArgumentException("Item 'quantity' must be at least 1 for SKU '" + item.sku() + "'");
             }
             String sku = item.sku().trim();
-            String key = sku.toLowerCase(Locale.ROOT);
-            int quantity = item.quantity();
+            merged.merge(sku.toLowerCase(Locale.ROOT), new MergedItem(sku, item.quantity()),
+                    (a, b) -> new MergedItem(a.sku(), sumQuantities(a.sku(), a.quantity(), b.quantity())));
+        }
 
-            Optional<Product> found = products.computeIfAbsent(key, k -> productRepo.findBySkuIgnoreCase(sku));
+        List<QuoteResponse.Line> lines = new ArrayList<>();
+        BigDecimal total = BigDecimal.ZERO;
+        boolean orderable = true;
+
+        for (MergedItem item : merged.values()) {
+            int quantity = item.quantity();
+            Optional<Product> found = productRepo.findBySkuIgnoreCase(item.sku());
             if (found.isEmpty()) {
-                lines.add(new QuoteResponse.Line(sku, null, quantity, null, null, null, QuoteResponse.Problem.NOT_FOUND));
+                lines.add(new QuoteResponse.Line(item.sku(), null, quantity, null, null, null, QuoteResponse.Problem.NOT_FOUND));
                 orderable = false;
                 continue;
             }
@@ -71,12 +79,11 @@ public class OrderQuoteService {
             Product product = found.get();
             BigDecimal unitPrice = product.getPrice();
             int available = product.getStockQty() != null ? product.getStockQty() : 0;
-            int cumulative = requestedSoFar.merge(key, quantity, Integer::sum);
 
             QuoteResponse.Problem problem = null;
             if (Boolean.FALSE.equals(product.getIsActive())) {
                 problem = QuoteResponse.Problem.INACTIVE;
-            } else if (cumulative > available) {
+            } else if (quantity > available) {
                 problem = QuoteResponse.Problem.INSUFFICIENT_STOCK;
             }
 
@@ -91,7 +98,16 @@ public class OrderQuoteService {
                     product.getSku(), product.getName(), quantity, unitPrice, available, lineTotal, problem));
         }
 
-        log.debug("Order quote computed: lines={}, orderable={}, total={}", lines.size(), orderable, total);
+        log.debug("Order quote computed: requestedLines={}, lines={}, orderable={}, total={}",
+                items.size(), lines.size(), orderable, total);
         return new QuoteResponse(orderable, lines, total);
+    }
+
+    private static int sumQuantities(String sku, int a, int b) {
+        long sum = (long) a + b;
+        if (sum > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Total quantity for SKU '" + sku + "' is too large");
+        }
+        return (int) sum;
     }
 }

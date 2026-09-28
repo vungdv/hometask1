@@ -1,5 +1,6 @@
 package vn.danang.polaris.mcp;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,7 +38,9 @@ public class OrderQuoteMcpTools {
           "properties": {
             "items": {
               "type": "array",
-              "description": "Line items to check against live stock and price",
+              "description": "Line items to check against live stock and price (lines repeating a SKU are merged)",
+              "minItems": 1,
+              "maxItems": 50,
               "items": {
                 "type": "object",
                 "properties": {
@@ -47,7 +50,8 @@ public class OrderQuoteMcpTools {
                   },
                   "quantity": {
                     "type": "integer",
-                    "description": "Requested quantity (minimum 1)"
+                    "minimum": 1,
+                    "description": "Requested quantity (whole number, minimum 1)"
                   }
                 },
                 "required": ["sku", "quantity"]
@@ -55,6 +59,44 @@ public class OrderQuoteMcpTools {
             }
           },
           "required": ["items"]
+        }
+        """;
+
+    // Mirrors QuoteResponse: the published structuredContent contract consumed by the AI Assistant.
+    private static final String QUOTE_ORDER_OUTPUT_SCHEMA = """
+        {
+          "type": "object",
+          "properties": {
+            "orderable": {
+              "type": "boolean",
+              "description": "True when every line can be ordered as requested right now"
+            },
+            "lines": {
+              "type": "array",
+              "description": "One entry per distinct requested SKU, in order of first appearance",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "sku": { "type": "string" },
+                  "name": { "type": ["string", "null"] },
+                  "requestedQuantity": { "type": "integer" },
+                  "unitPrice": { "type": ["number", "null"] },
+                  "availableQuantity": { "type": ["integer", "null"] },
+                  "lineTotal": { "type": ["number", "null"] },
+                  "problem": {
+                    "type": ["string", "null"],
+                    "enum": ["not_found", "inactive", "insufficient_stock", null]
+                  }
+                },
+                "required": ["sku", "name", "requestedQuantity", "unitPrice", "availableQuantity", "lineTotal", "problem"]
+              }
+            },
+            "totalAmount": {
+              "type": "number",
+              "description": "Sum of the line totals of all orderable lines at live prices"
+            }
+          },
+          "required": ["orderable", "lines", "totalAmount"]
         }
         """;
 
@@ -74,6 +116,7 @@ public class OrderQuoteMcpTools {
 
     public McpSchema.Tool getQuoteOrderTool(McpJsonMapper jsonMapper) {
         return McpSchema.Tool.builder(TOOL_QUOTE_ORDER, jsonMapper, QUOTE_ORDER_SCHEMA)
+                .outputSchema(jsonMapper, QUOTE_ORDER_OUTPUT_SCHEMA)
                 .description("Read-only check of live price and stock for prospective order lines. Returns per-line unit price, "
                         + "available stock, line total and problem (not_found, inactive, insufficient_stock), plus the total. "
                         + "Does not place, reserve or change anything.")
@@ -117,6 +160,9 @@ public class OrderQuoteMcpTools {
             if (!(rawItems instanceof List<?> itemsList) || itemsList.isEmpty()) {
                 return error("Parameter 'items' is required and must not be empty.");
             }
+            if (itemsList.size() > QuoteRequest.MAX_ITEMS) {
+                return error("Parameter 'items' must contain at most " + QuoteRequest.MAX_ITEMS + " items.");
+            }
 
             List<QuoteRequest.Item> items = new ArrayList<>();
             for (Object itemObj : itemsList) {
@@ -130,7 +176,7 @@ public class OrderQuoteMcpTools {
                 String sku = rawSku.toString().trim();
                 Integer qty = parseInteger(itemMap.get("quantity"));
                 if (qty == null || qty < 1) {
-                    return error("Item 'quantity' must be at least 1 for SKU '" + sku + "'.");
+                    return error("Item 'quantity' must be a whole number of at least 1 for SKU '" + sku + "'.");
                 }
                 items.add(new QuoteRequest.Item(sku, qty));
             }
@@ -138,7 +184,7 @@ public class OrderQuoteMcpTools {
             try {
                 QuoteResponse quote = orderQuoteService.quote(items);
                 return McpSchema.CallToolResult.builder()
-                        .addTextContent(formatQuote(quote))
+                        .addTextContent(formatQuote(quote, items.size()))
                         .structuredContent(quote)
                         .isError(false)
                         .build();
@@ -152,11 +198,14 @@ public class OrderQuoteMcpTools {
         return McpSchema.CallToolResult.builder().addTextContent(message).isError(true).build();
     }
 
-    private String formatQuote(QuoteResponse quote) {
+    private String formatQuote(QuoteResponse quote, int requestedLines) {
         List<String> lines = new ArrayList<>();
         lines.add(quote.orderable()
                 ? "Quote: all lines can be ordered at live prices (nothing reserved)."
                 : "Quote: some lines cannot be ordered as requested (nothing reserved).");
+        if (quote.lines().size() < requestedLines) {
+            lines.add("- Repeated SKUs were merged into one line with the summed quantity.");
+        }
         for (QuoteResponse.Line line : quote.lines()) {
             if (line.problem() == null) {
                 lines.add(String.format("  * [%s] %s x %d @ $%s = $%s (in stock: %d)",
@@ -175,12 +224,13 @@ public class OrderQuoteMcpTools {
         return String.join("\n", lines);
     }
 
+    /** Parses a whole number; fractional (e.g. 2.7) or out-of-range values yield null rather than being truncated. */
     private Integer parseInteger(Object val) {
         if (val == null) return null;
-        if (val instanceof Number n) return n.intValue();
         try {
-            return Integer.parseInt(val.toString().trim());
-        } catch (NumberFormatException e) {
+            BigDecimal number = val instanceof Number n ? new BigDecimal(n.toString()) : new BigDecimal(val.toString().trim());
+            return number.stripTrailingZeros().scale() <= 0 ? number.intValueExact() : null;
+        } catch (NumberFormatException | ArithmeticException e) {
             return null;
         }
     }
