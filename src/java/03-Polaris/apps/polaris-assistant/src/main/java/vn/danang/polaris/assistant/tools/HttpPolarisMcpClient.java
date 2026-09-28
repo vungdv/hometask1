@@ -18,6 +18,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.micrometer.tracing.Span;
@@ -65,7 +66,9 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
     public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, UserContext userContext, HttpClient httpClient, @Nullable Tracer tracer) {
         this.properties = properties;
         this.objectMapper = objectMapper;
-        this.jsonMapper = new JacksonMcpJsonMapper(objectMapper);
+        // Parse JSON-RPC results with BigDecimal floats so money in structuredContent (e.g. quote_order)
+        // never goes through double.
+        this.jsonMapper = new JacksonMcpJsonMapper(objectMapper.copy().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS));
         this.userContext = userContext;
         this.httpClient = httpClient;
         this.tracer = tracer;

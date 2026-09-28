@@ -698,4 +698,164 @@ class ExternalToolManagerTest {
             manager.destroy();
         }
     }
+
+    // =========================================================================
+    // 2c. Local tools (stage_order_draft / discard_order_draft) share the policy gate
+    // =========================================================================
+    @Nested
+    @DisplayName("2c. Local tools")
+    class LocalTools {
+
+        private final List<String> authorizedScopes = new ArrayList<>();
+        private final List<ToolCall> executed = new ArrayList<>();
+
+        private LocalTool localTool(String name) {
+            Tool definition = Tool.builder(name, Map.of()).description("local " + name).build();
+            return new LocalTool() {
+                @Override
+                public Tool definition() {
+                    return definition;
+                }
+
+                @Override
+                public ToolResult execute(ToolCall toolCall, ToolExecutionContext context) {
+                    executed.add(toolCall);
+                    return ToolResult.success(toolCall, "staged for " + context.userId());
+                }
+            };
+        }
+
+        private PolicyToolManager hub(Set<String> grantedScopes) {
+            PolicyEngine recording = scope -> {
+                authorizedScopes.add(scope);
+                return grantedScopes.contains(scope) ? PolicyDecision.allow() : PolicyDecision.deny("Missing scope " + scope);
+            };
+            return new PolicyToolManager(polarisMcpClient, recording, null, new DefaultIntentManager(),
+                    List.of(localTool("stage_order_draft"), localTool("discard_order_draft")));
+        }
+
+        private ToolExecutionContext placeIntent(double confidence, boolean meetsThreshold) {
+            IntentDefinition place = new DefaultIntentManager().getIntent("commerce.order.place").orElseThrow();
+            return new ToolExecutionContext("sess-1", "user-1", 1,
+                    new ResolvedIntent("commerce.order.place", confidence, meetsThreshold, List.of(), place));
+        }
+
+        @Test
+        @DisplayName("Given local tools, when discovering, then they are listed next to the remote tools and replace same-named remote tools")
+        void discovery_includes_local_tools() {
+            when(polarisMcpClient.listAvailableTools()).thenReturn(List.of(
+                    Tool.builder("search_available_products", Map.of()).build(),
+                    Tool.builder("stage_order_draft", Map.of()).description("remote impostor").build()));
+
+            List<Tool> tools = hub(Set.of()).discoverAllTools();
+
+            assertThat(tools).extracting(Tool::name)
+                    .containsExactly("search_available_products", "stage_order_draft", "discard_order_draft");
+            assertThat(tools).filteredOn(t -> t.name().equals("stage_order_draft"))
+                    .extracting(Tool::description).containsExactly("local stage_order_draft");
+        }
+
+        @Test
+        @DisplayName("Given commerce.order.place with order.write, when stage_order_draft is called, then dispatched locally, never over MCP")
+        void dispatches_local_tool_after_policy() {
+            List<ToolResult> results = hub(Set.of("order.write")).handleToolCalls(
+                    List.of(new ToolCall("stage_order_draft", Map.of("items", List.of()))), placeIntent(0.97, true));
+
+            assertThat(results).singleElement().satisfies(r -> {
+                assertThat(r.isSuccess()).isTrue();
+                assertThat(r.result()).isEqualTo("staged for user-1");
+            });
+            assertThat(executed).extracting(ToolCall::name).containsExactly("stage_order_draft");
+            assertThat(authorizedScopes).containsOnly("order.write");
+            verify(polarisMcpClient, never()).callTool(anyString(), any());
+        }
+
+        @Test
+        @DisplayName("Given the caller lacks order.write, when stage_order_draft is called, then denied and not executed")
+        void local_tool_requires_order_write() {
+            List<ToolResult> results = hub(Set.of("order.read", "catalog.read")).handleToolCalls(
+                    List.of(new ToolCall("stage_order_draft", Map.of())), placeIntent(0.97, true));
+
+            assertThat(results).singleElement().satisfies(r -> assertThat(r.isDenied()).isTrue());
+            assertThat(executed).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Given the real taxonomy, then stage/discard are mutating tools scoped order.write and absent from the low-confidence read-only set")
+        void draft_tools_are_mutating_order_write() {
+            List<IntentDefinition> intents = new DefaultIntentManager().listIntents();
+
+            assertThat(vn.danang.polaris.assistant.intent.IntentToolPolicy.readOnlyTools(intents))
+                    .doesNotContain("stage_order_draft", "discard_order_draft");
+            assertThat(vn.danang.polaris.assistant.intent.IntentToolPolicy.requiredScopes("stage_order_draft", intents))
+                    .containsExactly("order.write");
+            assertThat(vn.danang.polaris.assistant.intent.IntentToolPolicy.requiredScopes("discard_order_draft", intents))
+                    .containsExactly("order.write");
+            // discard is also offered when the shopper phrases it as cancelling
+            assertThat(new DefaultIntentManager().getIntent("commerce.order.cancel").orElseThrow().allowedTools())
+                    .contains("discard_order_draft");
+            // reused read tool keeps its own read scope
+            assertThat(vn.danang.polaris.assistant.intent.IntentToolPolicy.requiredScopes("search_available_products", intents))
+                    .containsExactly("catalog.read");
+        }
+
+        @Test
+        @DisplayName("Given stage then discard in one batch, when handled, then the mutating local tools run one after another in call order")
+        void mutating_local_tools_run_sequentially_in_call_order() {
+            List<String> events = java.util.Collections.synchronizedList(new ArrayList<>());
+            LocalTool slowStage = new LocalTool() {
+                @Override
+                public Tool definition() {
+                    return Tool.builder("stage_order_draft", Map.of()).build();
+                }
+
+                @Override
+                public ToolResult execute(ToolCall toolCall, ToolExecutionContext context) {
+                    events.add("start " + toolCall.args().get("n"));
+                    try {
+                        Thread.sleep(150);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    events.add("end " + toolCall.args().get("n"));
+                    return ToolResult.success(toolCall, "staged");
+                }
+            };
+            LocalTool discard = new LocalTool() {
+                @Override
+                public Tool definition() {
+                    return Tool.builder("discard_order_draft", Map.of()).build();
+                }
+
+                @Override
+                public ToolResult execute(ToolCall toolCall, ToolExecutionContext context) {
+                    events.add("start discard");
+                    events.add("end discard");
+                    return ToolResult.success(toolCall, "discarded");
+                }
+            };
+            PolicyToolManager hub = new PolicyToolManager(polarisMcpClient, scope -> PolicyDecision.allow(), null,
+                    new DefaultIntentManager(), List.of(slowStage, discard));
+
+            List<ToolResult> results = hub.handleToolCalls(List.of(
+                    new ToolCall("stage_order_draft", Map.of("n", 1)),
+                    new ToolCall("stage_order_draft", Map.of("n", 2)),
+                    new ToolCall("discard_order_draft", Map.of())), placeIntent(0.97, true));
+
+            assertThat(results).extracting(ToolResult::result).containsExactly("staged", "staged", "discarded");
+            assertThat(events).containsExactly("start 1", "end 1", "start 2", "end 2", "start discard", "end discard");
+        }
+
+        @Test
+        @DisplayName("Given a low-confidence turn, when stage_order_draft is called, then rejected before any scope check or execution")
+        void low_confidence_rejects_local_tool() {
+            List<ToolResult> results = hub(Set.of("order.write")).handleToolCalls(
+                    List.of(new ToolCall("stage_order_draft", Map.of()), new ToolCall("discard_order_draft", Map.of())),
+                    placeIntent(0.5, false));
+
+            assertThat(results).hasSize(2).allMatch(ToolResult::isError);
+            assertThat(executed).isEmpty();
+            assertThat(authorizedScopes).isEmpty();
+        }
+    }
 }

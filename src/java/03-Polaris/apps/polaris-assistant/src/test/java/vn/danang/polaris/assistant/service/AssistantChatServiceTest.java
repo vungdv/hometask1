@@ -29,6 +29,7 @@ import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
+import vn.danang.polaris.assistant.dto.ChatWidget;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
@@ -445,6 +446,104 @@ class AssistantChatServiceTest {
         ObjectProvider<T> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(instance);
         return provider;
+    }
+
+    // =========================================================================
+    // Widgets — cards produced by tool calls reach the response and the history
+    // =========================================================================
+    @Nested
+    @DisplayName("Widgets")
+    class Widgets {
+
+        @Test
+        @DisplayName("Given a tool result carrying a widget, when the turn ends, then the response and the persisted reply carry it")
+        void returns_and_persists_widgets() {
+            ToolCall stage = new ToolCall("stage_order_draft", Map.of("items", List.of()));
+            ChatWidget card = new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1"));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(stage)))
+                    .thenReturn(new ModelResponse("Please review the draft.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage)), any(ToolExecutionContext.class)))
+                    .thenReturn(List.of(ToolResult.success(stage, "staged").withWidget(card)));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w", "order 2"), "user-1");
+
+            assertThat(response.widgets()).containsExactly(card);
+            AssistantMessage reply = sessionStore.persisted("sess-w").getLast();
+            assertThat(reply.getRole()).isEqualTo(MessageRole.ASSISTANT);
+            assertThat(reply.getWidgetType()).isEqualTo("ORDER_DRAFT");
+            assertThat(reply.getWidgetPayload()).isEqualTo("[{\"type\":\"ORDER_DRAFT\",\"payload\":{\"draftId\":\"dft-1\"}}]");
+        }
+
+        @Test
+        @DisplayName("Given two drafts staged in one turn, when the turn ends, then only the latest ORDER_DRAFT card is returned")
+        void latest_card_of_a_type_wins() {
+            ToolCall first = new ToolCall("stage_order_draft", Map.of("n", 1));
+            ToolCall second = new ToolCall("stage_order_draft", Map.of("n", 2));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(first)))
+                    .thenReturn(new ModelResponse("", List.of(second)))
+                    .thenReturn(new ModelResponse("Updated.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(first)), any(ToolExecutionContext.class)))
+                    .thenReturn(List.of(ToolResult.success(first, "a").withWidget(new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1")))));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(second)), any(ToolExecutionContext.class)))
+                    .thenReturn(List.of(ToolResult.success(second, "b").withWidget(new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-2")))));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w2", "make it 3"), "user-1");
+
+            assertThat(response.widgets()).singleElement()
+                    .extracting(ChatWidget::payload).isEqualTo(Map.of("draftId", "dft-2"));
+        }
+
+        @Test
+        @DisplayName("Given stage then discard in one batch, when the turn ends, then no ORDER_DRAFT card is returned")
+        void discard_after_stage_retracts_card() {
+            ToolCall stage = new ToolCall("stage_order_draft", Map.of());
+            ToolCall discard = new ToolCall("discard_order_draft", Map.of());
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(stage, discard)))
+                    .thenReturn(new ModelResponse("Draft discarded.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage, discard)), any(ToolExecutionContext.class)))
+                    .thenReturn(List.of(
+                            ToolResult.success(stage, "a").withWidget(new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1"))),
+                            ToolResult.success(discard, "b").retractingWidget(ChatWidget.ORDER_DRAFT)));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w4", "never mind"), "user-1");
+
+            assertThat(response.widgets()).isEmpty();
+            assertThat(sessionStore.persisted("sess-w4").getLast().getWidgetType()).isNull();
+        }
+
+        @Test
+        @DisplayName("Given a failed discard after a stage, when the turn ends, then the staged card is kept")
+        void failed_discard_keeps_card() {
+            ToolCall stage = new ToolCall("stage_order_draft", Map.of());
+            ToolCall discard = new ToolCall("discard_order_draft", Map.of());
+            ChatWidget card = new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1"));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(stage, discard)))
+                    .thenReturn(new ModelResponse("Could not discard.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage, discard)), any(ToolExecutionContext.class)))
+                    .thenReturn(List.of(
+                            ToolResult.success(stage, "a").withWidget(card),
+                            ToolResult.error(discard, "conflict")));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w5", "drop it"), "user-1");
+
+            assertThat(response.widgets()).containsExactly(card);
+        }
+
+        @Test
+        @DisplayName("Given no tool produced a card, when the turn ends, then widgets is empty and nothing is persisted as a widget")
+        void no_widgets_by_default() {
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("Hi!", List.of()));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w3", "hi"), "user-1");
+
+            assertThat(response.widgets()).isEmpty();
+            assertThat(sessionStore.persisted("sess-w3").getLast().getWidgetType()).isNull();
+        }
     }
 
     private AssistantChatService createChatService(

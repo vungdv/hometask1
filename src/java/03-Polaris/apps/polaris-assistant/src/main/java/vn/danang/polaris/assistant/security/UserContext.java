@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
@@ -15,6 +16,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.stereotype.Component;
 
 import vn.danang.polaris.assistant.tools.PolarisMcpProperties;
+import vn.danang.polaris.config.PolarisRoles;
 
 /**
  * Accessor for user authentication state and security tokens in the current execution context.
@@ -23,6 +25,10 @@ import vn.danang.polaris.assistant.tools.PolarisMcpProperties;
 @Component
 public class UserContext {
     private static final String PERMISSION_AUTHORITY_PREFIX = "PERM_";
+    private static final Set<String> STAFF_AUTHORITIES = Set.of(
+            roleAuthority(PolarisRoles.STAFF),
+            roleAuthority(PolarisRoles.ADMIN),
+            roleAuthority(PolarisRoles.PURCHASE_MANAGEMENT));
 
     private final PolarisMcpProperties properties;
 
@@ -65,6 +71,44 @@ public class UserContext {
         }
 
         return null;
+    }
+
+    /**
+     * Resolves the bearer token of the <em>caller</em> only: unlike {@link #resolveBearerToken()} this never
+     * falls back to the configured service token, so it is empty for anonymous callers. Use it wherever
+     * Polaris Core must answer for the caller's own identity (e.g. {@code GET /api/v1/customers/me}).
+     *
+     * @return the caller's own OAuth2 access token, or empty if the caller is not a signed-in user
+     */
+    public Optional<String> resolveCallerBearerToken() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth instanceof AnonymousAuthenticationToken || !auth.isAuthenticated()) {
+            return Optional.empty();
+        }
+        String token = null;
+        if (auth instanceof JwtAuthenticationToken jwtAuth) {
+            token = jwtAuth.getToken().getTokenValue();
+        } else if (auth.getPrincipal() instanceof Jwt jwt) {
+            token = jwt.getTokenValue();
+        } else if (auth.getCredentials() instanceof AbstractOAuth2Token oauth2Token) {
+            token = oauth2Token.getTokenValue();
+        }
+        return token != null && !token.isBlank() ? Optional.of(token) : Optional.empty();
+    }
+
+    /**
+     * Indicates whether the caller holds a back-office role that may act on behalf of any customer.
+     * Mirrors Order Management's staff set ({@code ROLE_STAFF}, {@code ROLE_ADMIN},
+     * {@code ROLE_PURCHASE_MANAGEMENT}); Order Management re-checks this on every write.
+     */
+    public boolean isStaff() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth instanceof AnonymousAuthenticationToken) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(STAFF_AUTHORITIES::contains);
     }
 
     /**
@@ -136,5 +180,9 @@ public class UserContext {
         }
 
         return permissions;
+    }
+
+    private static String roleAuthority(String role) {
+        return "ROLE_" + role.toUpperCase().replace('-', '_');
     }
 }

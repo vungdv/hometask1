@@ -137,11 +137,16 @@
       "place order for item PROD-1",
       "I want to buy this",
       "order 2 of NG-EARBUD-01 for Alice",
-      "place order for Alice Tran"
+      "place order for Alice Tran",
+      "change the draft to 3 chargers",
+      "discard the order draft"
     ],
     "allowedTools": [
-      "place_order",
-      "search_customers_by_name"
+      "stage_order_draft",
+      "discard_order_draft",
+      "search_available_products",
+      "search_customers_by_name",
+      "place_order"
     ],
     "requiredScope": "order.write",
     "confidenceThreshold": 0.92,
@@ -157,7 +162,8 @@
       "abort order ORD-999"
     ],
     "allowedTools": [
-      "cancel_order"
+      "cancel_order",
+      "discard_order_draft"
     ],
     "requiredScope": "order.write",
     "confidenceThreshold": 0.92,
