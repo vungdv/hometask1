@@ -20,7 +20,7 @@
         "pkce.code.challenge.method": "S256"
       },
       "defaultClientScopes": [
-        "openid", "profile", "email", "roles", "web-origins"
+        "openid", "basic", "profile", "email", "roles", "web-origins"
       ]
     },
     {
@@ -41,7 +41,7 @@
         "pkce.code.challenge.method": "S256"
       },
       "defaultClientScopes": [
-        "openid", "profile", "email", "roles", "web-origins"
+        "openid", "basic", "profile", "email", "roles", "web-origins"
       ]
     },
     {
@@ -65,7 +65,7 @@
         "post.logout.redirect.uris": "+"
       },
       "defaultClientScopes": [
-        "openid", "profile", "email", "roles", "web-origins"
+        "openid", "basic", "profile", "email", "roles", "web-origins"
       ]
     },
     {

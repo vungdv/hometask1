@@ -634,6 +634,65 @@ class McpServerTest {
         }
 
         @Test
+        @DisplayName("caller without order.write is forbidden, staff included")
+        void placeOrder_withoutOrderWritePermission_forbidden() {
+            Authentication readOnlyStaff = new TestingAuthenticationToken("staff", null, "ROLE_ADMIN", "PERM_order.read");
+
+            McpSchema.CallToolResult result = orderMcpTools.placeOrder(
+                    Map.of("customer_id", 1, "items", List.of(item)), readOnlyStaff);
+
+            assertThat(result.isError()).isTrue();
+            String text = ((McpSchema.TextContent) result.content().get(0)).text();
+            assertThat(text).contains("Forbidden: the 'order.write' permission is required");
+        }
+
+        @Test
+        @DisplayName("Streamable transport: the request's caller reaches the place_order handler")
+        void streamableTransport_propagatesCallerToPlaceOrder() throws Exception {
+            SecurityContextHolder.getContext().setAuthentication(shopper(ALICE_SUBJECT, "alice.tran@example.com"));
+
+            org.springframework.mock.web.MockHttpServletResponse init = streamablePost(null, """
+                    {"jsonrpc": "2.0", "id": "init-1", "method": "initialize",
+                     "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+                                "clientInfo": {"name": "test-client", "version": "1.0.0"}}}
+                    """);
+            String sessionId = init.getHeader("mcp-session-id");
+            assertThat(sessionId).isNotBlank();
+            streamablePost(sessionId, """
+                    {"jsonrpc": "2.0", "method": "notifications/initialized"}
+                    """);
+
+            // A forbidden call writes nothing, so it is safe to run on the transport's own threads
+            org.springframework.mock.web.MockHttpServletResponse call = streamablePost(sessionId, """
+                    {"jsonrpc": "2.0", "id": "call-1", "method": "tools/call",
+                     "params": {"name": "place_order",
+                                "arguments": {"customer_id": 2, "items": [{"sku": "NG-EARBUD-01", "quantity": 1}]}}}
+                    """);
+
+            long deadline = System.currentTimeMillis() + 5_000;
+            while (!call.getContentAsString().contains("call-1") && System.currentTimeMillis() < deadline) {
+                Thread.onSpinWait();
+            }
+            assertThat(call.getContentAsString()).contains("Forbidden:");
+        }
+
+        private org.springframework.mock.web.MockHttpServletResponse streamablePost(String sessionId, String body) throws Exception {
+            org.springframework.mock.web.MockHttpServletRequest request =
+                    new org.springframework.mock.web.MockHttpServletRequest("POST", "/mcp/sse");
+            request.setAsyncSupported(true);
+            request.addHeader("Accept", "application/json, text/event-stream");
+            if (sessionId != null) {
+                request.addHeader("mcp-session-id", sessionId);
+            }
+            request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            request.setContent(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            org.springframework.mock.web.MockHttpServletResponse response =
+                    new org.springframework.mock.web.MockHttpServletResponse();
+            transport.service(request, response);
+            return response;
+        }
+
+        @Test
         @DisplayName("Stateless transport: the request's caller reaches the place_order handler")
         void statelessTransport_propagatesCallerToPlaceOrder() throws Exception {
             // A forbidden call writes nothing, so it is safe to run on the transport's own threads

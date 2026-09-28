@@ -49,6 +49,8 @@ public class OrderControllerTest {
         // Staff callers order for the customer they name; identity rules are covered by CustomerServiceTest
         when(customerService.resolveOrderingCustomerId(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
+        when(customerService.resolveCustomerScope(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     private Order createSampleOrder(String orderNumber, OrderStatus status) {

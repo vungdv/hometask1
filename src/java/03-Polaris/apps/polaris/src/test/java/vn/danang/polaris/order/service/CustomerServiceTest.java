@@ -216,23 +216,99 @@ class CustomerServiceTest {
             when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.of(alice));
 
             assertThat(customerService.resolveCurrentCustomer(shopper)).isSameAs(alice);
-            verify(customerRepository, never()).findByEmail(any());
-            verify(customerRepository, never()).saveAndFlush(any());
+            verify(customerRepository, never()).findAllByEmailIgnoreCase(any());
+            verify(customerRepository, never()).linkAuthSubjectIfUnlinked(any(), any(), any());
         }
 
         @Test
-        @DisplayName("resolveCurrentCustomer links an unlinked customer once via verified email")
+        @DisplayName("resolveCurrentCustomer links an unlinked customer once via verified email (case-insensitive)")
         void resolveCurrentCustomer_emailFallbackLinksSubject() {
-            Customer alice = createSampleCustomer(1L, "Alice Tran");
-            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.empty());
-            when(customerRepository.findByEmail("alice.tran@example.com")).thenReturn(Optional.of(alice));
-            when(customerRepository.saveAndFlush(any(Customer.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            CallerIdentity mixedCase = new CallerIdentity("sub-alice", "Alice.Tran@Example.com", true, false);
+            Customer unlinked = createSampleCustomer(1L, "Alice Tran");
+            Customer linked = createSampleCustomer(1L, "Alice Tran");
+            linked.setAuthSubject("sub-alice");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.empty(), Optional.of(linked));
+            when(customerRepository.findAllByEmailIgnoreCase("Alice.Tran@Example.com")).thenReturn(List.of(unlinked));
+            when(customerRepository.linkAuthSubjectIfUnlinked(eq(1L), eq("sub-alice"), any())).thenReturn(1);
 
-            Customer resolved = customerService.resolveCurrentCustomer(shopper);
+            Customer resolved = customerService.resolveCurrentCustomer(mixedCase);
 
             assertThat(resolved.getId()).isEqualTo(1L);
             assertThat(resolved.getAuthSubject()).isEqualTo("sub-alice");
-            verify(customerRepository).saveAndFlush(alice);
+            verify(customerRepository).linkAuthSubjectIfUnlinked(eq(1L), eq("sub-alice"), any());
+        }
+
+        @Test
+        @DisplayName("resolveCurrentCustomer: losing a concurrent first login of the same account returns the winner's link")
+        void resolveCurrentCustomer_concurrentFirstLogin_returnsExistingLink() {
+            Customer unlinked = createSampleCustomer(1L, "Alice Tran");
+            Customer linkedByWinner = createSampleCustomer(1L, "Alice Tran");
+            linkedByWinner.setAuthSubject("sub-alice");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.empty(), Optional.of(linkedByWinner));
+            when(customerRepository.findAllByEmailIgnoreCase("alice.tran@example.com")).thenReturn(List.of(unlinked));
+            when(customerRepository.linkAuthSubjectIfUnlinked(eq(1L), eq("sub-alice"), any())).thenReturn(0);
+
+            assertThat(customerService.resolveCurrentCustomer(shopper)).isSameAs(linkedByWinner);
+        }
+
+        @Test
+        @DisplayName("resolveCurrentCustomer: losing a concurrent link to a different subject is not linked")
+        void resolveCurrentCustomer_concurrentLinkByOtherSubject_notFound() {
+            Customer unlinked = createSampleCustomer(1L, "Alice Tran");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.empty());
+            when(customerRepository.findAllByEmailIgnoreCase("alice.tran@example.com")).thenReturn(List.of(unlinked));
+            when(customerRepository.linkAuthSubjectIfUnlinked(eq(1L), eq("sub-alice"), any())).thenReturn(0);
+
+            assertThatThrownBy(() -> customerService.resolveCurrentCustomer(shopper))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("resolveCurrentCustomer: a token without sub still resolves an unlinked customer by verified email, without linking")
+        void resolveCurrentCustomer_noSubject_emailFallbackWithoutLink() {
+            CallerIdentity noSub = new CallerIdentity(null, "alice.tran@example.com", true, false);
+            Customer unlinked = createSampleCustomer(1L, "Alice Tran");
+            when(customerRepository.findAllByEmailIgnoreCase("alice.tran@example.com")).thenReturn(List.of(unlinked));
+
+            assertThat(customerService.resolveCurrentCustomer(noSub)).isSameAs(unlinked);
+            verify(customerRepository, never()).findByAuthSubject(any());
+            verify(customerRepository, never()).linkAuthSubjectIfUnlinked(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("resolveCurrentCustomer: a token without sub cannot claim an already linked customer")
+        void resolveCurrentCustomer_noSubject_linkedCustomer_notFound() {
+            CallerIdentity noSub = new CallerIdentity(null, "alice.tran@example.com", true, false);
+            Customer linked = createSampleCustomer(1L, "Alice Tran");
+            linked.setAuthSubject("sub-alice");
+            when(customerRepository.findAllByEmailIgnoreCase("alice.tran@example.com")).thenReturn(List.of(linked));
+
+            assertThatThrownBy(() -> customerService.resolveCurrentCustomer(noSub))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("assertCustomerAccess: shopper may access own data, not another customer's; staff may access any")
+        void assertCustomerAccess_ownership() {
+            Customer alice = createSampleCustomer(1L, "Alice Tran");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.of(alice));
+
+            customerService.assertCustomerAccess(shopper, 1L);
+            assertThatThrownBy(() -> customerService.assertCustomerAccess(shopper, 2L))
+                    .isInstanceOf(AccessDeniedException.class);
+            customerService.assertCustomerAccess(staff, 2L);
+        }
+
+        @Test
+        @DisplayName("resolveCustomerScope: staff may search unfiltered, shoppers are forced to their own customer")
+        void resolveCustomerScope_staffAndShopper() {
+            Customer alice = createSampleCustomer(1L, "Alice Tran");
+            when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.of(alice));
+
+            assertThat(customerService.resolveCustomerScope(staff, null)).isNull();
+            assertThat(customerService.resolveCustomerScope(shopper, null)).isEqualTo(1L);
+            assertThatThrownBy(() -> customerService.resolveCustomerScope(shopper, 2L))
+                    .isInstanceOf(AccessDeniedException.class);
         }
 
         @Test
@@ -241,12 +317,12 @@ class CustomerServiceTest {
             Customer alice = createSampleCustomer(1L, "Alice Tran");
             alice.setAuthSubject("sub-original");
             when(customerRepository.findByAuthSubject("sub-alice")).thenReturn(Optional.empty());
-            when(customerRepository.findByEmail("alice.tran@example.com")).thenReturn(Optional.of(alice));
+            when(customerRepository.findAllByEmailIgnoreCase("alice.tran@example.com")).thenReturn(List.of(alice));
 
             assertThatThrownBy(() -> customerService.resolveCurrentCustomer(shopper))
                     .isInstanceOf(ResourceNotFoundException.class);
             assertThat(alice.getAuthSubject()).isEqualTo("sub-original");
-            verify(customerRepository, never()).saveAndFlush(any());
+            verify(customerRepository, never()).linkAuthSubjectIfUnlinked(any(), any(), any());
         }
 
         @Test
@@ -258,7 +334,7 @@ class CustomerServiceTest {
             assertThatThrownBy(() -> customerService.resolveCurrentCustomer(unverified))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessage("No customer is linked to the authenticated user.");
-            verify(customerRepository, never()).findByEmail(any());
+            verify(customerRepository, never()).findAllByEmailIgnoreCase(any());
         }
 
         @Test

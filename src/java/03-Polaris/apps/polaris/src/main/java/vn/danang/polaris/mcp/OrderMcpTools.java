@@ -23,6 +23,7 @@ import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema;
 import jakarta.annotation.Nullable;
+import vn.danang.polaris.config.PolarisPermissions;
 import vn.danang.polaris.order.dto.CustomerSummaryResponse;
 import vn.danang.polaris.order.dto.OrderItemRequest;
 import vn.danang.polaris.order.dto.OrderResponse;
@@ -47,6 +48,8 @@ public class OrderMcpTools {
     public static final String TOOL_LIST_CUSTOMER_ORDERS = "list_customer_orders";
     public static final String TOOL_CANCEL_ORDER = "cancel_order";
     public static final String TOOL_SEARCH_CUSTOMERS_BY_NAME = "search_customers_by_name";
+
+    private static final String ORDER_WRITE_AUTHORITY = "PERM_" + PolarisPermissions.ORDER_WRITE;
 
     private static final String GET_ORDER_STATUS_SCHEMA = """
         {
@@ -374,6 +377,13 @@ public class OrderMcpTools {
                         .isError(true)
                         .build();
             }
+            if (authentication.getAuthorities().stream()
+                    .noneMatch(authority -> ORDER_WRITE_AUTHORITY.equals(authority.getAuthority()))) {
+                return McpSchema.CallToolResult.builder()
+                        .addTextContent("Forbidden: the '" + PolarisPermissions.ORDER_WRITE + "' permission is required to place an order.")
+                        .isError(true)
+                        .build();
+            }
             if (!caller.staff()) {
                 // Shoppers: the customer comes from the caller's identity, never from model-supplied arguments
                 try {
@@ -386,6 +396,11 @@ public class OrderMcpTools {
                 } catch (ResourceNotFoundException ex) {
                     return McpSchema.CallToolResult.builder()
                             .addTextContent(ex.getMessage() + " The order cannot be placed.")
+                            .isError(true)
+                            .build();
+                } catch (Exception ex) {
+                    return McpSchema.CallToolResult.builder()
+                            .addTextContent("Error resolving the customer for the authenticated user: " + ex.getMessage())
                             .isError(true)
                             .build();
                 }

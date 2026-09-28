@@ -63,8 +63,9 @@ public class CustomerService {
     /**
      * Resolve the customer linked to the authenticated caller (decision D1).
      * Looks up by JWT {@code sub} first. If nothing is linked yet and the token carries a verified
-     * {@code email}, the customer with that email is linked once by writing its {@code auth_subject};
-     * a customer already linked to a different subject is never re-linked.
+     * {@code email} (matched case-insensitively), the customer with that email is linked once by writing its
+     * {@code auth_subject}; a customer already linked to a subject is never re-linked. A token without
+     * {@code sub} can still resolve an unlinked customer by verified email, but cannot link it.
      *
      * @param caller authenticated caller identity
      * @return the caller's own customer entity
@@ -72,12 +73,15 @@ public class CustomerService {
      */
     @Transactional
     public Customer resolveCurrentCustomer(CallerIdentity caller) {
-        if (caller == null || caller.subject() == null || caller.subject().isBlank()) {
-            throw new ResourceNotFoundException("No customer is linked to the authenticated user.");
+        if (caller == null) {
+            throw notLinked();
         }
-        return customerRepository.findByAuthSubject(caller.subject())
-                .or(() -> linkByVerifiedEmail(caller))
-                .orElseThrow(() -> new ResourceNotFoundException("No customer is linked to the authenticated user."));
+        Optional<Customer> bySubject = hasText(caller.subject())
+                ? customerRepository.findByAuthSubject(caller.subject())
+                : Optional.empty();
+        return bySubject
+                .or(() -> resolveByVerifiedEmail(caller))
+                .orElseThrow(CustomerService::notLinked);
     }
 
     /**
@@ -104,38 +108,82 @@ public class CustomerService {
      */
     @Transactional
     public Long resolveOrderingCustomerId(CallerIdentity caller, Long requestedCustomerId) {
+        if (caller != null && caller.staff() && requestedCustomerId == null) {
+            throw new IllegalArgumentException("Customer ID is required when placing an order on behalf of a customer.");
+        }
+        return resolveCustomerScope(caller, requestedCustomerId);
+    }
+
+    /**
+     * Decide which customer's data the caller may act on. Staff may act on any customer (or none, e.g. an
+     * unfiltered search). Anyone else is scoped to their own linked customer; naming a different one is rejected.
+     *
+     * @param caller              authenticated caller identity
+     * @param requestedCustomerId customer ID supplied by the client, may be null
+     * @return the requested customer ID for staff, otherwise the caller's own customer ID
+     * @throws AccessDeniedException     if a non-staff caller names a customer other than their own
+     * @throws ResourceNotFoundException if a non-staff caller has no linked customer
+     */
+    @Transactional
+    public Long resolveCustomerScope(CallerIdentity caller, Long requestedCustomerId) {
         if (caller != null && caller.staff()) {
-            if (requestedCustomerId == null) {
-                throw new IllegalArgumentException("Customer ID is required when placing an order on behalf of a customer.");
-            }
             return requestedCustomerId;
         }
         Long ownCustomerId = resolveCurrentCustomer(caller).getId();
         if (requestedCustomerId != null && !requestedCustomerId.equals(ownCustomerId)) {
-            throw new AccessDeniedException("Orders can only be placed for the customer account linked to the authenticated user.");
+            throw new AccessDeniedException("Access is limited to the customer account linked to the authenticated user.");
         }
         return ownCustomerId;
     }
 
-    private Optional<Customer> linkByVerifiedEmail(CallerIdentity caller) {
-        if (!caller.emailVerified() || caller.email() == null || caller.email().isBlank()) {
+    /**
+     * Assert that the caller may act on data owned by the given customer (e.g. an order).
+     *
+     * @throws AccessDeniedException     if a non-staff caller does not own it
+     * @throws ResourceNotFoundException if a non-staff caller has no linked customer
+     */
+    @Transactional
+    public void assertCustomerAccess(CallerIdentity caller, Long ownerCustomerId) {
+        if (caller != null && caller.staff()) {
+            return;
+        }
+        if (ownerCustomerId == null || !ownerCustomerId.equals(resolveCurrentCustomer(caller).getId())) {
+            throw new AccessDeniedException("Access is limited to the customer account linked to the authenticated user.");
+        }
+    }
+
+    private Optional<Customer> resolveByVerifiedEmail(CallerIdentity caller) {
+        if (!caller.emailVerified() || !hasText(caller.email())) {
             return Optional.empty();
         }
-        return customerRepository.findByEmail(caller.email().trim())
-                .filter(customer -> {
-                    if (customer.getAuthSubject() == null) {
-                        return true;
-                    }
-                    log.warn("event=customer.link.rejected customer_id={} reason=already_linked_to_other_subject", customer.getId());
-                    return false;
-                })
-                .map(customer -> {
-                    customer.setAuthSubject(caller.subject());
-                    customer.setUpdatedAt(Instant.now());
-                    Customer linked = customerRepository.saveAndFlush(customer);
-                    log.info("event=customer.linked customer_id={} method=verified_email", linked.getId());
-                    return linked;
-                });
+        List<Customer> matches = customerRepository.findAllByEmailIgnoreCase(caller.email().trim());
+        if (matches.size() != 1) {
+            return Optional.empty();
+        }
+        Customer customer = matches.get(0);
+        if (customer.getAuthSubject() != null) {
+            log.warn("event=customer.link.rejected customer_id={} reason=already_linked", customer.getId());
+            return Optional.empty();
+        }
+        if (!hasText(caller.subject())) {
+            // Without a subject there is nothing to link; resolve the unlinked customer for this request only
+            log.warn("event=customer.link.skipped customer_id={} reason=token_without_sub", customer.getId());
+            return Optional.of(customer);
+        }
+        if (customerRepository.linkAuthSubjectIfUnlinked(customer.getId(), caller.subject(), Instant.now()) == 1) {
+            log.info("event=customer.linked customer_id={} method=verified_email", customer.getId());
+        }
+        // Re-read by subject: returns our link, or the one a concurrent first login of the same account committed.
+        // A concurrent link to a different subject leaves nothing, which resolves to "not linked".
+        return customerRepository.findByAuthSubject(caller.subject());
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private static ResourceNotFoundException notLinked() {
+        return new ResourceNotFoundException("No customer is linked to the authenticated user.");
     }
 
     /**

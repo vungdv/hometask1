@@ -71,8 +71,9 @@ class CurrentCustomerApiIntegrationTest {
     void me_verifiedEmailFallback_linksSubjectOnce() throws Exception {
         Customer dana = unlinkedCustomer("dana.pham@example.com");
 
+        // Email claims are matched case-insensitively
         mockMvc.perform(get("/api/v1/customers/me")
-                        .with(JwtMockFactory.shopper("dana-subject", "dana.pham@example.com")))
+                        .with(JwtMockFactory.shopper("dana-subject", "Dana.Pham@Example.com")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(dana.getId()))
                 .andExpect(jsonPath("$.fullName").value("Dana Pham"));

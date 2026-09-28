@@ -42,7 +42,7 @@ class CallerIdentityTest {
     @Test
     @DisplayName("back-office roles are staff")
     void from_staffRoles() {
-        for (String role : new String[] {"ROLE_STAFF", "ROLE_ADMIN", "ROLE_PURCHASE_MANAGEMENT", "ROLE_CUSTOMER_SUCCESS"}) {
+        for (String role : new String[] {"ROLE_STAFF", "ROLE_ADMIN", "ROLE_PURCHASE_MANAGEMENT"}) {
             CallerIdentity caller = CallerIdentity.from(
                     new JwtAuthenticationToken(jwt(true), AuthorityUtils.createAuthorityList(role)));
             assertThat(caller.staff()).as(role).isTrue();
@@ -50,10 +50,10 @@ class CallerIdentityTest {
     }
 
     @Test
-    @DisplayName("order.write permission alone does not make a caller staff")
+    @DisplayName("order.write permission and non-ordering back-office roles do not make a caller staff")
     void from_permissionIsNotStaff() {
         CallerIdentity caller = CallerIdentity.from(
-                new TestingAuthenticationToken("user", null, "PERM_order.write", "ROLE_INVENTORY"));
+                new TestingAuthenticationToken("user", null, "PERM_order.write", "ROLE_INVENTORY", "ROLE_CUSTOMER_SUCCESS"));
 
         assertThat(caller.staff()).isFalse();
         assertThat(caller.subject()).isEqualTo("user");

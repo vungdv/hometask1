@@ -23,14 +23,13 @@ import vn.danang.polaris.config.PolarisRoles;
 public record CallerIdentity(String subject, String email, boolean emailVerified, boolean staff) {
 
     /**
-     * Authorities that allow ordering on behalf of any customer. The realm has no single "staff" role,
-     * so the back-office roles that handle customers and purchases count as staff alongside ROLE_STAFF.
+     * Authorities that allow acting on behalf of any customer. The realm has no single "staff" role, so the
+     * back-office role that places and manages orders (purchase-management) counts as staff alongside ROLE_STAFF.
      */
     static final Set<String> STAFF_AUTHORITIES = Set.of(
             roleAuthority(PolarisRoles.STAFF),
             roleAuthority(PolarisRoles.ADMIN),
-            roleAuthority(PolarisRoles.PURCHASE_MANAGEMENT),
-            roleAuthority(PolarisRoles.CUSTOMER_SUCCESS));
+            roleAuthority(PolarisRoles.PURCHASE_MANAGEMENT));
 
     /**
      * Derives the caller identity from a Spring Security authentication.
