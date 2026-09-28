@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -60,6 +61,9 @@ class OrderDraftRepositoryTest {
 
     @Autowired
     private TransactionTemplate tx;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private String newSession() {
         String id = "sess-" + UUID.randomUUID();
@@ -155,6 +159,30 @@ class OrderDraftRepositoryTest {
         }
 
         @Test
+        @DisplayName("Given a WAITING_CONFIRMATION row without open_session_id, when inserted natively, then the CHECK constraint rejects it")
+        void rejects_open_draft_without_open_session_marker() {
+            String sessionId = newSession();
+
+            assertThatThrownBy(() -> jdbcTemplate.update(
+                    "INSERT INTO assistant_order_drafts (id, session_id, customer_id, status, items, total_amount, expires_at) "
+                            + "VALUES (?, ?, 7, 'WAITING_CONFIRMATION', CAST('[]' AS JSON), 1.00, CURRENT_TIMESTAMP)",
+                    "dft-" + UUID.randomUUID(), sessionId))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+        }
+
+        @Test
+        @DisplayName("Given a closed status that still carries open_session_id, when inserted natively, then the CHECK constraint rejects it")
+        void rejects_closed_draft_with_open_session_marker() {
+            String sessionId = newSession();
+
+            assertThatThrownBy(() -> jdbcTemplate.update(
+                    "INSERT INTO assistant_order_drafts (id, session_id, customer_id, status, items, total_amount, expires_at, open_session_id) "
+                            + "VALUES (?, ?, 7, 'CANCELLED', CAST('[]' AS JSON), 1.00, CURRENT_TIMESTAMP, ?)",
+                    "dft-" + UUID.randomUUID(), sessionId, sessionId))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+        }
+
+        @Test
         @DisplayName("Given a draft for an unknown session, when saved, then the foreign key rejects it")
         void rejects_draft_for_unknown_session() {
             assertThatThrownBy(() -> stagedDraft("sess-does-not-exist"))
@@ -199,21 +227,63 @@ class OrderDraftRepositoryTest {
         }
 
         @Test
-        @DisplayName("Given an open draft, when restaged, then it is updated in place with the new snapshot and a fresh TTL")
-        void restages_open_draft_in_place() {
+        @DisplayName("Given an open draft, when superseded inside one transaction, then the old draft is CANCELLED and a new draft with a new id is the open one")
+        void supersedes_open_draft_within_one_transaction() {
             String sessionId = newSession();
-            OrderDraft draft = stagedDraft(sessionId);
-            Instant later = NOW.plus(10, ChronoUnit.MINUTES);
+            OrderDraft original = stagedDraft(sessionId);
+            List<DraftLine> newLines = List.of(DraftLine.of("NG-CHARGER-01", "Fast Charger 65W", 3, new BigDecimal("24.90")));
 
-            draft.restage(7L, List.of(DraftLine.of("NG-CHARGER-01", "Fast Charger 65W", 3, new BigDecimal("24.90"))),
-                    OrderDraft.DEFAULT_TTL, later);
-            draftRepository.saveAndFlush(draft);
+            OrderDraft replacement = tx.execute(s -> {
+                // Old draft is managed in this persistence context, as it will be in S6's staging tool.
+                draftRepository.findOpenDraft(sessionId).orElseThrow();
+                return draftRepository.supersedeOpenDraft(
+                        OrderDraft.stage(sessionId, 7L, newLines, OrderDraft.DEFAULT_TTL, NOW.plusSeconds(120)),
+                        NOW.plusSeconds(120));
+            });
             entityManager.clear();
 
-            OrderDraft reloaded = draftRepository.findOpenDraft(sessionId).orElseThrow();
-            assertThat(reloaded.getId()).isEqualTo(draft.getId());
-            assertThat(reloaded.getTotalAmount()).isEqualByComparingTo("74.70");
-            assertThat(reloaded.getExpiresAt()).isEqualTo(later.plus(15, ChronoUnit.MINUTES));
+            assertThat(replacement.getId()).isNotEqualTo(original.getId());
+            assertThat(draftRepository.findById(original.getId()).orElseThrow().getStatus()).isEqualTo(DraftStatus.CANCELLED);
+            OrderDraft open = draftRepository.findOpenDraft(sessionId).orElseThrow();
+            assertThat(open.getId()).isEqualTo(replacement.getId());
+            assertThat(open.getTotalAmount()).isEqualByComparingTo("74.70");
+        }
+
+        @Test
+        @DisplayName("Given no open draft, when superseded, then the replacement simply becomes the open draft")
+        void supersede_without_open_draft_just_stages() {
+            String sessionId = newSession();
+
+            OrderDraft replacement = draftRepository.supersedeOpenDraft(
+                    OrderDraft.stage(sessionId, 7L, LINES, OrderDraft.DEFAULT_TTL, NOW), NOW);
+
+            assertThat(draftRepository.findOpenDraft(sessionId)).map(OrderDraft::getId).contains(replacement.getId());
+        }
+
+        @Test
+        @DisplayName("Given a superseded draft, when its old card is confirmed, then it is refused because the draft is no longer open")
+        void confirming_superseded_draft_is_refused() {
+            String sessionId = newSession();
+            String oldId = stagedDraft(sessionId).getId();
+            draftRepository.supersedeOpenDraft(OrderDraft.stage(sessionId, 7L, LINES, OrderDraft.DEFAULT_TTL, NOW), NOW);
+
+            OrderDraft old = draftRepository.findByIdAndSessionId(oldId, sessionId).orElseThrow();
+
+            assertThatThrownBy(() -> old.confirm("ORD-1", "idem-1", NOW)).isInstanceOf(IllegalStateException.class);
+        }
+
+        @Test
+        @DisplayName("Given one transaction that cancels and inserts without an intermediate flush, then the UNIQUE open_session_id rejects it (why supersede flushes)")
+        void cancel_then_insert_without_flush_violates_unique() {
+            String sessionId = newSession();
+            stagedDraft(sessionId);
+
+            assertThatThrownBy(() -> tx.executeWithoutResult(s -> {
+                OrderDraft current = draftRepository.findOpenDraft(sessionId).orElseThrow();
+                current.cancel(NOW);
+                draftRepository.save(OrderDraft.stage(sessionId, 7L, LINES, OrderDraft.DEFAULT_TTL, NOW));
+            })).isInstanceOf(DataIntegrityViolationException.class);
+            assertThat(draftRepository.findOpenDraft(sessionId)).isPresent();
         }
 
         @Test

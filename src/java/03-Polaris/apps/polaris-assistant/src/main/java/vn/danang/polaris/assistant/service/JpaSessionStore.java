@@ -8,8 +8,12 @@ import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.AssistantSession;
@@ -27,21 +31,30 @@ public class JpaSessionStore implements SessionStore {
 
     private final AssistantSessionRepository sessionRepository;
     private final AssistantMessageRepository messageRepository;
+    private final TransactionTemplate newTransaction;
     private final Clock clock;
 
     @Autowired
-    public JpaSessionStore(AssistantSessionRepository sessionRepository, AssistantMessageRepository messageRepository) {
-        this(sessionRepository, messageRepository, Clock.systemUTC());
+    public JpaSessionStore(
+            AssistantSessionRepository sessionRepository,
+            AssistantMessageRepository messageRepository,
+            PlatformTransactionManager transactionManager) {
+        this(sessionRepository, messageRepository, transactionManager, Clock.systemUTC());
     }
 
-    JpaSessionStore(AssistantSessionRepository sessionRepository, AssistantMessageRepository messageRepository, Clock clock) {
+    JpaSessionStore(
+            AssistantSessionRepository sessionRepository,
+            AssistantMessageRepository messageRepository,
+            PlatformTransactionManager transactionManager,
+            Clock clock) {
         this.sessionRepository = Objects.requireNonNull(sessionRepository, "sessionRepository must not be null");
         this.messageRepository = Objects.requireNonNull(messageRepository, "messageRepository must not be null");
+        this.newTransaction = new TransactionTemplate(Objects.requireNonNull(transactionManager, "transactionManager must not be null"));
+        this.newTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
     @Override
-    @Transactional
     public List<AssistantMessage> loadHistory(String sessionId, String userId) {
         Objects.requireNonNull(sessionId, "sessionId must not be null");
         Objects.requireNonNull(userId, "userId must not be null");
@@ -52,6 +65,10 @@ public class JpaSessionStore implements SessionStore {
         return new ArrayList<>(messageRepository.findBySessionIdOrderByIdAsc(sessionId));
     }
 
+    /**
+     * Appends under a row lock on the session, so concurrent turns of one session are serialized
+     * and each turn's messages get contiguous ids (history is read in id order).
+     */
     @Override
     @Transactional
     public void append(String sessionId, String userId, List<AssistantMessage> messages) {
@@ -59,16 +76,30 @@ public class JpaSessionStore implements SessionStore {
         if (messages == null || messages.isEmpty()) {
             return;
         }
-        AssistantSession session = sessionRepository.findById(sessionId)
+        AssistantSession session = sessionRepository.findByIdForUpdate(sessionId)
                 .orElseThrow(() -> new IllegalStateException("Assistant session " + sessionId + " was not opened."));
         requireOwner(session, userId);
+        session.setUpdatedAt(clock.instant());
         messages.forEach(message -> message.setSessionId(sessionId));
         messageRepository.saveAll(messages);
     }
 
+    /**
+     * Inserts the session in its own transaction. If a concurrent first message won the race for
+     * the same id, the insert fails on the primary key; re-read the winner in a fresh transaction
+     * so the caller's owner check decides (same user continues, another user gets a 403).
+     */
     private AssistantSession openSession(String sessionId, String userId) {
-        log.info("Opening assistant session sessionId: {}, userId: {}", sessionId, userId);
-        return sessionRepository.save(AssistantSession.open(sessionId, userId, clock.instant()));
+        try {
+            AssistantSession opened = newTransaction.execute(status ->
+                    sessionRepository.saveAndFlush(AssistantSession.open(sessionId, userId, clock.instant())));
+            log.info("Opened assistant session sessionId: {}, userId: {}", sessionId, userId);
+            return opened;
+        } catch (DataIntegrityViolationException e) {
+            log.info("Assistant session sessionId: {} was opened concurrently; re-reading", sessionId);
+            return newTransaction.execute(status -> sessionRepository.findById(sessionId))
+                    .orElseThrow(() -> e);
+        }
     }
 
     private static void requireOwner(AssistantSession session, String userId) {

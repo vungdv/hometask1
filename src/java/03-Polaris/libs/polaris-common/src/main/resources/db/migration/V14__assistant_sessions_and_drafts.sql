@@ -43,7 +43,8 @@ CREATE TABLE assistant_order_drafts (
     CONSTRAINT chk_assistant_drafts_status
         CHECK (status IN ('WAITING_CONFIRMATION', 'CONFIRMED', 'CANCELLED', 'EXPIRED', 'INVALIDATED')),
     CONSTRAINT chk_assistant_drafts_open_session
-        CHECK ((status = 'WAITING_CONFIRMATION' AND open_session_id = session_id)
+        -- IS NOT NULL is required: a NULL comparison would make the first branch UNKNOWN, which a CHECK accepts.
+        CHECK ((status = 'WAITING_CONFIRMATION' AND open_session_id IS NOT NULL AND open_session_id = session_id)
             OR (status <> 'WAITING_CONFIRMATION' AND open_session_id IS NULL)),
     CONSTRAINT uq_assistant_drafts_open_session UNIQUE (open_session_id)
 );

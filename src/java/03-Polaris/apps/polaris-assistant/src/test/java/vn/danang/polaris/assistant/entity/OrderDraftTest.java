@@ -16,6 +16,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import vn.danang.polaris.web.exception.DraftExpiredException;
+
 /**
  * Unit tests for the {@link OrderDraft} state machine:
  * WAITING_CONFIRMATION → CONFIRMED | CANCELLED | EXPIRED | INVALIDATED, each exactly once.
@@ -106,7 +108,7 @@ class OrderDraftTest {
 
         @ParameterizedTest(name = "{0} draft rejects every further transition")
         @MethodSource("terminalDrafts")
-        @DisplayName("Given a draft in a terminal state, when any transition or restage is attempted, then IllegalStateException")
+        @DisplayName("Given a draft in a terminal state, when any transition is attempted, then IllegalStateException")
         void terminal_states_reject_further_transitions(String state, Consumer<OrderDraft> toTerminal) {
             OrderDraft draft = staged();
             toTerminal.accept(draft);
@@ -116,9 +118,22 @@ class OrderDraftTest {
             assertThatThrownBy(() -> draft.cancel(AFTER_TTL)).isInstanceOf(IllegalStateException.class);
             assertThatThrownBy(() -> draft.expire(AFTER_TTL)).isInstanceOf(IllegalStateException.class);
             assertThatThrownBy(() -> draft.invalidate(AFTER_TTL)).isInstanceOf(IllegalStateException.class);
-            assertThatThrownBy(() -> draft.restage(7L, LINES, OrderDraft.DEFAULT_TTL, AFTER_TTL))
-                    .isInstanceOf(IllegalStateException.class);
             assertThat(draft.getStatus().name()).isEqualTo(state);
+        }
+
+        @Test
+        @DisplayName("Given an open draft past its TTL, when confirmed, then DraftExpiredException and it stays open so it can be expired")
+        void cannot_confirm_after_ttl() {
+            OrderDraft draft = staged();
+
+            assertThatThrownBy(() -> draft.confirm("ORD-1", "idem-1", AFTER_TTL))
+                    .isInstanceOf(DraftExpiredException.class)
+                    .extracting(e -> ((DraftExpiredException) e).getDraftId()).isEqualTo(draft.getId());
+            assertThat(draft.isOpen()).isTrue();
+            assertThat(draft.getConfirmedOrderNumber()).isNull();
+
+            draft.expire(AFTER_TTL);
+            assertThat(draft.getStatus()).isEqualTo(DraftStatus.EXPIRED);
         }
 
         @Test
@@ -159,18 +174,13 @@ class OrderDraftTest {
     class EdgeCases {
 
         @Test
-        @DisplayName("Given an open draft, when restaged, then the snapshot and total are replaced and the TTL restarts")
-        void restage_replaces_snapshot_and_restarts_ttl() {
+        @DisplayName("Given one millisecond before expiry, when confirmed, then it succeeds")
+        void confirms_just_before_expiry() {
             OrderDraft draft = staged();
-            Instant later = NOW.plusSeconds(600);
 
-            draft.restage(8L, List.of(DraftLine.of("NG-CABLE-02", "USB-C Cable", 3, new BigDecimal("9.50"))),
-                    OrderDraft.DEFAULT_TTL, later);
+            draft.confirm("ORD-1", null, AFTER_TTL.minusMillis(1));
 
-            assertThat(draft.isOpen()).isTrue();
-            assertThat(draft.getCustomerId()).isEqualTo(8L);
-            assertThat(draft.getTotalAmount()).isEqualByComparingTo("28.50");
-            assertThat(draft.getExpiresAt()).isEqualTo(later.plus(OrderDraft.DEFAULT_TTL));
+            assertThat(draft.getStatus()).isEqualTo(DraftStatus.CONFIRMED);
         }
 
         @Test

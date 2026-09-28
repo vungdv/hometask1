@@ -3,8 +3,15 @@ package vn.danang.polaris.assistant.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -143,6 +150,69 @@ class JpaSessionStoreIntegrationTest {
             String sessionId = freshSessionId();
 
             assertThat(sessionStore.loadHistory(sessionId, "user-alice")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Given concurrent appends to one session, when history is reloaded, then each turn's messages are contiguous and updated_at is bumped")
+        void serializes_concurrent_appends_per_session() throws Exception {
+            String sessionId = freshSessionId();
+            sessionStore.loadHistory(sessionId, "user-alice");
+            var openedAt = sessionRepository.findById(sessionId).orElseThrow().getUpdatedAt();
+            int turns = 8;
+            int perTurn = 5;
+            CountDownLatch start = new CountDownLatch(1);
+            List<Callable<Void>> tasks = new ArrayList<>();
+            for (int t = 0; t < turns; t++) {
+                String turn = "turn-" + t;
+                tasks.add(() -> {
+                    start.await();
+                    sessionStore.append(sessionId, "user-alice", IntStream.range(0, perTurn)
+                            .mapToObj(i -> AssistantMessage.of(turn)).toList());
+                    return null;
+                });
+            }
+            ExecutorService pool = Executors.newFixedThreadPool(turns);
+            try {
+                List<Future<Void>> futures = tasks.stream().map(pool::submit).toList();
+                start.countDown();
+                for (Future<Void> f : futures) {
+                    f.get();
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+
+            List<AssistantMessage> history = sessionStore.loadHistory(sessionId, "user-alice");
+            assertThat(history).hasSize(turns * perTurn);
+            for (int i = 0; i < history.size(); i += perTurn) {
+                String turn = history.get(i).getContent();
+                assertThat(history.subList(i, i + perTurn)).allSatisfy(m -> assertThat(m.getContent()).isEqualTo(turn));
+            }
+            assertThat(sessionRepository.findById(sessionId).orElseThrow().getUpdatedAt()).isAfterOrEqualTo(openedAt);
+        }
+
+        @Test
+        @DisplayName("Given concurrent first messages on one new session id, when loaded by the same user, then all succeed and one session exists")
+        void concurrent_first_messages_open_one_session() throws Exception {
+            String sessionId = freshSessionId();
+            int callers = 8;
+            CountDownLatch start = new CountDownLatch(1);
+            ExecutorService pool = Executors.newFixedThreadPool(callers);
+            try {
+                List<Future<List<AssistantMessage>>> futures = IntStream.range(0, callers)
+                        .mapToObj(i -> pool.submit(() -> {
+                            start.await();
+                            return sessionStore.loadHistory(sessionId, "user-alice");
+                        }))
+                        .toList();
+                start.countDown();
+                for (Future<List<AssistantMessage>> f : futures) {
+                    assertThat(f.get()).isEmpty();
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+            assertThat(sessionRepository.findById(sessionId).orElseThrow().getUserId()).isEqualTo("user-alice");
         }
 
         @Test

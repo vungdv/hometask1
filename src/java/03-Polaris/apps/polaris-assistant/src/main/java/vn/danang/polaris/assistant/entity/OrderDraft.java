@@ -20,6 +20,7 @@ import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import vn.danang.polaris.web.exception.DraftExpiredException;
 
 /**
  * A staged, priced order awaiting the shopper's explicit confirmation (ADR-0004 §3.B).
@@ -32,7 +33,12 @@ import lombok.NoArgsConstructor;
  * <p>
  * At most one draft per session is open. {@code openSessionId} mirrors {@code sessionId} while the
  * draft is open and is cleared on leaving that state; its UNIQUE constraint makes the database reject
- * a second open draft. Re-staging an open draft therefore updates it in place ({@link #restage}).
+ * a second open draft.
+ * <p>
+ * A draft id pins exactly the snapshot the shopper saw: a draft's lines, total and TTL never change
+ * after staging. Re-staging supersedes the open draft (it is cancelled and a new draft with a new
+ * id is staged, see {@code OrderDraftRepository#supersedeOpenDraft}), so confirming an old draft card
+ * hits a non-open draft and is refused.
  */
 @Entity
 @Table(name = "assistant_order_drafts")
@@ -102,16 +108,16 @@ public class OrderDraft {
     }
 
     /**
-     * Replaces the snapshot of this still-open draft (the shopper changed the cart) and restarts its TTL.
+     * WAITING_CONFIRMATION → CONFIRMED, recording the placed order and the confirming request's key.
+     *
+     * @throws DraftExpiredException if the TTL has elapsed; the draft stays open so the caller can
+     *                               {@link #expire} it
      */
-    public void restage(Long customerId, List<DraftLine> items, Duration ttl, Instant now) {
-        requireOpen("restage");
-        this.customerId = Objects.requireNonNull(customerId, "customerId must not be null");
-        applySnapshot(items, ttl, now);
-    }
-
-    /** WAITING_CONFIRMATION → CONFIRMED, recording the placed order and the confirming request's key. */
     public void confirm(String orderNumber, String idempotencyKey, Instant now) {
+        requireOpen("move to " + DraftStatus.CONFIRMED);
+        if (isPastExpiry(now)) {
+            throw new DraftExpiredException(id, "Order draft " + id + " expired at " + expiresAt + ".");
+        }
         transitionTo(DraftStatus.CONFIRMED, now);
         this.confirmedOrderNumber = requireText(orderNumber, "orderNumber");
         this.idempotencyKey = idempotencyKey;
