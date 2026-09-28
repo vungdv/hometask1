@@ -7,45 +7,11 @@ See [`prds/`](prds/) for the detailed product requirements (personas, use cases,
 
 ## Business Process: Shopper Search & Order Placement (BPMN)
 
-Happy-path flow for a shopper who chats with the AI Assistant to search the catalog and place an order. 
-```mermaid
-flowchart TD
-    subgraph Shopper["Shopper"]
-        direction TB
-        S_Start(("Start:<br/>wants to shop"))
-        S_Ask["Ask assistant to find a product<br/>e.g. 'fast chargers under $30'"]
-        S_Review["Review product results"]
-        S_Request["Ask to order selected item(s)"]
-        S_Confirm["Click 'Submit Order'"]
-        S_End(("End:<br/>order placed"))
-    end
+Happy-path flow for a shopper who chats with the AI Assistant to search the catalog and place an order.
 
-    subgraph Assistant["AI Assistant (Orchestrator)"]
-        direction TB
-        A_Intent["Resolve intent & entities"]
-        A_Present["Render product cards"]
-        A_Stage["Stage order draft<br/>(pricing snapshot, 15-min TTL)"]
-        A_Draft["Present draft card<br/>(items, total)"]
-        A_Gate{"Human-in-the-Loop<br/>Confirmation Gate"}
-        A_Execute["Execute order<br/>(Idempotency-Key)"]
-        A_ConfirmCard["Render confirmed order card"]
-    end
+![Shopper Search & Order Placement BPMN diagram](bpmn/shopper-search-and-order-placement.png)
 
-    subgraph Catalog["Catalog Context"]
-        direction TB
-        C_Search["Search products &<br/>verify live stock"]
-    end
-
-    subgraph Order["Order Context"]
-        direction TB
-        O_Verify["Re-verify stock & price"]
-        O_Create["Create order (PLACED)<br/>& deduct stock atomically"]
-    end
-
-    S_Start --> S_Ask --> A_Intent --> C_Search --> A_Present --> S_Review
-    S_Review --> S_Request --> A_Stage --> O_Verify --> A_Draft --> A_Gate
-    A_Gate -->|"Confirmed"| S_Confirm --> A_Execute --> O_Create --> A_ConfirmCard --> S_End
-```
+Editable BPMN 2.0 source: [`bpmn/shopper-search-and-order-placement.bpmn`](bpmn/shopper-search-and-order-placement.bpmn) (open in [Camunda Modeler](https://camunda.com/download/modeler/); the image above is regenerated automatically whenever the `.bpmn` file changes).
 
 1. **Search:** Shopper asks the assistant to find a product; the assistant resolves intent/entities and queries the Catalog Context for matching products with live stock, then renders product cards.
 2. **Order request:** Shopper asks to order one or more of the returned items. The assistant stages an order draft, having the Order Context re-verify stock and price, then presents an itemized draft with a total.
@@ -58,31 +24,9 @@ Branches off step 2 above (order request), when the requested quantity exceeds a
 
 > For the Command/Event/Read-Model breakdown of this path — including where the current implementation diverges from the staged-draft flow described below — see [EM-001](../technical/event-models/EM-001-order-staging-out-of-stock-exception.md).
 
-```mermaid
-flowchart TD
-    subgraph Shopper["Shopper"]
-        direction TB
-        S_Request["Ask to order item(s)"]
-        S_Remedy["Pick a remedy:<br/>adjust qty / search alternatives / remove item"]
-    end
+![Out-of-Stock Exception Path BPMN diagram](bpmn/exception-out-of-stock-at-order-staging.png)
 
-    subgraph Assistant["AI Assistant (Orchestrator)"]
-        direction TB
-        A_Stage["Stage order draft"]
-        A_Problem["Render RFC 7807 Problem Card<br/>(shortfall + remedy buttons)"]
-        A_Apply["Apply chosen remedy to draft"]
-    end
-
-    subgraph Order["Order Context"]
-        direction TB
-        O_Check{"Sufficient stock<br/>for requested qty?"}
-        O_Reject["Reject:<br/>InsufficientStockException<br/>(requested, available)"]
-    end
-
-    S_Request --> A_Stage --> O_Check
-    O_Check -->|"No"| O_Reject --> A_Problem --> S_Remedy --> A_Apply --> A_Stage
-    O_Check -->|"Yes"| Resume(("Resume happy path:<br/>present draft card"))
-```
+Editable BPMN 2.0 source: [`bpmn/exception-out-of-stock-at-order-staging.bpmn`](bpmn/exception-out-of-stock-at-order-staging.bpmn).
 
 1. **Detect shortfall:** While staging the draft, the Order Context checks requested quantity against live stock and rejects with a structured `InsufficientStockException` (requested vs. available units) instead of a generic error.
 2. **Remediate:** The assistant renders a Problem Card with one-click remedies: adjust quantity to what's available, search for alternatives, or remove the item.
@@ -92,39 +36,9 @@ flowchart TD
 
 Store/call-center staff (`ROLE_STAFF`) cancel an order for a customer they're assisting. The same Human-in-the-Loop Confirmation Gate applies as for self-service — staff get *broader authorization* (any assigned `customer_id`), not an exemption from confirmation — and every mutation is tagged with the staff member's `operator_id` for audit. See [PRD-003](prds/PRD-003-web-chat-ai-assistant.md) §3.6, §4 FR-6 and [PRD-002](prds/PRD-002-comprehensive-order-apis.md) FR-6.
 
-```mermaid
-flowchart TD
-    subgraph Staff["Store/Call-Center Staff"]
-        direction TB
-        T_Start(("Start:<br/>customer wants to cancel"))
-        T_Ask["Ask assistant to cancel order<br/>for customer_id, order number"]
-        T_Confirm["Click 'Confirm Cancellation'"]
-        T_End(("End:<br/>order cancelled"))
-        T_Rejected(("End:<br/>cancellation rejected"))
-    end
+![Staff Cancellation BPMN diagram](bpmn/staff-cancellation.png)
 
-    subgraph Assistant["AI Assistant (Orchestrator)"]
-        direction TB
-        A_Auth["Resolve intent &<br/>validate staff authorization for customer_id"]
-        A_Review["Render Cancellation Review Card<br/>(items, restock notice)"]
-        A_Gate{"Human-in-the-Loop<br/>Confirmation Gate"}
-        A_Execute["Execute cancellation<br/>(operator_id recorded for audit)"]
-        A_ConfirmCard["Render cancellation<br/>confirmation card"]
-        A_Problem["Render RFC 7807 Problem Card<br/>(non-cancellable state + return/support info)"]
-    end
-
-    subgraph Order["Order Context"]
-        direction TB
-        O_Check{"Order in PLACED<br/>or CONFIRMED?"}
-        O_Cancel["Transition to CANCELLED<br/>& restore inventory atomically"]
-        O_Reject["Reject:<br/>409 business conflict<br/>(terminal/fulfillment state)"]
-    end
-
-    T_Start --> T_Ask --> A_Auth --> O_Check
-    O_Check -->|"Yes"| A_Review --> A_Gate
-    A_Gate -->|"Confirmed"| T_Confirm --> A_Execute --> O_Cancel --> A_ConfirmCard --> T_End
-    O_Check -->|"No"| O_Reject --> A_Problem --> T_Rejected
-```
+Editable BPMN 2.0 source: [`bpmn/staff-cancellation.bpmn`](bpmn/staff-cancellation.bpmn).
 
 1. **Request & authorize:** Staff asks the assistant to cancel an order, specifying the `customer_id` they're assisting. The assistant validates the staff member is authorized to act on that customer (never the shopper's own identity check used for `ROLE_USER`), closing the IDOR gap between staff acting on behalf of others and shoppers acting for themselves.
 2. **Eligibility check:** The Order Context checks the order's lifecycle state. Orders in `PROCESSING`, `SHIPPED`, `DELIVERING`, `DELIVERED`, or already `CANCELLED` are rejected with an RFC 7807 business conflict; the assistant surfaces this as a Problem Card with return/support guidance and the flow ends there — no gate, no audit entry, because no mutation occurred.

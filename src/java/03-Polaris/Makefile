@@ -1,4 +1,4 @@
-.PHONY: pull build up down validate-docs setup-hooks test test-perf test-concurrency gcx gcx-exec status playwright-ui playwright-close run run-assistant clean polaris-sql
+.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency gcx gcx-exec status playwright-ui playwright-close run run-assistant clean polaris-sql
 
 run:
 	mvn spring-boot:run -pl apps/polaris
@@ -36,6 +36,10 @@ validate-docs:
 	node scripts/validate-mermaid.mjs --all
 setup-hooks:
 	node scripts/validate-mermaid.mjs --install-git-hook
+render-bpmn:
+	node scripts/render-bpmn-diagram.mjs --all
+render-bpmn-%:
+	node scripts/render-bpmn-diagram.mjs docs/business/bpmn/$*.bpmn
 polaris-sql:
 	docker compose exec polaris-db psql -U polaris -d polaris
 playwright-ui:
