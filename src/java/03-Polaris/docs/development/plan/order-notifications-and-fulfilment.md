@@ -5,6 +5,7 @@
 - **Runs alongside:** [`shopper-search-and-order-placement-gaps.md`](shopper-search-and-order-placement-gaps.md), which another session is implementing. See §7 for shared files and ordering.
 - **Code verified against:** `main` @ `faf4410` (2026-09-28)
 - **Status:** Draft for review
+- **Progress:** see the [Slice Tracker](#50-slice-tracker) (§5.0). Plan changes are recorded in the [Change Log](#10-change-log) (§10).
 
 ---
 
@@ -199,6 +200,24 @@ F0 (platform + contract) ──┬──► F1 (Order: publish) ──► F2 (Or
 
 F0, F4 and F5 don't touch `apps/polaris` and can start now, in parallel with the other session. F1–F3 edit `OrderService` and should follow the rules in §7.
 
+### 5.0 Slice Tracker
+
+This table is the single source of truth for slice progress and **execution order: slices run top to bottom**, one at a time, each starting only after the one above it is `done`. Only the `execute-plan` coordinator edits it, at every status change. *External* lists gates outside this plan (§7), which the coordinator must confirm with the user before starting the slice.
+
+The order follows §5's dependencies and puts F4 and F5 before F1, because F1 waits on the gaps plan's S4 (§7) while F4 and F5 don't touch `apps/polaris`.
+
+| # | Slice | Title | Status | External | Branch | PR | Notes |
+|:--|:--|:--|:--|:--|:--|:--|:--|
+| 1 | F0 | Platform & event contract | `todo` | — | | | |
+| 2 | F4 | `apps/polaris-fulfilment` emulator | `todo` | — | | | |
+| 3 | F5 | `apps/polaris-notification` | `todo` | — | | | |
+| 4 | F1 | Publish order lifecycle events | `todo` | Gaps plan S4 merged | | | |
+| 5 | F2 | First-wins claim | `todo` | Flyway V15 still free | | | |
+| 6 | F3 | Shipment progress drives the order | `todo` | — | | | |
+| 7 | F6 | End-to-end & documentation | `todo` | Gaps plan S4 merged | | | |
+
+**Statuses:** `todo` → `in-progress` (worker implementing) → `in-review` (PR open, under review) → `approved` (PR approved, waiting to be merged) → `done` (PR merged to trunk). A slice can also be `blocked` (the reason goes in *Notes*) or `dropped` (removed by a plan change; see §10).
+
 ### F0: Platform & event contract *(Platform)*
 **Files:** `docker-compose.yml`, root `pom.xml`, new `libs/polaris-events/**`, `apps/polaris/Dockerfile`, `apps/polaris-assistant/Dockerfile`, `Makefile`
 1. Compose: `kafka` (`apache/kafka:<pinned>`, single-node KRaft, `kafka:9092` on `polaris-net`, `KAFKA_AUTO_CREATE_TOPICS_ENABLE=false`, healthcheck) and `mailpit` (`axllent/mailpit:<pinned>`, SMTP 1025 internal, UI `8025:8025`).
@@ -311,3 +330,13 @@ Everything in PRD-007 §6, plus:
 - [ ] `docker compose up` starts Kafka, Mailpit, `polaris-fulfilment` and `polaris-notification`; one placed order yields 5 emails in Mailpit in under a minute.
 - [ ] `mvn clean test` passes across the reactor; new spans, metrics and log fields follow ADR-0016 conventions.
 - [ ] EM-002 is updated to as-built and ADR-0018 is accepted.
+
+---
+
+## 10. Change Log
+
+Every change to this plan's scope, slices, contracts or decisions made after execution starts gets one row here, newest first. Status changes in §5.0 aren't logged here.
+
+| Date | Change | Reason | Slices affected |
+|:--|:--|:--|:--|
+| 2026-09-28 | Added the Slice Tracker (§5.0) and this Change Log; execution order F0, F4, F5, F1, F2, F3, F6 | Track slice-by-slice execution with `execute-plan`; F1 is gated on the gaps plan's S4 | — |
