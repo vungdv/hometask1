@@ -23,6 +23,10 @@ public final class AssistantMessage {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // Nullable only for rows written before V14; the SessionStore always sets it.
+    @Column(name = "session_id", length = 64)
+    private String sessionId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "role", length = 16, nullable = false)
     private MessageRole role;

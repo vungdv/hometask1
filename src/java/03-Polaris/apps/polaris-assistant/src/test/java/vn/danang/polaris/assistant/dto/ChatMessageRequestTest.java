@@ -92,6 +92,15 @@ class ChatMessageRequestTest {
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("Message content must not be blank.");
         }
+
+        @Test
+        @DisplayName("Given a sessionId longer than 64 characters, when constructed, then throws IllegalArgumentException; 64 is accepted")
+        void rejects_session_id_longer_than_the_session_column() {
+            assertThatThrownBy(() -> ChatMessageRequest.of("s".repeat(65), "Hi"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Session id must be at most 64 characters.");
+            assertThat(ChatMessageRequest.of("s".repeat(64), "Hi").sessionId()).hasSize(64);
+        }
     }
 
     // =========================================================================

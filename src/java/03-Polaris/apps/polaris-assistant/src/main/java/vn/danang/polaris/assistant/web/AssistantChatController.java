@@ -42,6 +42,8 @@ public class AssistantChatController {
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = ChatMessageResponse.class))),
         @ApiResponse(responseCode = "400", description = "Invalid request or blank message",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "403", description = "Session belongs to another user",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
         @ApiResponse(responseCode = "500", description = "Internal server error during chat processing",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })

@@ -3,18 +3,14 @@ package vn.danang.polaris.assistant.service;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -40,9 +36,11 @@ import vn.danang.polaris.assistant.observability.trace.SpanTag;
  * Orchestrates the conversational agent main workflow for Polaris Assistant.
  * Coordinates conversation turn lifecycle, tool discovery, intent resolution,
  * and the reactive execution loop as specified in the assistant orchestrator design.
+ * <p>
+ * Conversation history is loaded from and appended to the {@link SessionStore} in short
+ * transactions around the turn, so no database transaction spans the model round-trips.
  */
 @Service
-@Transactional
 public class AssistantChatService {
 
     private static final Logger log = LoggerFactory.getLogger(AssistantChatService.class);
@@ -53,19 +51,19 @@ public class AssistantChatService {
     private final Optional<Tracer> tracer;
     private final IntentResolutionFacade intentResolutionFacade;
     private final ObjectMapper objectMapper;
-
-    // In-memory conversation store: sessionId -> List of AssistantMessage
-    private final Map<String, List<AssistantMessage>> conversationStore = new ConcurrentHashMap<>();
+    private final SessionStore sessionStore;
 
     @Autowired
     public AssistantChatService(
             AssistantModelClient modelClient,
             ObjectProvider<Tracer> tracerProvider,
             IntentResolutionFacade intentResolutionFacade,
+            SessionStore sessionStore,
             ObjectProvider<ObjectMapper> objectMapperProvider) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient must not be null");
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
         this.intentResolutionFacade = Objects.requireNonNull(intentResolutionFacade, "intentResolutionFacade must not be null");
+        this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore must not be null");
         this.objectMapper = objectMapperProvider != null && objectMapperProvider.getIfAvailable() != null
                 ? objectMapperProvider.getIfAvailable()
                 : new ObjectMapper();
@@ -75,18 +73,21 @@ public class AssistantChatService {
             AssistantModelClient modelClient,
             ObjectProvider<Tracer> tracerProvider,
             IntentResolutionFacade intentResolutionFacade,
+            SessionStore sessionStore,
             @Nullable ObjectMapper objectMapper) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient must not be null");
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
         this.intentResolutionFacade = Objects.requireNonNull(intentResolutionFacade, "intentResolutionFacade must not be null");
+        this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore must not be null");
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
     }
 
     public AssistantChatService(
             AssistantModelClient modelClient,
             ObjectProvider<Tracer> tracerProvider,
-            IntentResolutionFacade intentResolutionFacade) {
-        this(modelClient, tracerProvider, intentResolutionFacade, (ObjectMapper) null);
+            IntentResolutionFacade intentResolutionFacade,
+            SessionStore sessionStore) {
+        this(modelClient, tracerProvider, intentResolutionFacade, sessionStore, (ObjectMapper) null);
     }
 
     @CustomNextSpan(
@@ -102,8 +103,9 @@ public class AssistantChatService {
         String messageText = request.message();
         String sessionId = request.sessionId();
 
-        // 1. Load session history & append user message
-        List<AssistantMessage> history = loadSessionHistory(sessionId);
+        // 1. Load session history (owner-checked) & append user message
+        List<AssistantMessage> history = sessionStore.loadHistory(sessionId, userId);
+        int persistedTurns = history.size();
         history.add(toUserTurn(messageText));
 
         // 2. Resolve intent & narrow tools to use.
@@ -118,7 +120,10 @@ public class AssistantChatService {
         AssistantMessage assistantMsg = toAssistantTurn(loopResult.reply(), loopResult.thoughtSignature());
         history.add(assistantMsg);
 
-        // 6. Return response to controller
+        // 6. Persist this turn's messages (user, tool calls/results, reply) in one go
+        sessionStore.append(sessionId, userId, history.subList(persistedTurns, history.size()));
+
+        // 7. Return response to controller
         return new ChatMessageResponse(
                 sessionId,
                 MessageRole.ASSISTANT.name(),
@@ -222,10 +227,6 @@ public class AssistantChatService {
             modelResponse = new ModelResponse(fallback != null ? fallback : "");
         }
         return modelResponse;
-    }
-
-    private List<AssistantMessage> loadSessionHistory(String sessionId) {
-        return conversationStore.computeIfAbsent(sessionId, k -> new CopyOnWriteArrayList<>());
     }
 
     private void tagIterationsCount(int iterations) {
