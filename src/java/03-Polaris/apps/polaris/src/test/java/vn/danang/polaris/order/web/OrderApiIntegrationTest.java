@@ -240,4 +240,78 @@ public class OrderApiIntegrationTest {
                 .andExpect(header().exists("X-Trace-Id"))
                 .andExpect(header().string("X-Trace-Id", "4bf92f3577b34da6a3ce929d0e0e4736"));
     }
+
+    // --- Shopper identity binding (PRD-003 FR-10, anti-IDOR) ---
+
+    /** Keycloak user ID of shopper alice.tran, linked to seeded customer 1 (Alice Tran) by V12. */
+    private static final String ALICE_SUBJECT = "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a4b01";
+
+    private static final String SINGLE_ITEM = "\"items\": [{ \"sku\": \"NG-CHARGER-01\", \"quantity\": 1 }]";
+
+    @Test
+    void placeOrder_shopperWithoutCustomerId_shouldOrderForOwnCustomer() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{" + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.shopper(ALICE_SUBJECT, "alice.tran@example.com")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerName").value("Alice Tran"));
+    }
+
+    @Test
+    void placeOrder_shopperWithOwnCustomerId_shouldReturn201() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{ \"customerId\": 1, " + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.shopper(ALICE_SUBJECT, "alice.tran@example.com")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerName").value("Alice Tran"));
+    }
+
+    @Test
+    void placeOrder_shopperForAnotherCustomer_shouldReturn403AndNotDeductStock() throws Exception {
+        int initialStock = productRepository.findBySku("NG-CHARGER-01").orElseThrow().getStockQty();
+        long initialOrderCount = orderRepository.count();
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{ \"customerId\": 2, " + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.shopper(ALICE_SUBJECT, "alice.tran@example.com")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/forbidden"));
+
+        org.assertj.core.api.Assertions.assertThat(orderRepository.count()).isEqualTo(initialOrderCount);
+        org.assertj.core.api.Assertions.assertThat(productRepository.findBySku("NG-CHARGER-01").orElseThrow().getStockQty())
+                .isEqualTo(initialStock);
+    }
+
+    @Test
+    void placeOrder_unlinkedShopper_shouldReturn404ProblemDetail() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{" + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.shopper("unknown-subject", "nobody@example.com")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/not-found"));
+    }
+
+    @Test
+    void placeOrder_staffForAnyCustomer_shouldReturn201() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{ \"customerId\": 2, " + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerName").value("Ben Nguyen"));
+    }
+
+    @Test
+    void placeOrder_staffWithoutCustomerId_shouldReturn400() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{" + SINGLE_ITEM + "}")
+                        .with(JwtMockFactory.admin()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/bad-request"));
+    }
 }

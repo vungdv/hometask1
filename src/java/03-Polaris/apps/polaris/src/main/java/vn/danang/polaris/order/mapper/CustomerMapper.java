@@ -30,6 +30,7 @@ public interface CustomerMapper {
 
     List<CustomerResponse> toResponseList(List<Customer> customers);
 
+    @Mapping(target = "authSubject", ignore = true)
     Customer toEntity(CustomerResponse response);
 
     // These fields should be handled by the repository layer.
@@ -37,6 +38,8 @@ public interface CustomerMapper {
     @Mapping(target = "version", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
+    // The account link is owned by identity resolution, never by a profile update.
+    @Mapping(target = "authSubject", ignore = true)
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     void updateCustomerFromRequest(UpdateCustomerRequest request, @MappingTarget Customer customer);
 }

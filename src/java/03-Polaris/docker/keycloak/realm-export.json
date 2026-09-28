@@ -150,6 +150,10 @@
       { "name": "purchase_management", "description": "Purchase Management alias (snake_case)",
         "composite": true,
         "composites": { "client": { "polaris-api": ["order.read", "order.write"] }}
+      },
+      { "name": "shopper", "description": "Self-service shopper: browses the catalog and places orders for their own linked customer account only",
+        "composite": true,
+        "composites": { "client": { "polaris-api": ["catalog.read", "order.read", "order.write"] }}
       }
     ],
     "client": {
@@ -253,6 +257,36 @@
       "email": "purchase-management@novagadgets.local",
       "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "purchase-management", "purchase_management"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a4b01",
+      "username": "alice.tran",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Alice", "lastName": "Tran",
+      "email": "alice.tran@example.com",
+      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a4b02",
+      "username": "ben.nguyen",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Ben", "lastName": "Nguyen",
+      "email": "ben.nguyen@example.com",
+      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a4b03",
+      "username": "chi.le",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Chi", "lastName": "Le",
+      "email": "chi.le@example.com",
+      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
     }
   ]

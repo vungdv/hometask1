@@ -13,6 +13,8 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
 
     Optional<Customer> findByEmail(String email);
 
+    Optional<Customer> findByAuthSubject(String authSubject);
+
     /**
      * Fuzzy customer name search using case-insensitive substring matching.
      * Works on both H2 (test) and PostgreSQL (production).

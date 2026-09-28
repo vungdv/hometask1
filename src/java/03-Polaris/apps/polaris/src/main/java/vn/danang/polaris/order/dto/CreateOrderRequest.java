@@ -5,12 +5,11 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
 
 @Schema(description = "Order placement request payload")
 public record CreateOrderRequest(
-    @Schema(description = "Customer database ID", example = "1", requiredMode = Schema.RequiredMode.REQUIRED)
-    @NotNull(message = "Customer ID is required")
+    @Schema(description = "Customer database ID. Required for staff; shoppers may omit it (their linked customer is used) "
+        + "and may not name another customer", example = "1", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     Long customerId,
 
     @Schema(description = "List of products and quantities to purchase", requiredMode = Schema.RequiredMode.REQUIRED)

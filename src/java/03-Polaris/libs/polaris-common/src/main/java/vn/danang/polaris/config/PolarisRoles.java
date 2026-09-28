@@ -38,4 +38,15 @@ public final class PolarisRoles {
      * Administrative role: superuser access across all store operations.
      */
     public static final String ADMIN = "admin";
+
+    /**
+     * Generic back-office staff role: may act on behalf of any customer.
+     */
+    public static final String STAFF = "staff";
+
+    /**
+     * Self-service shopper role: may only act for the customer account linked to
+     * their own identity (JWT {@code sub}).
+     */
+    public static final String SHOPPER = "shopper";
 }

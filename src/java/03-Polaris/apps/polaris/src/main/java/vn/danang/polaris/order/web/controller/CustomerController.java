@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -25,6 +26,7 @@ import jakarta.validation.Valid;
 import vn.danang.polaris.order.dto.CustomerResponse;
 import vn.danang.polaris.order.dto.CustomerSummaryResponse;
 import vn.danang.polaris.order.dto.UpdateCustomerRequest;
+import vn.danang.polaris.order.security.CallerIdentity;
 import vn.danang.polaris.order.service.CustomerService;
 
 /**
@@ -83,6 +85,30 @@ public class CustomerController {
 
         List<CustomerSummaryResponse> results = customerService.searchByName(name.trim(), limit);
         return ResponseEntity.ok(results);
+    }
+
+    @GetMapping("/me")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(
+        summary = "Get my customer profile",
+        description = "Resolves the customer linked to the caller's identity: by JWT 'sub', falling back once to the verified "
+            + "'email' claim (which then links the account). No customer ID is accepted, so a shopper can only see their own profile."
+    )
+    @ApiResponses({
+        @ApiResponse(
+            responseCode = "200",
+            description = "Customer profile linked to the authenticated user",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = CustomerResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "404",
+            description = "No customer is linked to the authenticated user",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))
+        ),
+        @ApiResponse(responseCode = "401", description = "Missing or invalid OAuth2 Bearer token")
+    })
+    public ResponseEntity<CustomerResponse> getCurrentCustomer(Authentication authentication) {
+        return ResponseEntity.ok(customerService.getCurrentCustomer(CallerIdentity.from(authentication)));
     }
 
     @GetMapping("/{id}")
