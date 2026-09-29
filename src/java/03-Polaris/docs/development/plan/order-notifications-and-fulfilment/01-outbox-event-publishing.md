@@ -33,7 +33,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | # | Slice | Title | Status | External | Branch | PR | Notes |
 |:--|:--|:--|:--|:--|:--|:--|:--|
-| 1 | E1 | Event contracts library | `in-review` | — | `feature/e1-event-contracts-library` | [#15](https://github.com/vungdv/hometask1/pull/15) | |
+| 1 | E1 | Event contracts library | `approved` | — | `feature/e1-event-contracts-library` | [#15](https://github.com/vungdv/hometask1/pull/15) | |
 | 2 | E2 | Recording events atomically | `todo` | Flyway V15 still free | | | |
 | 3 | E3 | Relay to a transport port | `todo` | — | | | |
 | 4 | E4 | Order records `order.placed` | `todo` | Gaps plan S4 merged | | | |
