@@ -28,7 +28,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | # | Slice | Title | Status | External | Branch | PR | Notes |
 |:--|:--|:--|:--|:--|:--|:--|:--|
-| 1 | B1 | Kafka in the platform | `todo` | Plan 1 done | | | |
+| 1 | B1 | Kafka in the platform | `in-progress` | Plan 1 done | | | |
 | 2 | B2 | Kafka transport for the outbox | `todo` | — | | | |
 
 **Statuses:** `todo` → `in-progress` → `in-review` → `approved` (not merged) → `done` (merged), plus `blocked` (reason in *Notes*) and `dropped`.
