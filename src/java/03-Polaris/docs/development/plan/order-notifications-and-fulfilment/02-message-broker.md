@@ -28,7 +28,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | # | Slice | Title | Status | External | Branch | PR | Notes |
 |:--|:--|:--|:--|:--|:--|:--|:--|
-| 1 | B1 | Kafka in the platform | `in-review` | Plan 1 done | `feature/b1-kafka-in-the-platform` | [#19](https://github.com/vungdv/hometask1/pull/19) | |
+| 1 | B1 | Kafka in the platform | `approved` | Plan 1 done | `feature/b1-kafka-in-the-platform` | [#19](https://github.com/vungdv/hometask1/pull/19) | |
 | 2 | B2 | Kafka transport for the outbox | `todo` | — | | | |
 
 **Statuses:** `todo` → `in-progress` → `in-review` → `approved` (not merged) → `done` (merged), plus `blocked` (reason in *Notes*) and `dropped`.
