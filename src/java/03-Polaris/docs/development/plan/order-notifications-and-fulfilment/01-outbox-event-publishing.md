@@ -36,7 +36,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | 1 | E1 | Event contracts library | `done` | — | `feature/e1-event-contracts-library` | [#15](https://github.com/vungdv/hometask1/pull/15) | |
 | 2 | E2 | Recording events atomically | `done` | Flyway V15 still free | `feature/e2-recording-events-atomically` | [#16](https://github.com/vungdv/hometask1/pull/16) | |
 | 3 | E3 | Relay to a transport port | `done` | — | `feature/e3-relay-to-a-transport-port` | [#17](https://github.com/vungdv/hometask1/pull/17) | |
-| 4 | E4 | Order records `order.placed` | `approved` | Gaps plan S4 merged | `feature/e4-order-records-order-placed` | [#18](https://github.com/vungdv/hometask1/pull/18) | |
+| 4 | E4 | Order records `order.placed` | `done` | Gaps plan S4 merged | `feature/e4-order-records-order-placed` | [#18](https://github.com/vungdv/hometask1/pull/18) | |
 
 **Statuses:** `todo` → `in-progress` → `in-review` → `approved` (not merged) → `done` (merged), plus `blocked` (reason in *Notes*) and `dropped`.
 
@@ -74,9 +74,9 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 ## Definition of Done
 
-- [ ] TR-E1–E9 and TR-O1 verified by automated tests.
-- [ ] Placing an order with no transport configured still returns `201` and leaves one pending `order.placed` event.
-- [ ] ADR-0018 is proposed.
+- [x] TR-E1–E9 and TR-O1 verified by automated tests.
+- [x] Placing an order with no transport configured still returns `201` and leaves one pending `order.placed` event.
+- [x] ADR-0018 is proposed.
 
 ## Change Log
 
