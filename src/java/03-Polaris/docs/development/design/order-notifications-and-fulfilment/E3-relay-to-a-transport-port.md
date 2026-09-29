@@ -1,7 +1,7 @@
 # Detail Design: E3 — Relay to a Transport Port
 
 - **Plan:** [Plan 1: Outbox & Generic Event Publishing](../../plan/order-notifications-and-fulfilment/01-outbox-event-publishing.md), slice **E3**
-- **Covers:** TR-E2, TR-E3, TR-E6, TR-E8, TR-X2 (and TR-X4: V15 confirmed, no `V15_x`). Relies on TR-X8 (producers serialise same-key changes; §5)
+- **Covers:** TR-E2, TR-E3, TR-E6, TR-E8, TR-X2 (and TR-X4: V15's delivery columns confirmed; E3 adds no `V15_x`, E4 later added `V15_1` for `orders.version`). Relies on TR-X8 (producers serialise same-key changes; §5)
 - **Extends:** [E2 — Recording events atomically](E2-recording-events-atomically.md) (same `libs/polaris-outbox` module, same `outbox_events` table)
 - **Decision record:** [ADR-0018 Transactional outbox for integration events](../../../technical/decisions/0018-transactional-outbox-for-integration-events.md) (Proposed; Option 3 "in-app relay")
 - **Status:** Draft for review
@@ -20,7 +20,7 @@ Out: any real transport (Kafka is Plan 2), Order code (E4), a dead-letter state 
 | Multi-instance ordering | **Row locks on the head event of each key**: `SELECT … FOR UPDATE SKIP LOCKED`, hand-off and mark in one short relay transaction. No leader election, no lease columns (§5) |
 | Backoff limits | Exponential per event: **1 s × 2ⁿ, capped at 5 min**, never given up; a failure also ends the current batch (§6) |
 | Transport port shape | `EventTransport.send(OutgoingEvent)`: id, type, source, time, destination, key, JSON payload and the W3C trace context; returns only when the transport has accepted the event (§3) |
-| V15 delivery columns and indexes | **Confirmed unchanged.** No `V15_x` migration (§8) |
+| V15 delivery columns and indexes | **Confirmed unchanged.** E3 adds no `V15_x` migration (§8). E4 later added `V15_1` (`orders.version`, TR-X8), which doesn't touch the outbox |
 
 ## 3. The transport port
 
@@ -132,7 +132,7 @@ Gauges are read from the database (two indexed queries) when the registry sample
 
 **Logs** (SLF4J, `key=value`; `trace_id`/`span_id` come from the existing logback OTel appender while the hand-off span is current): `DEBUG` per delivery (`ce_id`, `ce_type`, `key`, `destination`); `WARN` per failed attempt (`ce_id`, `key`, `attempt`, `retry_in`, error); `INFO` once at start saying whether a transport is configured; `INFO` per purge that removed rows; `ERROR` if a relay cycle itself fails (e.g. database down), after which the loop continues on the next interval. A fatal JVM `Error` (e.g. `OutOfMemoryError`) is logged and **stops** the relay rather than polling on in an unknown state; recorded events stay pending and the backlog metrics show them. Logs never go to protocol `stdout`.
 
-## 8. V15 delivery columns and indexes: confirmed, no `V15_x`
+## 8. V15 delivery columns and indexes: confirmed, no `V15_x` from E3
 
 | V15 item | Verdict |
 |:--|:--|

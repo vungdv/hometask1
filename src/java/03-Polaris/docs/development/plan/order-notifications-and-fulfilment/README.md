@@ -104,7 +104,7 @@ Every plan meets these; plans reference them by ID.
 | TR-X5 | **Testing:** integration tests use real infrastructure (Postgres, Kafka, Mailpit via Testcontainers); stubs only at external boundaries |
 | TR-X6 | **Contracts:** REST in OpenAPI with Problem Details errors; events are CloudEvents 1.0, keyed by aggregate id, additive-only within a `.vN` type |
 | TR-X7 | **Event-raising state changes:** an aggregate's status changes only through its own methods, which register the domain event; no public status setters, and no bulk or `@Modifying` status updates. Tests assert exactly one event per transition |
-| TR-X8 | **Serialised per key:** transactions that raise events for the same aggregate are mutually exclusive: the aggregate is locked (`SELECT … FOR UPDATE`) before any event is recorded, or versioned (`@Version`) so a concurrent loser rolls back. Otherwise a lower outbox id can commit after a higher one has been relayed, breaking per-key order (TR-E3). Tests show concurrent same-key changes cannot commit events out of id order |
+| TR-X8 | **Serialised per key:** once an aggregate exists, every transaction that raises an event for it is mutually exclusive with the others: it locks the aggregate (`SELECT … FOR UPDATE`) before recording any event, or the aggregate is versioned (`@Version`) so a concurrent loser rolls back. Creation needs nothing beyond the insert, because the creation event is the first event of a new key. Otherwise a lower outbox id can commit after a higher one has been relayed, breaking per-key order (TR-E3). Tests show concurrent same-key changes cannot commit events out of id order |
 
 ---
 

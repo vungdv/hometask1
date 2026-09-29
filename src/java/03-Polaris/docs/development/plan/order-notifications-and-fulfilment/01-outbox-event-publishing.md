@@ -70,7 +70,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 - Rejected placement (stock, price) → none. Idempotent replay, including the gaps plan's concurrent-duplicate path → none.
 - Order code depends only on the publish abstraction.
 - Order status changes only through aggregate methods that register domain events (TR-X7): the public `setStatus` is removed, `OrderService` no longer sets `PLACED`/`CANCELLED` directly, and there are no bulk or `@Modifying` status updates. Tests assert exactly one event per transition.
-- Event-raising changes to the same order are serialised (TR-X8): `Order` is versioned (`@Version`) or row-locked before any event is recorded, including in `placeOrder` and `cancelOrder`. A concurrency test against real Postgres shows that concurrent changes to one order cannot commit its events out of outbox id order.
+- Event-raising changes to an existing order are serialised (TR-X8): `Order` is versioned (`@Version`), and transitions after creation (e.g. `cancelOrder`) lock the order row before any event is recorded. Placement needs only the insert, since `order.placed` is the first event of its key. A concurrency test against real Postgres shows that concurrent changes to one order cannot commit its events out of outbox id order.
 
 ## Definition of Done
 
@@ -85,3 +85,6 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | 2026-09-29 | E3 design questions now include confirming or changing V15's delivery columns and indexes via `V15_x`; TR-X4 allows `V15_x` sub-versions applied before V16 | V15 pre-creates relay columns because it is Plan 1's only reserved version (E2 review, PR #16) | E3 |
 | 2026-09-29 | New TR-X7 (status changes only through event-registering aggregate methods); E4 gains a bullet enforcing it on Order | The aggregate-events design relies on every change going through `save` (E2 review, PR #16) | E4; Plan 3 via TR-X7 |
 | 2026-09-29 | New TR-X8 (same-key event-raising transactions are serialised via `@Version` or an aggregate lock); E4 gains a bullet enforcing it on Order | TR-E3's per-key order holds only if a lower outbox id can't commit after a higher one was relayed; Order has no `@Version` and `cancelOrder` takes no lock (E3 review, PR #17) | E4; Plan 3 via TR-X8 |
+| 2026-09-29 | TR-X8 and E4 reworded: transitions after creation lock or version the aggregate; creation needs only the insert | "Row-locked" cannot apply to `placeOrder`, where the row doesn't exist yet; `order.placed` is the first event of a new key (E4 review, PR #18) | E4; Plan 3 via TR-X8 |
+| 2026-09-29 | Recorded: cancellation raises a domain-only `OrderCancelled`; no `order.cancelled` integration event is published | EM-002 and PRD-007 §6 put cancellation notifications out of scope; the domain event exists for TR-X7 and TR-X8 (E4 review, PR #18) | E4 |
+| 2026-09-29 | Recorded: the catalogue is single-currency USD, so `order.placed` carries currency `USD` as a constant until a currency model exists | There is no currency column; EM-002 §4.2 only shows `USD` as an example (E4 review, PR #18) | E4 |
