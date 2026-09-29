@@ -36,7 +36,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | 1 | E1 | Event contracts library | `done` | — | `feature/e1-event-contracts-library` | [#15](https://github.com/vungdv/hometask1/pull/15) | |
 | 2 | E2 | Recording events atomically | `done` | Flyway V15 still free | `feature/e2-recording-events-atomically` | [#16](https://github.com/vungdv/hometask1/pull/16) | |
 | 3 | E3 | Relay to a transport port | `done` | — | `feature/e3-relay-to-a-transport-port` | [#17](https://github.com/vungdv/hometask1/pull/17) | |
-| 4 | E4 | Order records `order.placed` | `todo` | Gaps plan S4 merged | | | |
+| 4 | E4 | Order records `order.placed` | `in-progress` | Gaps plan S4 merged | | | |
 
 **Statuses:** `todo` → `in-progress` → `in-review` → `approved` (not merged) → `done` (merged), plus `blocked` (reason in *Notes*) and `dropped`.
 
