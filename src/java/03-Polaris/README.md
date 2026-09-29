@@ -105,6 +105,7 @@ make up
 | **Keycloak Admin** | [https://id.polaris.local](https://id.polaris.local) | Username: `admin` \| Password: `admin` |
 | **Grafana Telemetry** | [https://grafana.polaris.local](https://grafana.polaris.local) | Username: `admin` \| Password: `admin` (or Keycloak SSO) |
 | **Polaris Database** | Internal `polaris-db:5432` | `make polaris-sql` opens psql into PostgreSQL 16 database |
+| **Kafka** | Internal `kafka:9092` · host `localhost:9094` | Single-node KRaft broker, no auto-created topics. `make kafka-topics` lists topics; `make kafka-tail TOPIC=<topic>` tails one |
 
 > **Shopper accounts & realm changes:** `alice.tran`, `ben.nguyen` and `chi.le` (password `testpass`, realm role `shopper`) are linked to the seeded customers by `customers.auth_subject` (Flyway V12). Keycloak imports `docker/keycloak/realm-export.json` only when its volume is empty, so after pulling realm changes run `make clean && make up` to re-import them.
 
@@ -128,6 +129,8 @@ make up
 | **Playwright UI Testing** | `make playwright-ui` | Opens Swagger UI in Playwright for browser automation |
 | **Close Playwright** | `make playwright-close` | Closes all open Playwright browser sessions |
 | **Access Polaris DB** | `make polaris-sql` | Opens psql shell into the containerized PostgreSQL DB |
+| **Kafka Topics** | `make kafka-topics` | Describes every non-internal topic (partitions, replicas) on the local broker |
+| **Tail Kafka Topic** | `make kafka-tail TOPIC=<topic>` | Prints a topic from the beginning with key, headers, partition and offset |
 
 ---
 

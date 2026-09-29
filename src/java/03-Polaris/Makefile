@@ -1,4 +1,4 @@
-.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency gcx gcx-exec status playwright-ui playwright-close run run-assistant clean polaris-sql
+.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency gcx gcx-exec status playwright-ui playwright-close run run-assistant clean polaris-sql kafka-topics kafka-tail
 
 run:
 	mvn spring-boot:run -pl apps/polaris
@@ -42,6 +42,15 @@ render-bpmn-%:
 	node scripts/render-bpmn-diagram.mjs docs/business/bpmn/$*.bpmn
 polaris-sql:
 	docker compose exec polaris-db psql -U polaris -d polaris
+KAFKA_BIN := /opt/kafka/bin
+KAFKA_BOOTSTRAP := kafka:9092
+kafka-topics:
+	docker compose exec kafka $(KAFKA_BIN)/kafka-topics.sh --bootstrap-server $(KAFKA_BOOTSTRAP) --describe --exclude-internal
+kafka-tail:
+	@test -n "$(TOPIC)" || { echo "usage: make kafka-tail TOPIC=<topic>"; exit 1; }
+	docker compose exec kafka $(KAFKA_BIN)/kafka-console-consumer.sh --bootstrap-server $(KAFKA_BOOTSTRAP) --topic $(TOPIC) --from-beginning \
+		--property print.timestamp=true --property print.partition=true --property print.offset=true \
+		--property print.headers=true --property print.key=true
 playwright-ui:
 	playwright-cli open https://polaris.local/swagger-ui/index.html
 playwright-close:
