@@ -6,7 +6,7 @@
 * **Technical Story:** A reusable, broker-agnostic way for any bounded context that owns a database to publish integration events reliably: an event is stored if and only if the business change commits, then relayed later through a transport port. Order is the first adopter (`order.placed`).
 * **Product Reference:** [PRD-007](../../business/prds/PRD-007-order-notifications-and-fulfilment-emulator.md) (FR-1, FR-3, FR-7)
 * **Plan Reference:** [Plan 1: Outbox & Generic Event Publishing](../../development/plan/order-notifications-and-fulfilment/01-outbox-event-publishing.md) (decisions D6, D7; departure Δ8)
-* **Detail Design:** [E2 — Recording events atomically](../../development/design/order-notifications-and-fulfilment/E2-recording-events-atomically.md)
+* **Detail Design:** [E2 — Recording events atomically](../../development/design/order-notifications-and-fulfilment/E2-recording-events-atomically.md), [E3 — Relay to a transport port](../../development/design/order-notifications-and-fulfilment/E3-relay-to-a-transport-port.md)
 
 ---
 
@@ -62,7 +62,7 @@ Same table, relayed by change-data-capture from the WAL.
 3. **Domain vs integration events.** Aggregates raise context-internal domain events from their state-transition methods (Spring Data `AbstractAggregateRoot`); a synchronous in-context translator (`@EventListener`, same thread and transaction) maps them to integration events and publishes them. Asynchronous or after-commit listeners are not allowed on this path.
 4. **Storage.** One generic `outbox_events` table (Flyway V15, standard SQL for PostgreSQL and H2) with the event attributes, the JSON payload as text, trace context and delivery state. New event types need no schema change.
 5. **Packaging.** `polaris-outbox` auto-configures only when a single `DataSource` is present (`polaris.outbox.enabled` opts out). Stateless apps depend on `polaris-events` only.
-6. **Relay** (Plan 1 E3) and **Kafka transport** (Plan 2, ADR-0019 to follow) are separate decisions built on this one.
+6. **Relay** (Plan 1 E3: polling relay, per-key head row locks, capped exponential backoff, behind the `EventTransport` port; see its detail design) and **Kafka transport** (Plan 2, ADR-0019 to follow) are separate decisions built on this one.
 
 ---
 
