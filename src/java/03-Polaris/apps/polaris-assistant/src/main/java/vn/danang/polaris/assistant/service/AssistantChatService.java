@@ -2,19 +2,17 @@ package vn.danang.polaris.assistant.service;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -24,6 +22,8 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
+import vn.danang.polaris.assistant.dto.ChatWidget;
+import vn.danang.polaris.assistant.dto.ProductListCard;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
@@ -40,9 +40,14 @@ import vn.danang.polaris.assistant.observability.trace.SpanTag;
  * Orchestrates the conversational agent main workflow for Polaris Assistant.
  * Coordinates conversation turn lifecycle, tool discovery, intent resolution,
  * and the reactive execution loop as specified in the assistant orchestrator design.
+ * <p>
+ * Conversation history is loaded from and appended to the {@link SessionStore} in short
+ * transactions around the turn, so no database transaction spans the model round-trips.
+ * <p>
+ * Cards ({@link ChatWidget}) produced by successful tool calls are returned with the reply and persisted
+ * on the turn's final assistant message ({@code widget_type} / {@code widget_payload}).
  */
 @Service
-@Transactional
 public class AssistantChatService {
 
     private static final Logger log = LoggerFactory.getLogger(AssistantChatService.class);
@@ -53,40 +58,43 @@ public class AssistantChatService {
     private final Optional<Tracer> tracer;
     private final IntentResolutionFacade intentResolutionFacade;
     private final ObjectMapper objectMapper;
-
-    // In-memory conversation store: sessionId -> List of AssistantMessage
-    private final Map<String, List<AssistantMessage>> conversationStore = new ConcurrentHashMap<>();
+    private final SessionStore sessionStore;
 
     @Autowired
     public AssistantChatService(
             AssistantModelClient modelClient,
             ObjectProvider<Tracer> tracerProvider,
             IntentResolutionFacade intentResolutionFacade,
+            SessionStore sessionStore,
             ObjectProvider<ObjectMapper> objectMapperProvider) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient must not be null");
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
         this.intentResolutionFacade = Objects.requireNonNull(intentResolutionFacade, "intentResolutionFacade must not be null");
+        this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore must not be null");
         this.objectMapper = objectMapperProvider != null && objectMapperProvider.getIfAvailable() != null
                 ? objectMapperProvider.getIfAvailable()
-                : new ObjectMapper();
+                : new ObjectMapper().findAndRegisterModules();
     }
 
     public AssistantChatService(
             AssistantModelClient modelClient,
             ObjectProvider<Tracer> tracerProvider,
             IntentResolutionFacade intentResolutionFacade,
+            SessionStore sessionStore,
             @Nullable ObjectMapper objectMapper) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient must not be null");
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
         this.intentResolutionFacade = Objects.requireNonNull(intentResolutionFacade, "intentResolutionFacade must not be null");
-        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+        this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore must not be null");
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper().findAndRegisterModules();
     }
 
     public AssistantChatService(
             AssistantModelClient modelClient,
             ObjectProvider<Tracer> tracerProvider,
-            IntentResolutionFacade intentResolutionFacade) {
-        this(modelClient, tracerProvider, intentResolutionFacade, (ObjectMapper) null);
+            IntentResolutionFacade intentResolutionFacade,
+            SessionStore sessionStore) {
+        this(modelClient, tracerProvider, intentResolutionFacade, sessionStore, (ObjectMapper) null);
     }
 
     @CustomNextSpan(
@@ -102,8 +110,9 @@ public class AssistantChatService {
         String messageText = request.message();
         String sessionId = request.sessionId();
 
-        // 1. Load session history & append user message
-        List<AssistantMessage> history = loadSessionHistory(sessionId);
+        // 1. Load session history (owner-checked) & append user message
+        List<AssistantMessage> history = sessionStore.loadHistory(sessionId, userId);
+        int persistedTurns = history.size();
         history.add(toUserTurn(messageText));
 
         // 2. Resolve intent & narrow tools to use.
@@ -114,16 +123,21 @@ public class AssistantChatService {
         // 4. Tag iteration count on active span
         tagIterationsCount(loopResult.iterations());
 
-        // 5. Append final assistant response to history
+        // 5. Append final assistant response (with this turn's cards) to history
         AssistantMessage assistantMsg = toAssistantTurn(loopResult.reply(), loopResult.thoughtSignature());
+        attachWidgets(assistantMsg, loopResult.widgets());
         history.add(assistantMsg);
 
-        // 6. Return response to controller
+        // 6. Persist this turn's messages (user, tool calls/results, reply) in one go
+        sessionStore.append(sessionId, userId, history.subList(persistedTurns, history.size()));
+
+        // 7. Return response to controller
         return new ChatMessageResponse(
                 sessionId,
                 MessageRole.ASSISTANT.name(),
                 loopResult.reply(),
-                assistantMsg.getCreatedAt()
+                assistantMsg.getCreatedAt(),
+                loopResult.widgets()
         );
     }
 
@@ -136,6 +150,8 @@ public class AssistantChatService {
         int iterations = 0;
         String finalReply = null;
         String finalThoughtSignature = null;
+        // One card per type, updated in call order (see applyWidgetChanges).
+        Map<String, ChatWidget> widgets = new LinkedHashMap<>();
 
         while (iterations < MAX_TOOL_ITERATIONS) {
             iterations++;
@@ -153,6 +169,7 @@ public class AssistantChatService {
             if (modelResponse.hasToolCalls()) {
                 ToolExecutionOutcome outcome = executeToolBatch(sessionId, userId, iterations, resolvedIntent, modelResponse.toolCalls());
                 history.addAll(outcome.turns());
+                applyWidgetChanges(outcome.results(), widgets);
 
                 if (outcome.policyDenied()) {
                     finalReply = outcome.denialMessage();
@@ -169,7 +186,7 @@ public class AssistantChatService {
             finalReply = DEFAULT_COMPLETION_REPLY;
         }
 
-        return new ConversationLoopResult(finalReply, finalThoughtSignature, iterations);
+        return new ConversationLoopResult(finalReply, finalThoughtSignature, iterations, List.copyOf(widgets.values()));
     }
 
     private ToolExecutionOutcome executeToolBatch(
@@ -187,17 +204,18 @@ public class AssistantChatService {
         ToolExecutionContext toolContext = new ToolExecutionContext(
                 sessionId,
                 userId,
-                iteration,
-                resolvedIntent
+                iteration
         );
 
-        List<ToolResult> toolResults = intentResolutionFacade.executeToolCalls(toolCalls, toolContext);
+        List<ToolResult> toolResults = intentResolutionFacade.executeToolCalls(toolCalls, toolContext, resolvedIntent);
         boolean policyDenied = false;
         String denialMessage = null;
+        List<ToolResult> executed = new ArrayList<>();
 
         if (toolResults != null) {
             for (ToolResult result : toolResults) {
                 turns.add(toToolTurn(result));
+                executed.add(result);
                 if (result.isDenied()) {
                     String reason = (result.result() != null && !result.result().isBlank())
                             ? result.result()
@@ -209,7 +227,7 @@ public class AssistantChatService {
             }
         }
 
-        return new ToolExecutionOutcome(turns, policyDenied, denialMessage);
+        return new ToolExecutionOutcome(turns, policyDenied, denialMessage, executed);
     }
 
     private ModelResponse queryModel(List<AssistantMessage> history, List<Tool> tools, ModelRequestContext context) {
@@ -222,10 +240,6 @@ public class AssistantChatService {
             modelResponse = new ModelResponse(fallback != null ? fallback : "");
         }
         return modelResponse;
-    }
-
-    private List<AssistantMessage> loadSessionHistory(String sessionId) {
-        return conversationStore.computeIfAbsent(sessionId, k -> new CopyOnWriteArrayList<>());
     }
 
     private void tagIterationsCount(int iterations) {
@@ -265,9 +279,57 @@ public class AssistantChatService {
         return toolTurn;
     }
 
+    /**
+     * Applies the cards of successful tool results in call order: a later card of a type replaces the
+     * earlier one (a re-staged draft supersedes the previous draft), and a retraction removes it (a
+     * discarded draft leaves no card). Mutating local tools run in call order (see DefaultToolManager), so
+     * the {@code ORDER_DRAFT} card left at the end is the draft that is actually open.
+     * <p>
+     * {@code PRODUCT_LIST} is the exception: searches don't supersede each other ("chargers and cases" may
+     * be two searches), so their products are merged into one card, a repeated SKU taking the later values.
+     */
+    private static void applyWidgetChanges(List<ToolResult> results, Map<String, ChatWidget> widgets) {
+        for (ToolResult result : results) {
+            if (!result.isSuccess()) {
+                continue;
+            }
+            if (result.retractsWidget() != null) {
+                widgets.remove(result.retractsWidget());
+            }
+            if (result.widget() != null) {
+                ChatWidget earlier = widgets.remove(result.widget().type());
+                widgets.put(result.widget().type(), combine(earlier, result.widget()));
+            }
+        }
+    }
+
+    private static ChatWidget combine(@Nullable ChatWidget earlier, ChatWidget later) {
+        if (earlier != null && earlier.payload() instanceof ProductListCard earlierList
+                && later.payload() instanceof ProductListCard laterList) {
+            return earlierList.mergedWith(laterList).toWidget();
+        }
+        return later;
+    }
+
+    /**
+     * Persists the turn's cards on the reply message: {@code widget_type} lists the card types
+     * (comma-separated), {@code widget_payload} holds the {@code [{type, payload}]} array as returned.
+     */
+    private void attachWidgets(AssistantMessage assistantMsg, List<ChatWidget> widgets) {
+        if (widgets.isEmpty()) {
+            return;
+        }
+        try {
+            assistantMsg.setWidgetPayload(objectMapper.writeValueAsString(widgets));
+            assistantMsg.setWidgetType(String.join(",", widgets.stream().map(ChatWidget::type).toList()));
+        } catch (Exception e) {
+            log.error("Failed to serialize chat widgets types={} error={}", widgets.stream().map(ChatWidget::type).toList(), e.getMessage());
+        }
+    }
+
     private AssistantMessage toAssistantTurn(String reply, @Nullable String thoughtSignature) {
         return AssistantMessage.of(reply, MessageRole.ASSISTANT, thoughtSignature);
     }
 
-    private record ConversationLoopResult(String reply, @Nullable String thoughtSignature, int iterations) {}
+    private record ConversationLoopResult(String reply, @Nullable String thoughtSignature, int iterations, List<ChatWidget> widgets) {}
 }

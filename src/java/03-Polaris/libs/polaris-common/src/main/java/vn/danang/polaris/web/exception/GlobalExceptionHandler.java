@@ -5,8 +5,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.springframework.dao.InvalidDataAccessApiUsageException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -63,7 +65,7 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleInsufficientStockException(InsufficientStockException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
         problem.setTitle("Insufficient Stock");
-        problem.setType(URI.create("https://polaris.local/errors/out-of-stock"));
+        problem.setType(URI.create(InsufficientStockException.TYPE));
         problem.setProperty("sku", ex.getSku());
         problem.setProperty("invalid_param", "quantity");
         problem.setProperty("requested_quantity", ex.getRequestedQuantity());
@@ -89,6 +91,47 @@ public class GlobalExceptionHandler {
         actions.add(alt);
 
         problem.setProperty("actions", actions);
+        return problem;
+    }
+
+    @ExceptionHandler(PriceChangedException.class)
+    public ProblemDetail handlePriceChangedException(PriceChangedException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Price Changed");
+        problem.setType(URI.create(PriceChangedException.TYPE));
+        java.util.List<java.util.Map<String, Object>> lines = new java.util.ArrayList<>();
+        for (PriceChangedException.ChangedLine line : ex.getChangedLines()) {
+            java.util.Map<String, Object> entry = new java.util.LinkedHashMap<>();
+            entry.put("sku", line.sku());
+            entry.put("expected_unit_price", line.expectedUnitPrice());
+            entry.put("current_unit_price", line.currentUnitPrice());
+            lines.add(entry);
+        }
+        problem.setProperty("changed_lines", lines);
+        problem.setProperty("remedy", "Review the current prices and confirm the order again. Nothing was charged and no stock was taken.");
+        problem.setProperty("actions", java.util.List.of(java.util.Map.of("label", "Refresh Draft", "action", "refresh_draft")));
+        return problem;
+    }
+
+    @ExceptionHandler(ProductInactiveException.class)
+    public ProblemDetail handleProductInactiveException(ProductInactiveException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Product Inactive");
+        problem.setType(URI.create(ProductInactiveException.TYPE));
+        problem.setProperty("inactive_skus", ex.getSkus());
+        problem.setProperty("remedy", "Remove the listed products from the order or choose alternatives. Nothing was charged and no stock was taken.");
+        problem.setProperty("actions", java.util.List.of(java.util.Map.of("label", "Search Alternatives", "action", "search_alternatives")));
+        return problem;
+    }
+
+    @ExceptionHandler(IdempotencyKeyReusedException.class)
+    public ProblemDetail handleIdempotencyKeyReusedException(IdempotencyKeyReusedException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage());
+        problem.setTitle("Idempotency Key Reused");
+        problem.setType(URI.create(IdempotencyKeyReusedException.TYPE));
+        problem.setProperty("invalid_param", "Idempotency-Key");
+        problem.setProperty("location", "header");
+        problem.setProperty("remedy", "Generate a new unique Idempotency-Key for this order.");
         return problem;
     }
 
@@ -294,6 +337,35 @@ public class GlobalExceptionHandler {
         problem.setTitle("Optimistic Lock Conflict");
         problem.setType(URI.create("https://polaris.local/errors/optimistic-lock-conflict"));
         problem.setProperty("remedy", "Reload the latest resource representation and retry your update with the updated version.");
+        return problem;
+    }
+
+    @ExceptionHandler(DraftProblemException.class)
+    public ResponseEntity<ProblemDetail> handleDraftProblemException(DraftProblemException ex) {
+        ProblemDetail problem = ex.getProblem();
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(problem.getStatus());
+        if (problem.getStatus() == HttpStatus.UNAUTHORIZED.value()) {
+            response.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        }
+        return response.body(problem);
+    }
+
+    @ExceptionHandler(DraftConflictException.class)
+    public ProblemDetail handleDraftConflictException(DraftConflictException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Draft Conflict");
+        problem.setType(URI.create("https://polaris.local/errors/draft-conflict"));
+        problem.setProperty("remedy", "The order draft was changed concurrently and nothing was applied. Reload the draft and retry.");
+        problem.setProperty("actions", java.util.List.of(java.util.Map.of("label", "Refresh Draft", "action", "refresh_draft")));
+        return problem;
+    }
+
+    @ExceptionHandler(SessionAccessDeniedException.class)
+    public ProblemDetail handleSessionAccessDeniedException(SessionAccessDeniedException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+        problem.setTitle("Forbidden");
+        problem.setType(URI.create("https://polaris.local/errors/forbidden"));
+        problem.setProperty("remedy", "Open a new assistant session; sessions can only be used by the user who opened them.");
         return problem;
     }
 

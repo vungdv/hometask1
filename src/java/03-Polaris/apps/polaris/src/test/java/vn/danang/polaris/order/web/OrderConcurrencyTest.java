@@ -84,7 +84,8 @@ public class OrderConcurrencyTest {
     @BeforeEach
     @AfterEach
     void cleanup() {
-        List.of("CONCUR-SKU-01", "CONCUR-MULTI-A", "CONCUR-MULTI-B", "CONCUR-HTTP-SKU", "CONCUR-MIXED-SKU", "CONCUR-MIXED-HTTP-SKU")
+        List.of("CONCUR-SKU-01", "CONCUR-MULTI-A", "CONCUR-MULTI-B", "CONCUR-HTTP-SKU", "CONCUR-MIXED-SKU", "CONCUR-MIXED-HTTP-SKU",
+                        "CONCUR-IDEM-SKU", "CONCUR-IDEM-A", "CONCUR-IDEM-B", "CONCUR-IDEM-HTTP")
                 .forEach(this::cleanupSku);
     }
 
@@ -516,5 +517,158 @@ public class OrderConcurrencyTest {
         assertThat(finalStock).isEqualTo(expectedStock);
         assertThat(finalStock).isGreaterThanOrEqualTo(0);
         assertThat(totalBought + order400OutOfStock.get()).isEqualTo(orderRequests);
+    }
+
+    private Product createProduct(String sku, int stock) {
+        Product product = new Product();
+        product.setSku(sku);
+        product.setName("Idempotency Test Item " + sku);
+        product.setPrice(new BigDecimal("10.00"));
+        product.setStockQty(stock);
+        product.setIsActive(true);
+        product.setCreatedAt(Instant.now());
+        return productRepository.saveAndFlush(product);
+    }
+
+    private long ordersWithKey(String key) {
+        return transactionTemplate.execute(status ->
+                orderRepository.findAll().stream().filter(o -> key.equals(o.getIdempotencyKey())).count());
+    }
+
+    @Test
+    @DisplayName("Idempotency: N concurrent requests with the same key create one order, deduct stock once, and all get the same order")
+    void concurrentSameIdempotencyKey_createsOneOrder_allCallersSeeSameNumber() throws InterruptedException {
+        String sku = "CONCUR-IDEM-SKU";
+        String key = "concur-idem-" + java.util.UUID.randomUUID();
+        createProduct(sku, 100);
+
+        int totalRequests = 20;
+        ExecutorService executor = Executors.newFixedThreadPool(totalRequests);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch endLatch = new CountDownLatch(totalRequests);
+        List<OrderService.Placement> placements = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger errors = new AtomicInteger(0);
+
+        for (int i = 0; i < totalRequests; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    placements.add(orderService.place(1L, List.of(new OrderItemRequest(sku, 3)), key));
+                } catch (Throwable e) {
+                    errors.incrementAndGet();
+                } finally {
+                    endLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        boolean completed = endLatch.await(15, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        assertThat(errors.get()).isEqualTo(0);
+        assertThat(placements).hasSize(totalRequests);
+        assertThat(placements.stream().map(p -> p.order().getOrderNumber()).distinct()).hasSize(1);
+        assertThat(placements.stream().filter(p -> !p.replayed())).hasSize(1);
+        assertThat(ordersWithKey(key)).isEqualTo(1);
+        assertThat(productRepository.findBySku(sku).orElseThrow().getStockQty()).isEqualTo(100 - 3);
+    }
+
+    @Test
+    @DisplayName("Idempotency: same-key requests on disjoint SKUs (no shared row lock) still yield exactly one order via the unique index")
+    void concurrentSameIdempotencyKey_disjointSkus_loserReReadsWinner() throws InterruptedException {
+        String skuA = "CONCUR-IDEM-A";
+        String skuB = "CONCUR-IDEM-B";
+        String key = "concur-idem-disjoint-" + java.util.UUID.randomUUID();
+        createProduct(skuA, 50);
+        createProduct(skuB, 50);
+
+        int totalRequests = 20;
+        ExecutorService executor = Executors.newFixedThreadPool(totalRequests);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch endLatch = new CountDownLatch(totalRequests);
+        List<OrderService.Placement> placements = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger errors = new AtomicInteger(0);
+
+        for (int i = 0; i < totalRequests; i++) {
+            final String sku = (i % 2 == 0) ? skuA : skuB;
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    placements.add(orderService.place(1L, List.of(new OrderItemRequest(sku, 1)), key));
+                } catch (Throwable e) {
+                    errors.incrementAndGet();
+                } finally {
+                    endLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        boolean completed = endLatch.await(15, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        assertThat(errors.get()).isEqualTo(0);
+        assertThat(placements.stream().map(p -> p.order().getOrderNumber()).distinct()).hasSize(1);
+        assertThat(ordersWithKey(key)).isEqualTo(1);
+        int totalDeducted = (50 - productRepository.findBySku(skuA).orElseThrow().getStockQty())
+                + (50 - productRepository.findBySku(skuB).orElseThrow().getStockQty());
+        assertThat(totalDeducted).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Idempotency over HTTP: concurrent POSTs with the same Idempotency-Key return one 201 and 200 replays of the same order")
+    void concurrentSameIdempotencyKey_viaHttp_one201RestReplay200() throws InterruptedException {
+        String sku = "CONCUR-IDEM-HTTP";
+        String key = "concur-idem-http-" + java.util.UUID.randomUUID();
+        createProduct(sku, 100);
+
+        int totalRequests = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(totalRequests);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch endLatch = new CountDownLatch(totalRequests);
+        AtomicInteger created = new AtomicInteger(0);
+        AtomicInteger replayed = new AtomicInteger(0);
+        AtomicInteger unexpected = new AtomicInteger(0);
+        List<String> orderNumbers = Collections.synchronizedList(new ArrayList<>());
+
+        for (int i = 0; i < totalRequests; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    var response = mockMvc.perform(post("/api/v1/orders")
+                                    .header("Idempotency-Key", key)
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(String.format("{ \"customerId\": 1, \"items\": [ { \"sku\": \"%s\", \"quantity\": 2 } ] }", sku))
+                                    .with(JwtMockFactory.admin()))
+                            .andReturn().getResponse();
+                    if (response.getStatus() == 201) {
+                        created.incrementAndGet();
+                    } else if (response.getStatus() == 200) {
+                        replayed.incrementAndGet();
+                    } else {
+                        unexpected.incrementAndGet();
+                    }
+                    orderNumbers.add(objectMapper.readTree(response.getContentAsString()).path("orderNumber").asText());
+                } catch (Throwable e) {
+                    unexpected.incrementAndGet();
+                } finally {
+                    endLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        boolean completed = endLatch.await(15, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        assertThat(unexpected.get()).isEqualTo(0);
+        assertThat(created.get()).isEqualTo(1);
+        assertThat(replayed.get()).isEqualTo(totalRequests - 1);
+        assertThat(orderNumbers.stream().distinct()).hasSize(1);
+        assertThat(productRepository.findBySku(sku).orElseThrow().getStockQty()).isEqualTo(100 - 2);
     }
 }

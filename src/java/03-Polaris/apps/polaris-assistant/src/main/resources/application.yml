@@ -47,6 +47,10 @@ polaris:
     model: ${POLARIS_TYPESAFE_MODEL:jev-latest}
     base-url: ${POLARIS_TYPESAFE_BASE_URL:https://api.typesafe.ai}
     timeout-seconds: ${POLARIS_TYPESAFE_TIMEOUT_SECONDS:15}
+  core:
+    api:
+      # Order Management REST contract, used to resolve the caller's own customer (GET /api/v1/customers/me)
+      base-url: ${POLARIS_CORE_API_BASE_URL:http://localhost:8080}
   mcp:
     core:
       url: ${POLARIS_CORE_MCP_URL:http://localhost:8080/mcp}

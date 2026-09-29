@@ -34,6 +34,9 @@ public class Customer {
     private String gender;
     private String avatarUrl;
 
+    // Identity-provider subject (JWT `sub`) of the shopper account linked to this customer
+    private String authSubject;
+
     // Organization / Business details
     private String company;
     private String jobTitle;

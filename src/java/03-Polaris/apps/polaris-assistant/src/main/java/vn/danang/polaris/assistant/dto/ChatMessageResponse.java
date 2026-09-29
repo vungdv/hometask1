@@ -1,6 +1,9 @@
 package vn.danang.polaris.assistant.dto;
 
 import java.time.Instant;
+import java.util.List;
+
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "Response payload containing the assistant's reply")
@@ -15,5 +18,17 @@ public record ChatMessageResponse(
     String reply,
 
     @Schema(description = "Timestamp when message was created")
-    Instant createdAt
-) {}
+    Instant createdAt,
+
+    @ArraySchema(arraySchema = @Schema(description = "Structured cards produced during this turn (e.g. ORDER_DRAFT); empty if none"))
+    List<ChatWidget> widgets
+) {
+
+    public ChatMessageResponse {
+        widgets = widgets != null ? List.copyOf(widgets) : List.of();
+    }
+
+    public ChatMessageResponse(String sessionId, String role, String reply, Instant createdAt) {
+        this(sessionId, role, reply, createdAt, List.of());
+    }
+}

@@ -2,9 +2,11 @@ package vn.danang.polaris.catalog.service;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.List;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.times;
@@ -20,6 +22,7 @@ import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import vn.danang.polaris.TestcontainersConfiguration;
@@ -27,6 +30,11 @@ import vn.danang.polaris.catalog.dto.CreateProductRequest;
 import vn.danang.polaris.catalog.dto.ProductResponse;
 import vn.danang.polaris.catalog.repository.ProductRepository;
 import vn.danang.polaris.config.CacheConfig;
+import vn.danang.polaris.order.dto.OrderItemRequest;
+import vn.danang.polaris.order.entity.Order;
+import vn.danang.polaris.order.repository.OrderRepository;
+import vn.danang.polaris.order.service.OrderService;
+import vn.danang.polaris.web.exception.PriceChangedException;
 
 /**
  * Verifies the two-layer (Caffeine L1 / Redis L2) cache wired up in {@link CacheConfig} for
@@ -34,7 +42,8 @@ import vn.danang.polaris.config.CacheConfig;
  * database, values actually land in Redis (not just the in-process tier), a cold L1 falls back
  * to L2 rather than the database, {@code createProduct}'s {@code @CachePut} primes both keys for
  * a new product, and every mutation evicts both the id- and SKU-keyed entries so neither lookup
- * path serves stale data.
+ * path serves stale data. That includes stock changed by placing or cancelling an order, which
+ * evicts only once the order transaction commits.
  *
  * <p>The Redis write path in this environment commits the underlying SET/DEL slightly after the
  * Java call returns (a sub-millisecond window, invisible to any real request but reproducible in
@@ -59,6 +68,12 @@ class ProductCacheIntegrationTest {
 
     @Autowired
     private StringRedisTemplate redisTemplate;
+
+    @Autowired
+    private OrderService orderService;
+
+    @Autowired
+    private OrderRepository orderRepository;
 
     @MockitoSpyBean
     private ProductRepository productRepository;
@@ -183,12 +198,65 @@ class ProductCacheIntegrationTest {
         verify(productRepository, times(0)).findBySkuIgnoreCase("NG-CACHE-TEST-01");
     }
 
+    // Order placement evicts only after commit, and this class's test transaction never commits,
+    // so these tests opt out of it and remove the order they create themselves.
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("placing and cancelling an order evicts the product's id- and SKU-keyed entries after commit")
+    void placeAndCancelOrder_evictCacheAfterCommit_nextReadsSeeFreshStock() {
+        ProductResponse before = productService.getProductBySku("NG-CHARGER-02");
+        productService.getProductById(productId);
+        assertThat(awaitRedisKey(skuKey("NG-CHARGER-02"), true)).isTrue();
+        assertThat(awaitRedisKey(idKey(productId), true)).isTrue();
+
+        Order order = orderService.placeOrder(1L, List.of(new OrderItemRequest("NG-CHARGER-02", 2)), null);
+        try {
+            // L1 eviction happens synchronously in afterCommit; the Redis DEL is polled for (see class Javadoc)
+            assertThat(localCacheManager.getCache(CacheConfig.PRODUCTS_CACHE).get(localSkuKey("NG-CHARGER-02"))).isNull();
+            assertThat(localCacheManager.getCache(CacheConfig.PRODUCTS_CACHE).get(productId)).isNull();
+            assertThat(awaitRedisKey(skuKey("NG-CHARGER-02"), false)).isFalse();
+            assertThat(awaitRedisKey(idKey(productId), false)).isFalse();
+            assertThat(productService.getProductBySku("NG-CHARGER-02").stockQuantity()).isEqualTo(before.stockQuantity() - 2);
+            assertThat(productService.getProductById(productId).stockQuantity()).isEqualTo(before.stockQuantity() - 2);
+            assertThat(awaitRedisKey(skuKey("NG-CHARGER-02"), true)).isTrue();
+
+            orderService.cancelOrder(order.getOrderNumber());
+
+            assertThat(localCacheManager.getCache(CacheConfig.PRODUCTS_CACHE).get(localSkuKey("NG-CHARGER-02"))).isNull();
+            assertThat(awaitRedisKey(skuKey("NG-CHARGER-02"), false)).isFalse();
+            assertThat(productService.getProductBySku("NG-CHARGER-02").stockQuantity()).isEqualTo(before.stockQuantity());
+        } finally {
+            orderRepository.findByOrderNumber(order.getOrderNumber()).ifPresent(orderRepository::delete);
+        }
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("a rejected order rolls back and leaves the cached product untouched")
+    void rejectedOrder_rollsBack_leavesCacheUntouched() {
+        productService.getProductBySku("NG-CHARGER-02");
+        assertThat(awaitRedisKey(skuKey("NG-CHARGER-02"), true)).isTrue();
+
+        assertThatThrownBy(() -> orderService.placeOrder(1L,
+                List.of(new OrderItemRequest("NG-CHARGER-02", 1, new BigDecimal("0.01"))), null))
+                .isInstanceOf(PriceChangedException.class);
+
+        assertThat(localCacheManager.getCache(CacheConfig.PRODUCTS_CACHE).get(localSkuKey("NG-CHARGER-02"))).isNotNull();
+        assertThat(redisTemplate.hasKey(skuKey("NG-CHARGER-02"))).isTrue();
+    }
+
+    /** Key of a SKU lookup inside the {@code products} cache (the Redis key adds the {@code products::} prefix). */
+    private static String localSkuKey(String sku) {
+        return CacheConfig.productSkuKey(sku);
+    }
+
     private static String idKey(Long id) {
         return CacheConfig.PRODUCTS_CACHE + "::" + id;
     }
 
     private static String skuKey(String sku) {
-        return CacheConfig.PRODUCTS_CACHE + "::sku:" + sku.toLowerCase();
+        return CacheConfig.PRODUCTS_CACHE + "::" + CacheConfig.productSkuKey(sku);
     }
 
     /**

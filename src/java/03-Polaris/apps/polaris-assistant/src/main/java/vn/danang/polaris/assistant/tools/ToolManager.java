@@ -9,7 +9,8 @@ import vn.danang.polaris.assistant.ai.ToolCall;
 
 /**
  * Hub contract for Model Context Protocol (MCP) operations.
- * Manages tool discovery and handles execution loops for tool calls proposed by AI models.
+ * Manages tool discovery and dispatches tool calls. It does not decide whether a call is acceptable for the
+ * turn's intent or permitted for the caller; that is the caller's job (see the {@code intent} package).
  */
 public interface ToolManager {
 
@@ -21,13 +22,11 @@ public interface ToolManager {
     List<Tool> discoverAllTools();
 
     /**
-     * Handles the execution for a batch of tool calls proposed by the AI model.
-     * Performs defensive validation against intent, policy authorization against caller scopes,
-     * tool dispatching via MCP, decision auditing, and telemetry events.
+     * Executes a batch of already-approved tool calls, dispatching each to its local implementation or via MCP.
      *
-     * @param toolCalls the list of tool calls proposed by the model
-     * @param context the execution context containing session, intent, policy, and tracing details
-     * @return list of tool results indicating outcome for each tool call
+     * @param toolCalls the tool calls to execute
+     * @param context the execution context containing session and caller details
+     * @return one tool result per tool call, in call order
      */
     List<ToolResult> handleToolCalls(List<ToolCall> toolCalls, ToolExecutionContext context);
 }

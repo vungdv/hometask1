@@ -18,6 +18,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.micrometer.tracing.Span;
@@ -65,7 +66,9 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
     public HttpPolarisMcpClient(PolarisMcpProperties properties, ObjectMapper objectMapper, UserContext userContext, HttpClient httpClient, @Nullable Tracer tracer) {
         this.properties = properties;
         this.objectMapper = objectMapper;
-        this.jsonMapper = new JacksonMcpJsonMapper(objectMapper);
+        // Parse JSON-RPC results with BigDecimal floats so money in structuredContent (e.g. quote_order)
+        // never goes through double.
+        this.jsonMapper = new JacksonMcpJsonMapper(objectMapper.copy().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS));
         this.userContext = userContext;
         this.httpClient = httpClient;
         this.tracer = tracer;
@@ -211,6 +214,10 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
             HttpRequest request = buildJsonRpcRequest(jsonBody);
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() == 401 || response.statusCode() == 403) {
+                log.warn("Polaris Core refused MCP tool '{}'. HTTP Status: {}", toolName, response.statusCode());
+                return refused(toolName, response.statusCode());
+            }
             if (response.statusCode() != 200) {
                 log.error("Error executing MCP tool '{}'. HTTP Status: {}, Body: {}",
                         toolName, response.statusCode(), response.body());
@@ -263,5 +270,16 @@ public class HttpPolarisMcpClient implements PolarisMcpClient {
                     Map.of()
             );
         }
+    }
+
+    /**
+     * A tool call the MCP endpoint refused with 401/403, as an error result carrying an RFC 7807 problem
+     * (the same shape Polaris Core uses for its own tool-level refusals).
+     */
+    private static CallToolResult refused(String toolName, int status) {
+        String title = status == 401 ? "Unauthorized" : "Forbidden";
+        String detail = "Polaris Core refused tool " + toolName + ": HTTP " + status + " " + title;
+        Map<String, Object> problem = Map.of("type", "about:blank", "title", title, "status", status, "detail", detail);
+        return new CallToolResult(List.of(TextContent.builder(detail).build()), true, problem, Map.of());
     }
 }

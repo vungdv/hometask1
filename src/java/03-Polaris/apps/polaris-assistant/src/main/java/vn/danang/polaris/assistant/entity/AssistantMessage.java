@@ -23,6 +23,10 @@ public final class AssistantMessage {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // Nullable only for rows written before V14; the SessionStore always sets it.
+    @Column(name = "session_id", length = 64)
+    private String sessionId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "role", length = 16, nullable = false)
     private MessageRole role;
@@ -30,9 +34,19 @@ public final class AssistantMessage {
     @Column(name = "content", columnDefinition = "TEXT")
     private String content;
 
+    /** On a reply row: the comma-separated types of the cards in {@link #widgetPayload}; null otherwise. */
     @Column(name = "widget_type", length = 64)
     private String widgetType;
 
+    /**
+     * Meaning depends on the row:
+     * <ul>
+     *   <li>tool-call row (role ASSISTANT with {@link #toolCallId} set): the JSON arguments of the model's
+     *       tool call, replayed to the model as {@code functionCall.args};</li>
+     *   <li>reply row (role ASSISTANT, no tool call id): the turn's cards as a JSON array
+     *       {@code [{type, payload}]}, the same {@code widgets} the chat response returned; never sent to the model.</li>
+     * </ul>
+     */
     @Column(name = "widget_payload", columnDefinition = "TEXT")
     private String widgetPayload;
 

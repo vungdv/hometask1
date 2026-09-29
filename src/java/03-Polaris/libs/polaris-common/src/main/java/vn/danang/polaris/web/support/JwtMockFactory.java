@@ -88,6 +88,25 @@ public final class JwtMockFactory {
                 ));
     }
 
+    /**
+     * Self-service shopper token: identity claims ({@code sub}, verified {@code email}) plus the
+     * permissions of the {@code shopper} realm role. Has no staff role.
+     */
+    public static JwtRequestPostProcessor shopper(String subject, String email) {
+        return SecurityMockMvcRequestPostProcessors.jwt()
+                .jwt(jwt -> jwt.subject(subject).claim("email", email).claim("email_verified", true))
+                .authorities(List.of(
+                        new SimpleGrantedAuthority("ROLE_" + PolarisRoles.SHOPPER),
+                        new SimpleGrantedAuthority("ROLE_SHOPPER"),
+                        new SimpleGrantedAuthority("PERM_" + PolarisPermissions.CATALOG_READ),
+                        new SimpleGrantedAuthority("PERMISSION_" + PolarisPermissions.CATALOG_READ),
+                        new SimpleGrantedAuthority("PERM_" + PolarisPermissions.ORDER_READ),
+                        new SimpleGrantedAuthority("PERMISSION_" + PolarisPermissions.ORDER_READ),
+                        new SimpleGrantedAuthority("PERM_" + PolarisPermissions.ORDER_WRITE),
+                        new SimpleGrantedAuthority("PERMISSION_" + PolarisPermissions.ORDER_WRITE)
+                ));
+    }
+
     public static JwtRequestPostProcessor admin() {
         return SecurityMockMvcRequestPostProcessors.jwt()
                 .authorities(List.of(

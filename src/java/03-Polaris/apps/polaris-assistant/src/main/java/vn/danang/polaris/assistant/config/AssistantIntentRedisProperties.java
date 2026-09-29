@@ -23,6 +23,9 @@ public class AssistantIntentRedisProperties {
     /** How long a fallback (Redis unavailable/empty) result is cached before retrying Redis. */
     private Duration fallbackRetryInterval = Duration.ofSeconds(5);
 
-    /** Whether to seed Redis with the classpath taxonomy on startup if the key is missing. */
+    /**
+     * Whether to sync Redis with the classpath taxonomy on startup: seed it if missing, and overwrite it when
+     * the classpath taxonomy changed since it was last seeded (see {@code RedisIntentManager#seedIfMissing}).
+     */
     private boolean seedIfMissing = true;
 }

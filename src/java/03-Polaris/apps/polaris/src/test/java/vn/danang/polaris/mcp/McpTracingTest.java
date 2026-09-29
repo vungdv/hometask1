@@ -184,12 +184,13 @@ class McpTracingTest {
         customer.setFullName("Alice Tran");
         order.setCustomer(customer);
 
-        when(orderService.placeOrder(anyLong(), anyList(), any())).thenReturn(order);
+        when(orderService.place(anyLong(), anyList(), any())).thenReturn(new OrderService.Placement(order, false));
 
         Map<String, Object> item = Map.of("sku", "SKU-01", "quantity", 2);
         Map<String, Object> args = Map.of("customer_id", 1, "items", List.of(item));
 
-        McpSchema.CallToolResult result = orderToolsWithTracer.placeOrder(args);
+        McpSchema.CallToolResult result = orderToolsWithTracer.placeOrder(args,
+                new org.springframework.security.authentication.TestingAuthenticationToken("staff", null, "ROLE_ADMIN", "PERM_order.write"));
 
         assertThat(result.isError()).isFalse();
         verify(tracer).nextSpan();

@@ -74,9 +74,7 @@ class DefaultIntentManagerTest {
                     "description": "Track a custom order",
                     "examples": ["track custom order"],
                     "allowedTools": ["get_order_status"],
-                    "requiredScope": "order.read",
-                    "confidenceThreshold": 0.85,
-                    "mutating": false
+                    "confidenceThreshold": 0.85
                   }
                 ]
                 """;
@@ -90,9 +88,7 @@ class DefaultIntentManagerTest {
         assertThat(def.description()).isEqualTo("Track a custom order");
         assertThat(def.examples()).containsExactly("track custom order");
         assertThat(def.allowedTools()).containsExactly("get_order_status");
-        assertThat(def.requiredScope()).isEqualTo("order.read");
         assertThat(def.confidenceThreshold()).isEqualTo(0.85);
-        assertThat(def.mutating()).isFalse();
     }
 
     @Test

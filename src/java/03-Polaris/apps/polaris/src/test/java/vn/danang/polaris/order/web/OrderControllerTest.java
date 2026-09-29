@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 import static org.hamcrest.Matchers.hasSize;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.when;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,7 @@ import vn.danang.polaris.order.entity.Order;
 import vn.danang.polaris.order.entity.OrderItem;
 import vn.danang.polaris.order.entity.OrderStatus;
 import vn.danang.polaris.catalog.entity.Product;
+import vn.danang.polaris.order.service.CustomerService;
 import vn.danang.polaris.order.service.OrderService;
 import vn.danang.polaris.order.web.controller.OrderController;
 import vn.danang.polaris.web.exception.GlobalExceptionHandler;
@@ -38,6 +40,18 @@ public class OrderControllerTest {
 
     @MockitoBean
     private OrderService orderService;
+
+    @MockitoBean
+    private CustomerService customerService;
+
+    @BeforeEach
+    void setUp() {
+        // Staff callers order for the customer they name; identity rules are covered by CustomerServiceTest
+        when(customerService.resolveOrderingCustomerId(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+        when(customerService.resolveCustomerScope(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+    }
 
     private Order createSampleOrder(String orderNumber, OrderStatus status) {
         Order order = new Order();
@@ -175,8 +189,8 @@ public class OrderControllerTest {
     @Test
     void placeOrder_validRequest_shouldReturn201CreatedAndLocationHeader() throws Exception {
         Order sample = createSampleOrder("ORD-1001", OrderStatus.PLACED);
-        when(orderService.placeOrder(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.isNull()))
-                .thenReturn(sample);
+        when(orderService.place(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(new OrderService.Placement(sample, false));
 
         String json = """
             {
@@ -201,8 +215,8 @@ public class OrderControllerTest {
     @Test
     void placeOrder_withHeaderIdempotencyKey_shouldPassToService() throws Exception {
         Order sample = createSampleOrder("ORD-1001", OrderStatus.PLACED);
-        when(orderService.placeOrder(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.eq("idem-key-123")))
-                .thenReturn(sample);
+        when(orderService.place(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.eq("idem-key-123")))
+                .thenReturn(new OrderService.Placement(sample, false));
 
         String json = """
             {
@@ -225,7 +239,7 @@ public class OrderControllerTest {
 
     @Test
     void placeOrder_whenInsufficientStock_shouldReturn400OutOfStockProblemDetail() throws Exception {
-        when(orderService.placeOrder(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+        when(orderService.place(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenThrow(new vn.danang.polaris.web.exception.InsufficientStockException("NG-WATCH-01", 10, 5));
 
         String json = """
@@ -250,6 +264,97 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.requested_quantity").value(10))
                 .andExpect(jsonPath("$.available_quantity").value(5))
                 .andExpect(jsonPath("$.remedy").value("Reduce order quantity for 'NG-WATCH-01' to 5 or fewer units."));
+    }
+
+    @Test
+    void placeOrder_idempotentReplay_shouldReturn200WithOriginalOrderAndNoLocation() throws Exception {
+        Order sample = createSampleOrder("ORD-1001", OrderStatus.PLACED);
+        when(orderService.place(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.eq("idem-replay")))
+                .thenReturn(new OrderService.Placement(sample, true));
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "idem-replay")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                            { "customerId": 1, "items": [ { "sku": "NG-EARBUD-01", "quantity": 2 } ] }
+                            """)
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().doesNotExist("Location"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Content-Location", "/api/v1/orders/ORD-1001"))
+                .andExpect(jsonPath("$.orderNumber").value("ORD-1001"));
+    }
+
+    @Test
+    void placeOrder_expectedUnitPrice_isPassedToService() throws Exception {
+        Order sample = createSampleOrder("ORD-1001", OrderStatus.PLACED);
+        when(orderService.place(org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(java.util.List.of(new vn.danang.polaris.order.dto.OrderItemRequest("NG-EARBUD-01", 2, new BigDecimal("49.95")))),
+                org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(new OrderService.Placement(sample, false));
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                            { "customerId": 1, "items": [ { "sku": "NG-EARBUD-01", "quantity": 2, "expectedUnitPrice": 49.95 } ] }
+                            """)
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void placeOrder_negativeExpectedUnitPrice_shouldReturn400ValidationError() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                            { "customerId": 1, "items": [ { "sku": "NG-EARBUD-01", "quantity": 2, "expectedUnitPrice": -1 } ] }
+                            """)
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/validation-error"))
+                .andExpect(jsonPath("$.invalid_param").value("items[0].expectedUnitPrice"));
+    }
+
+    @Test
+    void placeOrder_whenPriceChanged_shouldReturn409PriceChangedProblemDetail() throws Exception {
+        when(orderService.place(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new vn.danang.polaris.web.exception.PriceChangedException(java.util.List.of(
+                        new vn.danang.polaris.web.exception.PriceChangedException.ChangedLine(
+                                "NG-EARBUD-01", new BigDecimal("39.90"), new BigDecimal("49.95")))));
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                            { "customerId": 1, "items": [ { "sku": "NG-EARBUD-01", "quantity": 1, "expectedUnitPrice": 39.90 } ] }
+                            """)
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/price-changed"))
+                .andExpect(jsonPath("$.title").value("Price Changed"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.changed_lines", hasSize(1)))
+                .andExpect(jsonPath("$.changed_lines[0].sku").value("NG-EARBUD-01"))
+                .andExpect(jsonPath("$.changed_lines[0].expected_unit_price").value(39.90))
+                .andExpect(jsonPath("$.changed_lines[0].current_unit_price").value(49.95))
+                .andExpect(jsonPath("$.remedy").exists());
+    }
+
+    @Test
+    void placeOrder_whenIdempotencyKeyReused_shouldReturn422ProblemDetail() throws Exception {
+        when(orderService.place(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new vn.danang.polaris.web.exception.IdempotencyKeyReusedException());
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Idempotency-Key", "someone-elses-key")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("""
+                            { "customerId": 1, "items": [ { "sku": "NG-EARBUD-01", "quantity": 1 } ] }
+                            """)
+                        .with(JwtMockFactory.purchaseManagement()))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/idempotency-key-reused"))
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.invalid_param").value("Idempotency-Key"));
     }
 
     @Test
@@ -348,6 +453,22 @@ public class OrderControllerTest {
                         .content("{\"customerId\": 1, \"items\": [{\"sku\": \"NG-EARBUD-01\", \"quantity\": 1}]}")
                         .with(JwtMockFactory.user()))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void placeOrder_shopperForAnotherCustomer_shouldReturn403ProblemDetail() throws Exception {
+        when(customerService.resolveOrderingCustomerId(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(2L)))
+                .thenThrow(new org.springframework.security.access.AccessDeniedException(
+                        "Orders can only be placed for the customer account linked to the authenticated user."));
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"customerId\": 2, \"items\": [{\"sku\": \"NG-EARBUD-01\", \"quantity\": 1}]}")
+                        .with(JwtMockFactory.shopper("shopper-sub", "alice.tran@example.com")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/forbidden"));
+
+        org.mockito.Mockito.verifyNoInteractions(orderService);
     }
 
     @Test

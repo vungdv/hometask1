@@ -1,5 +1,6 @@
 package vn.danang.polaris.assistant.service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -15,22 +16,35 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
 import org.springframework.beans.factory.ObjectProvider;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
+import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
+import vn.danang.polaris.assistant.dto.ChatWidget;
+import vn.danang.polaris.assistant.dto.ProductListCard;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
+import vn.danang.polaris.assistant.intent.DefaultIntentManager;
+import vn.danang.polaris.assistant.intent.IntentDefinition;
+import vn.danang.polaris.assistant.intent.IntentToolExecutor;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
+import vn.danang.polaris.web.exception.SessionAccessDeniedException;
+import vn.danang.polaris.assistant.tools.DefaultToolManager;
+import vn.danang.polaris.assistant.tools.PolarisMcpClient;
 import vn.danang.polaris.assistant.tools.ToolExecutionContext;
 import vn.danang.polaris.assistant.tools.ToolResult;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
@@ -51,12 +65,14 @@ class AssistantChatServiceTest {
 
     private AssistantModelClient modelClient;
     private IntentResolutionFacade intentResolutionFacade;
+    private InMemorySessionStore sessionStore;
     private AssistantChatService chatService;
 
     @BeforeEach
     void setUp() {
         modelClient = mock(AssistantModelClient.class);
         intentResolutionFacade = mock(IntentResolutionFacade.class);
+        sessionStore = new InMemorySessionStore();
 
         when(intentResolutionFacade.resolve(anyString(), anyList()))
                 .thenReturn(new ResolvedIntent(
@@ -112,7 +128,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.success(toolCall, "Found: Fast Charger 65W ($24.90)")));
 
             ChatMessageRequest request = ChatMessageRequest.of("Find fast chargers");
@@ -120,7 +136,7 @@ class AssistantChatServiceTest {
 
             assertThat(response).isNotNull();
             assertThat(response.reply()).isEqualTo("I found the Fast Charger 65W for $24.90.");
-            verify(intentResolutionFacade, times(1)).executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class));
+            verify(intentResolutionFacade, times(1)).executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any());
             verify(modelClient, times(2)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
         }
 
@@ -152,6 +168,26 @@ class AssistantChatServiceTest {
         }
 
         @Test
+        @DisplayName("Given a tool-using turn, when it completes, then persists user, tool call, tool result and reply to the session store in order")
+        void persists_the_whole_turn_to_the_session_store() {
+            ToolCall toolCall = new ToolCall("search_available_products", Map.of("query", "charger"));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(toolCall)))
+                    .thenReturn(new ModelResponse("Fast Charger 65W is $24.90.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any()))
+                    .thenReturn(List.of(ToolResult.success(toolCall, "Found: Fast Charger 65W ($24.90)")));
+
+            chatService.sendMessage(ChatMessageRequest.of("session-store-1", "Find fast chargers"), "user-123");
+
+            List<AssistantMessage> persisted = sessionStore.persisted("session-store-1");
+            assertThat(persisted).extracting(AssistantMessage::getRole).containsExactly(
+                    MessageRole.USER, MessageRole.ASSISTANT, MessageRole.TOOL, MessageRole.ASSISTANT);
+            assertThat(persisted.getFirst().getContent()).isEqualTo("Find fast chargers");
+            assertThat(persisted.getLast().getContent()).isEqualTo("Fast Charger 65W is $24.90.");
+            assertThat(persisted).allSatisfy(m -> assertThat(m.getSessionId()).isEqualTo("session-store-1"));
+        }
+
+        @Test
         @DisplayName("Given parallel tool calls returned by model, when appended to history, then groups all ASSISTANT turns before TOOL turns")
         @SuppressWarnings("unchecked")
         void groups_parallel_model_turns_before_tool_turns_in_history() {
@@ -165,7 +201,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall1, toolCall2)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall1, toolCall2)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(
                             ToolResult.success(toolCall1, "Charger"),
                             ToolResult.success(toolCall2, "10% off")
@@ -218,7 +254,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenReturn(turn1Response);
 
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.denied(toolCall, "Missing scope 'order.write'.")));
 
             ChatMessageRequest request = ChatMessageRequest.of("buy wireless earbuds");
@@ -227,7 +263,34 @@ class AssistantChatServiceTest {
             assertThat(response).isNotNull();
             assertThat(response.reply()).isEqualTo("Action denied: Missing scope 'order.write'.");
             verify(modelClient, times(1)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
-            verify(intentResolutionFacade, times(1)).executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class));
+            verify(intentResolutionFacade, times(1)).executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any());
+        }
+
+        @Test
+        @DisplayName("Given a session opened by another user, when sendMessage is called, then throws SessionAccessDeniedException and never calls the model")
+        void rejects_access_to_another_users_session() {
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("Your cart has 2 chargers.", List.of()));
+            chatService.sendMessage(ChatMessageRequest.of("session-alice", "What is in my cart?"), "user-alice");
+
+            assertThatThrownBy(() -> chatService.sendMessage(ChatMessageRequest.of("session-alice", "Show me"), "user-mallory"))
+                    .isInstanceOf(SessionAccessDeniedException.class);
+
+            verify(modelClient, times(1)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
+            assertThat(sessionStore.persisted("session-alice")).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("Given the model fails mid-turn, when sendMessage throws, then nothing from the failed turn is persisted")
+        void persists_nothing_when_the_turn_fails() {
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenThrow(new RuntimeException("Gemini model failure"));
+
+            assertThatThrownBy(() -> chatService.sendMessage(ChatMessageRequest.of("session-fail", "Hi"), "user-123"))
+                    .isInstanceOf(RuntimeException.class);
+
+            assertThat(sessionStore.persisted("session-fail")).isEmpty();
+            verify(intentResolutionFacade, never()).executeToolCalls(anyList(), any(ToolExecutionContext.class), any());
         }
 
         @Test
@@ -286,7 +349,7 @@ class AssistantChatServiceTest {
             when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
                     .thenReturn(new ModelResponse("", List.of(loopCall)));
 
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.success(loopCall, "ok")));
 
             ChatMessageRequest request = ChatMessageRequest.of("Run loop");
@@ -295,7 +358,7 @@ class AssistantChatServiceTest {
             assertThat(response).isNotNull();
             assertThat(response.reply()).isEqualTo("I have completed processing your request.");
             verify(modelClient, times(5)).generateResponse(anyList(), anyList(), any(ModelRequestContext.class));
-            verify(intentResolutionFacade, times(5)).executeToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class));
+            verify(intentResolutionFacade, times(5)).executeToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class), any());
         }
 
         @Test
@@ -333,7 +396,7 @@ class AssistantChatServiceTest {
                     .thenReturn(turn1Response)
                     .thenReturn(turn2Response);
 
-            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class)))
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any()))
                     .thenReturn(List.of(ToolResult.success(toolCall, "Product found: Charger")));
 
             ChatMessageRequest request = ChatMessageRequest.of("Search for charger");
@@ -397,6 +460,233 @@ class AssistantChatServiceTest {
         return provider;
     }
 
+    // =========================================================================
+    // Widgets — cards produced by tool calls reach the response and the history
+    // =========================================================================
+    @Nested
+    @DisplayName("Widgets")
+    class Widgets {
+
+        @Test
+        @DisplayName("Given a tool result carrying a widget, when the turn ends, then the response and the persisted reply carry it")
+        void returns_and_persists_widgets() {
+            ToolCall stage = new ToolCall("stage_order_draft", Map.of("items", List.of()));
+            ChatWidget card = new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1"));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(stage)))
+                    .thenReturn(new ModelResponse("Please review the draft.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage)), any(ToolExecutionContext.class), any()))
+                    .thenReturn(List.of(ToolResult.success(stage, "staged").withWidget(card)));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w", "order 2"), "user-1");
+
+            assertThat(response.widgets()).containsExactly(card);
+            AssistantMessage reply = sessionStore.persisted("sess-w").getLast();
+            assertThat(reply.getRole()).isEqualTo(MessageRole.ASSISTANT);
+            assertThat(reply.getWidgetType()).isEqualTo("ORDER_DRAFT");
+            assertThat(reply.getWidgetPayload()).isEqualTo("[{\"type\":\"ORDER_DRAFT\",\"payload\":{\"draftId\":\"dft-1\"}}]");
+        }
+
+        @Test
+        @DisplayName("Given two drafts staged in one turn, when the turn ends, then only the latest ORDER_DRAFT card is returned")
+        void latest_card_of_a_type_wins() {
+            ToolCall first = new ToolCall("stage_order_draft", Map.of("n", 1));
+            ToolCall second = new ToolCall("stage_order_draft", Map.of("n", 2));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(first)))
+                    .thenReturn(new ModelResponse("", List.of(second)))
+                    .thenReturn(new ModelResponse("Updated.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(first)), any(ToolExecutionContext.class), any()))
+                    .thenReturn(List.of(ToolResult.success(first, "a").withWidget(new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1")))));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(second)), any(ToolExecutionContext.class), any()))
+                    .thenReturn(List.of(ToolResult.success(second, "b").withWidget(new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-2")))));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w2", "make it 3"), "user-1");
+
+            assertThat(response.widgets()).singleElement()
+                    .extracting(ChatWidget::payload).isEqualTo(Map.of("draftId", "dft-2"));
+        }
+
+        @Test
+        @DisplayName("Given stage then discard in one batch, when the turn ends, then no ORDER_DRAFT card is returned")
+        void discard_after_stage_retracts_card() {
+            ToolCall stage = new ToolCall("stage_order_draft", Map.of());
+            ToolCall discard = new ToolCall("discard_order_draft", Map.of());
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(stage, discard)))
+                    .thenReturn(new ModelResponse("Draft discarded.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage, discard)), any(ToolExecutionContext.class), any()))
+                    .thenReturn(List.of(
+                            ToolResult.success(stage, "a").withWidget(new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1"))),
+                            ToolResult.success(discard, "b").retractingWidget(ChatWidget.ORDER_DRAFT)));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w4", "never mind"), "user-1");
+
+            assertThat(response.widgets()).isEmpty();
+            assertThat(sessionStore.persisted("sess-w4").getLast().getWidgetType()).isNull();
+        }
+
+        @Test
+        @DisplayName("Given a failed discard after a stage, when the turn ends, then the staged card is kept")
+        void failed_discard_keeps_card() {
+            ToolCall stage = new ToolCall("stage_order_draft", Map.of());
+            ToolCall discard = new ToolCall("discard_order_draft", Map.of());
+            ChatWidget card = new ChatWidget(ChatWidget.ORDER_DRAFT, Map.of("draftId", "dft-1"));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(stage, discard)))
+                    .thenReturn(new ModelResponse("Could not discard.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage, discard)), any(ToolExecutionContext.class), any()))
+                    .thenReturn(List.of(
+                            ToolResult.success(stage, "a").withWidget(card),
+                            ToolResult.error(discard, "conflict")));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w5", "drop it"), "user-1");
+
+            assertThat(response.widgets()).containsExactly(card);
+        }
+
+        @Test
+        @DisplayName("Given no tool produced a card, when the turn ends, then widgets is empty and nothing is persisted as a widget")
+        void no_widgets_by_default() {
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("Hi!", List.of()));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("sess-w3", "hi"), "user-1");
+
+            assertThat(response.widgets()).isEmpty();
+            assertThat(sessionStore.persisted("sess-w3").getLast().getWidgetType()).isNull();
+        }
+    }
+
+    // =========================================================================
+    // Product cards (S8) — a search turn through the real tool pipeline yields a PRODUCT_LIST card
+    // =========================================================================
+    @Nested
+    @DisplayName("Product cards")
+    class ProductCards {
+
+        private static final String CHARGERS = """
+            {"totalElements": 2, "products": [
+              {"sku": "NG-CHARGER-01", "name": "Nova 65W Fast Charger", "category": "Chargers",
+               "price": 24.90, "stockQuantity": 200, "available": true},
+              {"sku": "NG-CHARGER-02", "name": "Nova 30W Charger", "category": null,
+               "price": 14.10, "stockQuantity": 0, "available": false}]}
+            """;
+
+        private static final String CASES = """
+            {"totalElements": 2, "products": [
+              {"sku": "NG-CASE-01", "name": "Nova Phone Case", "category": "Accessories",
+               "price": 14.90, "stockQuantity": 50, "available": true},
+              {"sku": "NG-CHARGER-01", "name": "Nova 65W Fast Charger", "category": "Chargers",
+               "price": 24.90, "stockQuantity": 198, "available": true}]}
+            """;
+
+        private PolarisMcpClient polarisMcpClient;
+        private AssistantChatService searchChatService;
+
+        @BeforeEach
+        void setUpPipeline() {
+            polarisMcpClient = mock(PolarisMcpClient.class);
+            DefaultIntentManager taxonomy = new DefaultIntentManager();
+            IntentDefinition search = taxonomy.getIntent("catalog.product.search").orElseThrow();
+            DefaultToolManager toolManager = new DefaultToolManager(polarisMcpClient, Runnable::run, List.of());
+            IntentResolutionFacade facade = new IntentResolutionFacade(
+                    (message, history, tools) -> new ResolvedIntent(search.id(), 0.99, true, List.of(), search),
+                    toolManager,
+                    new IntentToolExecutor(toolManager));
+            searchChatService = createChatService(modelClient, null, facade);
+        }
+
+        private CallToolResult searchResult(String text, String structuredJson) throws Exception {
+            // Parsed like HttpPolarisMcpClient does: floats as BigDecimal
+            Map<String, Object> structured = structuredJson == null ? null : new ObjectMapper()
+                    .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                    .readValue(structuredJson, new TypeReference<Map<String, Object>>() {});
+            return new CallToolResult(List.of(TextContent.builder(text).build()), false, structured, Map.of());
+        }
+
+        @Test
+        @DisplayName("Given a successful search, when the turn ends, then the reply carries a PRODUCT_LIST card built from the tool's structured data")
+        void search_turn_returns_product_list_widget() throws Exception {
+            ToolCall searchCall = new ToolCall("search_available_products", Map.of("query", "charger"));
+            when(polarisMcpClient.callTool(eq("search_available_products"), any()))
+                    .thenReturn(searchResult("Found 2 product(s): ...", CHARGERS));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(searchCall)))
+                    .thenReturn(new ModelResponse("Here are two chargers.", List.of()));
+
+            ChatMessageResponse response = searchChatService.sendMessage(ChatMessageRequest.of("sess-p1", "fast chargers"), "user-1");
+
+            assertThat(response.widgets()).singleElement().satisfies(widget -> {
+                assertThat(widget.type()).isEqualTo(ChatWidget.PRODUCT_LIST);
+                ProductListCard card = (ProductListCard) widget.payload();
+                assertThat(card.products()).extracting(ProductListCard.Product::sku)
+                        .containsExactly("NG-CHARGER-01", "NG-CHARGER-02");
+                ProductListCard.Product first = card.products().getFirst();
+                assertThat(first.name()).isEqualTo("Nova 65W Fast Charger");
+                assertThat(first.category()).isEqualTo("Chargers");
+                assertThat(first.price()).isEqualTo(new BigDecimal("24.90"));
+                assertThat(first.stockQuantity()).isEqualTo(200);
+                assertThat(first.available()).isTrue();
+                assertThat(card.products().get(1).category()).isNull();
+                assertThat(card.products().get(1).available()).isFalse();
+            });
+
+            // The model saw only the text; the card is persisted on the reply
+            List<AssistantMessage> persisted = sessionStore.persisted("sess-p1");
+            assertThat(persisted).filteredOn(m -> m.getRole() == MessageRole.TOOL)
+                    .singleElement().extracting(AssistantMessage::getContent).isEqualTo("Found 2 product(s): ...");
+            AssistantMessage reply = persisted.getLast();
+            assertThat(reply.getWidgetType()).isEqualTo("PRODUCT_LIST");
+            assertThat(reply.getWidgetPayload()).contains("\"sku\":\"NG-CHARGER-01\"").contains("\"price\":24.90");
+        }
+
+        @Test
+        @DisplayName("Given two searches in one turn, when the turn ends, then one PRODUCT_LIST card holds the products of both, a repeated SKU once with its later values")
+        void two_searches_merge_into_one_card() throws Exception {
+            ToolCall chargers = new ToolCall("search_available_products", Map.of("query", "charger"));
+            ToolCall cases = new ToolCall("search_available_products", Map.of("query", "case"));
+            when(polarisMcpClient.callTool(eq("search_available_products"), eq(Map.of("query", "charger"))))
+                    .thenReturn(searchResult("chargers", CHARGERS));
+            when(polarisMcpClient.callTool(eq("search_available_products"), eq(Map.of("query", "case"))))
+                    .thenReturn(searchResult("cases", CASES));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(chargers)))
+                    .thenReturn(new ModelResponse("", List.of(cases)))
+                    .thenReturn(new ModelResponse("Chargers and cases.", List.of()));
+
+            ChatMessageResponse response = searchChatService.sendMessage(ChatMessageRequest.of("sess-p2", "chargers and cases"), "user-1");
+
+            assertThat(response.widgets()).singleElement().satisfies(widget -> {
+                ProductListCard card = (ProductListCard) widget.payload();
+                assertThat(card.products()).extracting(ProductListCard.Product::sku)
+                        .containsExactly("NG-CHARGER-01", "NG-CHARGER-02", "NG-CASE-01");
+                assertThat(card.products().getFirst().stockQuantity()).isEqualTo(198);
+            });
+        }
+
+        @Test
+        @DisplayName("Given an empty or failed search, when the turn ends, then no PRODUCT_LIST card is returned")
+        void empty_or_failed_search_returns_no_card() throws Exception {
+            ToolCall empty = new ToolCall("search_available_products", Map.of("query", "zzz"));
+            ToolCall failing = new ToolCall("search_available_products", Map.of("page", -1));
+            when(polarisMcpClient.callTool(eq("search_available_products"), eq(Map.of("query", "zzz"))))
+                    .thenReturn(searchResult("No products found matching the specified criteria.",
+                            "{\"totalElements\": 0, \"products\": []}"));
+            when(polarisMcpClient.callTool(eq("search_available_products"), eq(Map.of("page", -1))))
+                    .thenReturn(new CallToolResult(List.of(TextContent.builder("Error searching products: bad page").build()),
+                            true, null, Map.of()));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(empty, failing)))
+                    .thenReturn(new ModelResponse("Nothing matched.", List.of()));
+
+            ChatMessageResponse response = searchChatService.sendMessage(ChatMessageRequest.of("sess-p3", "zzz"), "user-1");
+
+            assertThat(response.widgets()).isEmpty();
+            assertThat(sessionStore.persisted("sess-p3").getLast().getWidgetType()).isNull();
+        }
+    }
+
     private AssistantChatService createChatService(
             AssistantModelClient modelClient,
             Tracer tracer,
@@ -405,6 +695,7 @@ class AssistantChatServiceTest {
                 modelClient,
                 providerOf(tracer),
                 facade != null ? facade : intentResolutionFacade,
+                sessionStore,
                 new ObjectMapper()
         );
         if (tracer != null) {

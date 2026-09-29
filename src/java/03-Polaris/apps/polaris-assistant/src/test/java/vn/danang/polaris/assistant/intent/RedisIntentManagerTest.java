@@ -209,15 +209,42 @@ class RedisIntentManagerTest {
     class Seeding {
 
         @Test
-        @DisplayName("Given the Redis key is absent and seeding enabled, when constructed, then seeds Redis with the default taxonomy")
-        void seeds_redis_with_default_taxonomy_when_missing() {
+        @DisplayName("Given an empty Redis and seeding enabled, when constructed, then seeds the taxonomy and records its hash")
+        void seeds_redis_with_default_taxonomy_when_missing() throws Exception {
             properties.setSeedIfMissing(true);
-            when(valueOperations.setIfAbsent(eq(properties.getKey()), anyString())).thenReturn(true);
-            when(valueOperations.get(properties.getKey())).thenReturn(null);
+            when(redisTemplate.hasKey(properties.getKey())).thenReturn(false);
 
             newManager();
 
-            verify(valueOperations).setIfAbsent(eq(properties.getKey()), anyString());
+            verify(valueOperations).set(properties.getKey(), toJson(FALLBACK_INTENT));
+            verify(valueOperations).set(eq(properties.getKey() + ":source-sha256"), anyString());
+        }
+
+        @Test
+        @DisplayName("Given Redis holds a taxonomy seeded by an older release (hash differs), when constructed, then the classpath taxonomy overwrites it")
+        void overwrites_stale_taxonomy_when_classpath_hash_differs() throws Exception {
+            properties.setSeedIfMissing(true);
+            when(valueOperations.get(properties.getKey() + ":source-sha256")).thenReturn("old-hash");
+            when(redisTemplate.hasKey(properties.getKey())).thenReturn(true);
+
+            newManager();
+
+            verify(valueOperations).set(properties.getKey(), toJson(FALLBACK_INTENT));
+            verify(valueOperations, never()).setIfAbsent(anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("Given Redis was seeded from the same classpath taxonomy, when constructed, then Redis content is left alone")
+        void keeps_redis_when_classpath_hash_matches() throws Exception {
+            properties.setSeedIfMissing(true);
+            String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(toJson(FALLBACK_INTENT).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(valueOperations.get(properties.getKey() + ":source-sha256")).thenReturn(hash);
+            when(valueOperations.setIfAbsent(eq(properties.getKey()), anyString())).thenReturn(false);
+
+            newManager();
+
+            verify(valueOperations, never()).set(eq(properties.getKey()), anyString());
         }
 
         @Test
@@ -228,15 +255,14 @@ class RedisIntentManagerTest {
             newManager();
 
             verify(valueOperations, never()).setIfAbsent(anyString(), anyString());
+            verify(valueOperations, never()).set(anyString(), anyString());
         }
 
         @Test
         @DisplayName("Given Redis is unreachable during seeding, when constructed, then construction succeeds and reads still fall back")
         void construction_survives_seeding_failure() {
             properties.setSeedIfMissing(true);
-            when(valueOperations.setIfAbsent(eq(properties.getKey()), anyString()))
-                    .thenThrow(new RuntimeException("connection refused"));
-            when(valueOperations.get(properties.getKey())).thenThrow(new RuntimeException("connection refused"));
+            when(valueOperations.get(anyString())).thenThrow(new RuntimeException("connection refused"));
 
             RedisIntentManager manager = newManager();
 

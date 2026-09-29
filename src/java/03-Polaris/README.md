@@ -106,6 +106,8 @@ make up
 | **Grafana Telemetry** | [https://grafana.polaris.local](https://grafana.polaris.local) | Username: `admin` \| Password: `admin` (or Keycloak SSO) |
 | **Polaris Database** | Internal `polaris-db:5432` | `make polaris-sql` opens psql into PostgreSQL 16 database |
 
+> **Shopper accounts & realm changes:** `alice.tran`, `ben.nguyen` and `chi.le` (password `testpass`, realm role `shopper`) are linked to the seeded customers by `customers.auth_subject` (Flyway V12). Keycloak imports `docker/keycloak/realm-export.json` only when its volume is empty, so after pulling realm changes run `make clean && make up` to re-import them.
+
 ---
 
 ## Essential Developer Commands

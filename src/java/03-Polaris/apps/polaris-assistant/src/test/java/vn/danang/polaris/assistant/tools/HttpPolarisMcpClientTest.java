@@ -12,6 +12,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -250,6 +252,21 @@ class HttpPolarisMcpClientTest {
             assertThat(((TextContent) result.content().get(0)).text()).contains("HTTP 503");
         }
 
+        @ParameterizedTest
+        @ValueSource(ints = {401, 403})
+        @DisplayName("Given HTTP 401/403, when calling tool, then returns an error result carrying the status as an RFC 7807 problem")
+        void returns_problem_result_when_tool_call_is_refused(int status) throws Exception {
+            when(mockHttpResponse.statusCode()).thenReturn(status);
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+            CallToolResult result = client.callTool("get_order_status", Map.of("order_id", "ORD-1"));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(((TextContent) result.content().get(0)).text()).contains("HTTP " + status);
+            assertThat(result.structuredContent()).isInstanceOfSatisfying(Map.class,
+                    problem -> assertThat(problem).containsEntry("status", status).containsEntry("type", "about:blank"));
+        }
+
         @Test
         @DisplayName("Given JSON-RPC error payload, when calling tool, then returns error result with error message")
         void returns_error_result_when_tool_call_encounters_json_rpc_error() throws Exception {
@@ -363,6 +380,40 @@ class HttpPolarisMcpClientTest {
 
             assertThat(clientFromProvider).isNotNull();
             verify(provider).getIfAvailable();
+        }
+    }
+
+    @Nested
+    @DisplayName("Structured content money precision")
+    class StructuredContentPrecision {
+
+        @Test
+        @DisplayName("Given structuredContent with decimal prices, when a tool is called, then numbers arrive as exact BigDecimal")
+        @SuppressWarnings("unchecked")
+        void decimals_in_structured_content_are_big_decimal() throws Exception {
+            String jsonResponse = """
+                {
+                  "jsonrpc": "2.0",
+                  "id": "q-1",
+                  "result": {
+                    "content": [{"type": "text", "text": "Quote"}],
+                    "structuredContent": {"orderable": true, "totalAmount": 0.30,
+                      "lines": [{"sku": "A", "unitPrice": 0.10, "requestedQuantity": 3, "lineTotal": 0.30}]},
+                    "isError": false
+                  }
+                }
+                """;
+            when(mockHttpResponse.statusCode()).thenReturn(200);
+            when(mockHttpResponse.body()).thenReturn(jsonResponse);
+            doReturn(mockHttpResponse).when(mockHttpClient).send(any(HttpRequest.class), any());
+
+            CallToolResult result = client.callTool("quote_order", Map.of());
+
+            Map<String, Object> structured = (Map<String, Object>) result.structuredContent();
+            assertThat(structured.get("totalAmount")).isEqualTo(new java.math.BigDecimal("0.30"));
+            Map<String, Object> line = ((List<Map<String, Object>>) structured.get("lines")).get(0);
+            assertThat(line.get("unitPrice")).isEqualTo(new java.math.BigDecimal("0.10"));
+            assertThat(line.get("requestedQuantity")).isEqualTo(3);
         }
     }
 }

@@ -88,9 +88,8 @@ public class ProductService {
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
     }
 
-    // SKU lookups share the "products" cache with id lookups, so their key is prefixed
-    // ("sku:<lowercased-sku>") to keep it distinct from the plain numeric id keys.
-    @Cacheable(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #sku.toLowerCase()")
+    // SKU lookups share the "products" cache with id lookups; see CacheConfig.productSkuKey for the key format.
+    @Cacheable(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "T(vn.danang.polaris.config.CacheConfig).productSkuKey(#sku)")
     public ProductResponse getProductBySku(String sku) {
         return productRepository.findBySkuIgnoreCase(sku)
                 .map(productMapper::toResponse)
@@ -103,7 +102,7 @@ public class ProductService {
     @Transactional
     @Caching(put = {
             @CachePut(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "#result.id()"),
-            @CachePut(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #result.sku().toLowerCase()")
+            @CachePut(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "T(vn.danang.polaris.config.CacheConfig).productSkuKey(#result.sku())")
     })
     public ProductResponse createProduct(CreateProductRequest request) {
         String trimmedSku = request.sku() != null ? request.sku().trim() : "";
@@ -152,7 +151,7 @@ public class ProductService {
     @Transactional
     @Caching(evict = {
             @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "#id"),
-            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #result.getSku().toLowerCase()")
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "T(vn.danang.polaris.config.CacheConfig).productSkuKey(#result.getSku())")
     })
     public Product adjustInventoryById(Long id, int delta) {
         // Pessimistic write lock (SELECT ... FOR UPDATE via LockModeType.PESSIMISTIC_WRITE)
@@ -171,7 +170,7 @@ public class ProductService {
     @Transactional
     @Caching(evict = {
             @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "#result.getId()"),
-            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #sku.toLowerCase()")
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "T(vn.danang.polaris.config.CacheConfig).productSkuKey(#sku)")
     })
     public Product adjustInventory(String sku, int delta) {
         // Pessimistic write lock (SELECT ... FOR UPDATE via LockModeType.PESSIMISTIC_WRITE)
@@ -190,7 +189,7 @@ public class ProductService {
     @Transactional
     @Caching(evict = {
             @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "#result.getId()"),
-            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #sku.toLowerCase()")
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "T(vn.danang.polaris.config.CacheConfig).productSkuKey(#sku)")
     })
     public Product deductStock(String sku, int quantity) {
         Product product = productRepository.findBySkuIgnoreCaseForUpdate(sku)
@@ -206,7 +205,7 @@ public class ProductService {
     @Transactional
     @Caching(evict = {
             @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "#result.getId()"),
-            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "'sku:' + #sku.toLowerCase()")
+            @CacheEvict(cacheNames = CacheConfig.PRODUCTS_CACHE, key = "T(vn.danang.polaris.config.CacheConfig).productSkuKey(#sku)")
     })
     public Product restoreStock(String sku, int quantity) {
         Product product = productRepository.findBySkuIgnoreCaseForUpdate(sku)

@@ -14,9 +14,7 @@
       "help"
     ],
     "allowedTools": [],
-    "requiredScope": null,
-    "confidenceThreshold": 0.50,
-    "mutating": false
+    "confidenceThreshold": 0.50
   },
   {
     "id": "catalog.product.search",
@@ -37,9 +35,7 @@
       "search_products",
       "search_promotions"
     ],
-    "requiredScope": "catalog.read",
-    "confidenceThreshold": 0.80,
-    "mutating": false
+    "confidenceThreshold": 0.80
   },
   {
     "id": "catalog.product.lookup",
@@ -55,9 +51,7 @@
     "allowedTools": [
       "get_product_by_sku"
     ],
-    "requiredScope": "catalog.read",
-    "confidenceThreshold": 0.85,
-    "mutating": false
+    "confidenceThreshold": 0.85
   },
   {
     "id": "information.lookup.order.status",
@@ -72,9 +66,7 @@
     "allowedTools": [
       "get_order_status"
     ],
-    "requiredScope": "order.read",
-    "confidenceThreshold": 0.85,
-    "mutating": false
+    "confidenceThreshold": 0.85
   },
   {
     "id": "information.lookup.order.details",
@@ -88,9 +80,7 @@
     "allowedTools": [
       "get_order_details"
     ],
-    "requiredScope": "order.read",
-    "confidenceThreshold": 0.85,
-    "mutating": false
+    "confidenceThreshold": 0.85
   },
   {
     "id": "information.lookup.order.history",
@@ -105,9 +95,7 @@
     "allowedTools": [
       "list_customer_orders"
     ],
-    "requiredScope": "order.read",
-    "confidenceThreshold": 0.80,
-    "mutating": false
+    "confidenceThreshold": 0.80
   },
   {
     "id": "customer.lookup.by_name",
@@ -124,9 +112,7 @@
     "allowedTools": [
       "search_customers_by_name"
     ],
-    "requiredScope": "order.read",
-    "confidenceThreshold": 0.85,
-    "mutating": false
+    "confidenceThreshold": 0.85
   },
   {
     "id": "commerce.order.place",
@@ -137,15 +123,17 @@
       "place order for item PROD-1",
       "I want to buy this",
       "order 2 of NG-EARBUD-01 for Alice",
-      "place order for Alice Tran"
+      "place order for Alice Tran",
+      "change the draft to 3 chargers",
+      "discard the order draft"
     ],
     "allowedTools": [
-      "place_order",
+      "stage_order_draft",
+      "discard_order_draft",
+      "search_available_products",
       "search_customers_by_name"
     ],
-    "requiredScope": "order.write",
-    "confidenceThreshold": 0.92,
-    "mutating": true
+    "confidenceThreshold": 0.92
   },
   {
     "id": "commerce.order.cancel",
@@ -157,10 +145,9 @@
       "abort order ORD-999"
     ],
     "allowedTools": [
-      "cancel_order"
+      "cancel_order",
+      "discard_order_draft"
     ],
-    "requiredScope": "order.write",
-    "confidenceThreshold": 0.92,
-    "mutating": true
+    "confidenceThreshold": 0.92
   }
 ]

@@ -106,10 +106,18 @@ public class RedisIntentManager implements IntentManager {
     }
 
     /**
-     * Seeds Redis with the classpath taxonomy on first startup so the store isn't empty, using
-     * SETNX so concurrent instances never race to overwrite each other's data. Any failure here
-     * (Redis unreachable) is swallowed - the fallback taxonomy is still served locally, and
-     * seeding is simply retried on the next startup.
+     * Syncs Redis with the classpath taxonomy on startup. The SHA-256 of the classpath JSON that last
+     * seeded Redis is kept next to the taxonomy (see {@link #sourceHashKey()}):
+     * <ul>
+     *   <li>same hash: the release didn't change the taxonomy, so Redis is left alone (runtime edits made
+     *       in Redis survive restarts); a deleted key is re-seeded with SETNX;</li>
+     *   <li>different or missing hash: a new release changed the taxonomy (e.g. new tools on an intent), so
+     *       the classpath version wins and overwrites Redis. Without this, a store seeded by an older
+     *       release would keep serving stale allowed tools forever.</li>
+     * </ul>
+     * Concurrent instances of one release write identical content, so the overwrite is idempotent. Any
+     * failure here (Redis unreachable) is swallowed: the fallback taxonomy is still served locally, and
+     * syncing is retried on the next startup.
      */
     private void seedIfMissing() {
         if (!properties.isSeedIfMissing()) {
@@ -120,15 +128,39 @@ public class RedisIntentManager implements IntentManager {
             if (defaults.isEmpty()) {
                 return;
             }
-            Boolean created = redisTemplate.opsForValue()
-                    .setIfAbsent(properties.getKey(), OBJECT_MAPPER.writeValueAsString(defaults));
-            if (Boolean.TRUE.equals(created)) {
-                log.info("Seeded Redis key [{}] with {} default intents", properties.getKey(), defaults.size());
+            String json = OBJECT_MAPPER.writeValueAsString(defaults);
+            String sourceHash = sha256(json);
+            String storedHash = redisTemplate.opsForValue().get(sourceHashKey());
+            if (sourceHash.equals(storedHash)) {
+                if (Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(properties.getKey(), json))) {
+                    log.info("Seeded Redis key [{}] with {} default intents", properties.getKey(), defaults.size());
+                }
+                return;
+            }
+            boolean existed = Boolean.TRUE.equals(redisTemplate.hasKey(properties.getKey()));
+            redisTemplate.opsForValue().set(properties.getKey(), json);
+            redisTemplate.opsForValue().set(sourceHashKey(), sourceHash);
+            if (existed) {
+                log.warn("Classpath intent taxonomy differs from the one that seeded Redis key [{}] (hash {} -> {}); "
+                        + "overwrote Redis with {} classpath intents", properties.getKey(), storedHash, sourceHash, defaults.size());
+            } else {
+                log.info("Seeded Redis key [{}] with {} default intents (hash {})", properties.getKey(), defaults.size(), sourceHash);
             }
         } catch (Exception e) {
             log.warn("Could not seed Redis with default intents, will rely on fallback until Redis is reachable: {}",
                     e.getMessage());
         }
+    }
+
+    /** Redis key holding the SHA-256 of the classpath taxonomy that last seeded {@code properties.key}. */
+    String sourceHashKey() {
+        return properties.getKey() + ":source-sha256";
+    }
+
+    private static String sha256(String json) throws java.security.NoSuchAlgorithmException {
+        byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return java.util.HexFormat.of().formatHex(digest);
     }
 
     private record CachedIntents(List<IntentDefinition> intents, Instant expiresAt) {}

@@ -16,6 +16,8 @@ import vn.danang.polaris.assistant.entity.AssistantMessage;
  * {@link ResolvedIntent} scoped to the matched {@link IntentDefinition}. The intent taxonomy
  * itself is provided by an {@link IntentManager}, which abstracts over where intents actually
  * live (local classpath resource by default, a remote store in other implementations).
+ * Below the intent's confidence threshold the turn falls back to {@value #DEFAULT_INTENT} and is offered
+ * only that intent's tools, so an ambiguous message can't reach a write tool.
  */
 @Component
 @Primary
@@ -60,12 +62,14 @@ public class DefaultIntentResolver implements IntentResolver {
         IntentDefinition definition = intentManager.getIntent(intentId).orElse(IntentDefinition.empty());
 
         double confidence = classification.confidence();
-        double threshold = definition.confidenceThreshold();
-        boolean meetsThreshold = confidence >= threshold;
+        boolean meetsThreshold = confidence >= definition.confidenceThreshold();
+        if (!meetsThreshold) {
+            // Low confidence: fall back to general conversation and offer its tools only
+            intentId = DEFAULT_INTENT;
+            definition = intentManager.getIntent(DEFAULT_INTENT).orElse(IntentDefinition.empty());
+        }
 
-        List<Tool> acceptedTools = meetsThreshold ? filterTools(definition, tools) : tools;
-
-        return new ResolvedIntent(intentId, confidence, meetsThreshold, acceptedTools, definition);
+        return new ResolvedIntent(intentId, confidence, meetsThreshold, filterTools(definition, tools), definition);
     }
 
     /**
@@ -77,6 +81,9 @@ public class DefaultIntentResolver implements IntentResolver {
     }
 
     private List<Tool> filterTools(IntentDefinition definition, List<Tool> availableTools) {
+        if (availableTools == null) {
+            return List.of();
+        }
         if (definition == null) {
             return availableTools;
         }
