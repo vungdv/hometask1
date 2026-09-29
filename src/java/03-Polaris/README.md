@@ -105,7 +105,7 @@ make up
 | **Keycloak Admin** | [https://id.polaris.local](https://id.polaris.local) | Username: `admin` \| Password: `admin` |
 | **Grafana Telemetry** | [https://grafana.polaris.local](https://grafana.polaris.local) | Username: `admin` \| Password: `admin` (or Keycloak SSO) |
 | **Polaris Database** | Internal `polaris-db:5432` | `make polaris-sql` opens psql into PostgreSQL 16 database |
-| **Kafka** | Internal `kafka:9092` · host `localhost:9094` | Single-node KRaft broker, no auto-created topics. `make kafka-topics` lists topics; `make kafka-tail TOPIC=<topic>` tails one |
+| **Kafka** | Internal `kafka:9092` · host `localhost:9094` | Single-node KRaft broker, no auto-created topics: each owner provisions its own (Order: `polaris.order.lifecycle`, [ADR-0019](docs/technical/decisions/0019-kafka-and-cloudevents-binding.md)). `make run` uses `localhost:9094` by default. `make kafka-topics` lists topics; `make kafka-tail TOPIC=polaris.order.lifecycle` shows placed orders as CloudEvents |
 
 > **Shopper accounts & realm changes:** `alice.tran`, `ben.nguyen` and `chi.le` (password `testpass`, realm role `shopper`) are linked to the seeded customers by `customers.auth_subject` (Flyway V12). Keycloak imports `docker/keycloak/realm-export.json` only when its volume is empty, so after pulling realm changes run `make clean && make up` to re-import them.
 

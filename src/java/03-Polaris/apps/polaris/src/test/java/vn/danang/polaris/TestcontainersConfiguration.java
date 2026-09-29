@@ -5,6 +5,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.annotation.Bean;
 import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -15,6 +16,15 @@ public class TestcontainersConfiguration {
     @ServiceConnection
     public PostgreSQLContainer postgresContainer() {
         return new PostgreSQLContainer("postgres:16");
+    }
+
+    /** Same image and topic policy as compose (TR-B1): topics exist only if their owner provisions them. */
+    public static final String KAFKA_IMAGE = "apache/kafka:3.9.1";
+
+    @Bean
+    @ServiceConnection
+    public KafkaContainer kafkaContainer() {
+        return new KafkaContainer(KAFKA_IMAGE).withEnv("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "false");
     }
 
     // No dedicated Testcontainers Redis module/@ServiceConnection support is wired up here, so
