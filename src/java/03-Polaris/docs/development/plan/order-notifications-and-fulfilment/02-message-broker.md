@@ -29,7 +29,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | # | Slice | Title | Status | External | Branch | PR | Notes |
 |:--|:--|:--|:--|:--|:--|:--|:--|
 | 1 | B1 | Kafka in the platform | `done` | Plan 1 done | `feature/b1-kafka-in-the-platform` | [#19](https://github.com/vungdv/hometask1/pull/19) | |
-| 2 | B2 | Kafka transport for the outbox | `approved` | — | `feature/b2-kafka-transport-for-the-outbox` | [#20](https://github.com/vungdv/hometask1/pull/20) | Merge on hold: plan change proposed by reviewer (topic provisioning when Kafka is down at startup) awaits user approval |
+| 2 | B2 | Kafka transport for the outbox | `done` | — | `feature/b2-kafka-transport-for-the-outbox` | [#20](https://github.com/vungdv/hometask1/pull/20) | |
 
 **Statuses:** `todo` → `in-progress` → `in-review` → `approved` (not merged) → `done` (merged), plus `blocked` (reason in *Notes*) and `dropped`.
 
@@ -47,9 +47,9 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 ## Definition of Done
 
-- [ ] TR-B1–B7 verified by automated tests.
-- [ ] In the running stack, placing an order shows `order.placed.v1` on Kafka and a trace in Tempo spanning the HTTP request and the Kafka produce.
-- [ ] ADR-0018 and ADR-0019 accepted.
+- [x] TR-B1–B7 verified by automated tests.
+- [x] In the running stack, placing an order shows `order.placed.v1` on Kafka and a trace in Tempo spanning the HTTP request and the Kafka produce.
+- [x] ADR-0018 and ADR-0019 accepted.
 
 ## Change Log
 
