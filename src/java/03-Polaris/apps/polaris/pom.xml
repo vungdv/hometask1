@@ -20,6 +20,15 @@
 			<groupId>vn.danang</groupId>
 			<artifactId>polaris-common</artifactId>
 		</dependency>
+		<!-- Order records integration events through the publish port only (ADR-0018) -->
+		<dependency>
+			<groupId>vn.danang</groupId>
+			<artifactId>polaris-outbox</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>vn.danang</groupId>
+			<artifactId>polaris-events</artifactId>
+		</dependency>
 
 		<!-- Web & Security -->
 		<dependency>

@@ -35,7 +35,6 @@ import io.modelcontextprotocol.spec.McpSchema;
 import org.springframework.context.annotation.Import;
 
 import vn.danang.polaris.TestcontainersConfiguration;
-import vn.danang.polaris.order.entity.OrderStatus;
 import vn.danang.polaris.order.repository.OrderRepository;
 import vn.danang.polaris.web.support.JwtMockFactory;
 
@@ -70,6 +69,9 @@ class McpServerTest {
     private OrderRepository orderRepository;
 
     @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+    @Autowired
     private vn.danang.polaris.catalog.repository.ProductRepository productRepository;
 
     /** Keycloak user ID of shopper alice.tran, linked to seeded customer 1 by V12. */
@@ -77,10 +79,8 @@ class McpServerTest {
 
     @BeforeEach
     void setUp() {
-        orderRepository.findByOrderNumber("ORD-1001").ifPresent(order -> {
-            order.setStatus(OrderStatus.PLACED);
-            orderRepository.save(order);
-        });
+        // Test fixture reset (rolled back with the test); production code changes status only via Order methods
+        jdbcTemplate.update("UPDATE orders SET status = 'PLACED' WHERE order_number = 'ORD-1001'");
         // Tool calls run as back-office staff unless a test passes a shopper explicitly
         SecurityContextHolder.getContext().setAuthentication(
                 new TestingAuthenticationToken("staff", null, "ROLE_PURCHASE_MANAGEMENT", "PERM_order.write"));

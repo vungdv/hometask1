@@ -32,6 +32,7 @@ import vn.danang.polaris.catalog.dto.ProductResponse;
 import vn.danang.polaris.catalog.service.ProductService;
 import vn.danang.polaris.order.entity.Customer;
 import vn.danang.polaris.order.entity.Order;
+import org.springframework.test.util.ReflectionTestUtils;
 import vn.danang.polaris.order.entity.OrderStatus;
 import vn.danang.polaris.order.service.OrderService;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
@@ -177,7 +178,7 @@ class McpTracingTest {
         Order order = new Order();
         order.setId(100L);
         order.setOrderNumber("ORD-2001");
-        order.setStatus(OrderStatus.PLACED);
+        ReflectionTestUtils.setField(order, "status", OrderStatus.PLACED); // fixture for a mocked service; production uses Order methods
         order.setTotalAmount(BigDecimal.valueOf(50.00));
         order.setPlacedAt(Instant.now());
         Customer customer = new Customer();
@@ -224,7 +225,7 @@ class McpTracingTest {
         Order order = new Order();
         order.setId(100L);
         order.setOrderNumber("ORD-1001");
-        order.setStatus(OrderStatus.PLACED);
+        ReflectionTestUtils.setField(order, "status", OrderStatus.PLACED); // fixture for a mocked service; production uses Order methods
         order.setTotalAmount(BigDecimal.valueOf(50.00));
         order.setPlacedAt(Instant.now());
         Customer customer = new Customer();
@@ -264,7 +265,7 @@ class McpTracingTest {
         Order order = new Order();
         order.setId(100L);
         order.setOrderNumber("ORD-1001");
-        order.setStatus(OrderStatus.PLACED);
+        ReflectionTestUtils.setField(order, "status", OrderStatus.PLACED); // fixture for a mocked service; production uses Order methods
         order.setTotalAmount(BigDecimal.valueOf(50.00));
         order.setPlacedAt(Instant.now());
         Customer customer = new Customer();

@@ -1,0 +1,118 @@
+package vn.danang.polaris.order.entity;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import vn.danang.polaris.catalog.entity.Product;
+import vn.danang.polaris.order.event.OrderCancelled;
+import vn.danang.polaris.order.event.OrderPlaced;
+import vn.danang.polaris.order.repository.OrderRepository;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/** TR-X7: status changes only through the aggregate's methods, each registering exactly one domain event. */
+@DisplayName("Order aggregate")
+class OrderTest {
+
+    private static final Instant PLACED_AT = Instant.parse("2026-09-29T10:00:00Z");
+
+    private static Product product(String sku, String name, String price) {
+        Product product = new Product();
+        product.setSku(sku);
+        product.setName(name);
+        product.setPrice(new BigDecimal(price));
+        return product;
+    }
+
+    private static Customer customer() {
+        Customer customer = new Customer();
+        customer.setId(1L);
+        customer.setFullName("Alice Tran");
+        customer.setEmail("alice.tran@example.com");
+        return customer;
+    }
+
+    /** The events Spring Data would publish on {@code save}. */
+    private static Collection<?> registeredEvents(Order order) {
+        return ReflectionTestUtils.invokeMethod(order, "domainEvents");
+    }
+
+    private static Order placed() {
+        return Order.place("ORD-000042", customer(), List.of(
+                new Order.Line(product("NG-EARBUD-01", "Nova Wireless Earbuds", "49.90"), 1),
+                new Order.Line(product("NG-CHARGER-01", "Fast Charger", "24.90"), 2)), "key-1", PLACED_AT);
+    }
+
+    @Test
+    @DisplayName("place → PLACED with priced items and total, and exactly one OrderPlaced snapshot")
+    void place_registersExactlyOneOrderPlaced() {
+        Order order = placed();
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PLACED);
+        assertThat(order.getTotalAmount()).isEqualByComparingTo("99.70");
+        assertThat(order.getItems()).hasSize(2).allSatisfy(item -> assertThat(item.getOrder()).isSameAs(order));
+        assertThat(order.getIdempotencyKey()).isEqualTo("key-1");
+        assertThat(order.getPlacedAt()).isEqualTo(PLACED_AT);
+
+        assertThat(registeredEvents(order)).singleElement().isEqualTo(new OrderPlaced("ORD-000042", PLACED_AT,
+                1L, "Alice Tran", "alice.tran@example.com",
+                List.of(new OrderPlaced.Line("NG-EARBUD-01", "Nova Wireless Earbuds", 1, new BigDecimal("49.90")),
+                        new OrderPlaced.Line("NG-CHARGER-01", "Fast Charger", 2, new BigDecimal("24.90"))),
+                order.getTotalAmount()));
+    }
+
+    @Test
+    @DisplayName("place without lines is rejected and creates nothing")
+    void place_withoutLines_isRejected() {
+        assertThatThrownBy(() -> Order.place("ORD-1", customer(), List.of(), null, PLACED_AT))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("cancel → CANCELLED and exactly one more event, OrderCancelled")
+    void cancel_registersExactlyOneOrderCancelled() {
+        Order order = placed();
+        Instant at = PLACED_AT.plusSeconds(60);
+
+        order.cancel(at);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order.getUpdatedAt()).isEqualTo(at);
+        assertThat(registeredEvents(order)).hasSize(2).last().isEqualTo(new OrderCancelled("ORD-000042", at));
+    }
+
+    @Test
+    @DisplayName("cancel of a non-cancellable order is rejected, changes nothing and registers no event")
+    void cancel_notCancellable_registersNothing() {
+        Order order = placed();
+        order.cancel(PLACED_AT);
+        int before = registeredEvents(order).size();
+
+        assertThatThrownBy(() -> order.cancel(PLACED_AT))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be cancelled");
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(registeredEvents(order)).hasSize(before);
+    }
+
+    @Test
+    @DisplayName("TR-X7: Order exposes no public status setter")
+    void noPublicStatusSetter() {
+        assertThat(Order.class.getMethods()).noneMatch(m -> m.getName().equals("setStatus"));
+        assertThat(Order.class.getMethods()).noneMatch(m -> m.getName().equals("setVersion"));
+    }
+
+    @Test
+    @DisplayName("TR-X7: OrderRepository has no bulk (@Modifying) updates that could bypass the aggregate")
+    void noBulkOrderUpdates() {
+        assertThat(OrderRepository.class.getDeclaredMethods())
+                .noneMatch(m -> m.isAnnotationPresent(org.springframework.data.jpa.repository.Modifying.class));
+    }
+}

@@ -33,7 +33,8 @@ class H2MigrationCompatibilityTest {
                 .migrate();
 
         assertThat(result.success).isTrue();
-        assertThat(Integer.parseInt(result.targetSchemaVersion)).isGreaterThanOrEqualTo(13);
+        // Sub-versions such as V15_1 are allowed (TR-X4), so compare as Flyway versions, not integers
+        assertThat(org.flywaydb.core.api.MigrationVersion.fromVersion(result.targetSchemaVersion).isAtLeast("13")).isTrue();
 
         String nextValueSql = OrderRepository.class.getMethod("nextOrderNumberValue")
                 .getAnnotation(org.springframework.data.jpa.repository.Query.class).value();
