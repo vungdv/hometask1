@@ -65,11 +65,12 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 *Design questions:* relay trigger (polling and/or post-commit signal); multi-instance ordering strategy; backoff limits; transport port shape (what a transport receives: key, destination, payload, headers, trace context). Confirm or change the delivery columns and indexes E2 pre-created in V15 (status check, lease/owner columns for multiple instances, index shape); any change is a forward-only `V15_x` migration (TR-X4).
 
 ### E4: Order records `order.placed`
-**Covers:** TR-O1, TR-E5 (first adopter), TR-X7. **Detail design:** covered by E2.
+**Covers:** TR-O1, TR-E5 (first adopter), TR-X7, TR-X8. **Detail design:** covered by E2.
 - A placed order → exactly one recorded `order.placed` event, committed with the order, keyed by order number, carrying customer, items and total, in the placing request's trace.
 - Rejected placement (stock, price) → none. Idempotent replay, including the gaps plan's concurrent-duplicate path → none.
 - Order code depends only on the publish abstraction.
 - Order status changes only through aggregate methods that register domain events (TR-X7): the public `setStatus` is removed, `OrderService` no longer sets `PLACED`/`CANCELLED` directly, and there are no bulk or `@Modifying` status updates. Tests assert exactly one event per transition.
+- Event-raising changes to the same order are serialised (TR-X8): `Order` is versioned (`@Version`) or row-locked before any event is recorded, including in `placeOrder` and `cancelOrder`. A concurrency test against real Postgres shows that concurrent changes to one order cannot commit its events out of outbox id order.
 
 ## Definition of Done
 
@@ -83,3 +84,4 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 |:--|:--|:--|:--|
 | 2026-09-29 | E3 design questions now include confirming or changing V15's delivery columns and indexes via `V15_x`; TR-X4 allows `V15_x` sub-versions applied before V16 | V15 pre-creates relay columns because it is Plan 1's only reserved version (E2 review, PR #16) | E3 |
 | 2026-09-29 | New TR-X7 (status changes only through event-registering aggregate methods); E4 gains a bullet enforcing it on Order | The aggregate-events design relies on every change going through `save` (E2 review, PR #16) | E4; Plan 3 via TR-X7 |
+| 2026-09-29 | New TR-X8 (same-key event-raising transactions are serialised via `@Version` or an aggregate lock); E4 gains a bullet enforcing it on Order | TR-E3's per-key order holds only if a lower outbox id can't commit after a higher one was relayed; Order has no `@Version` and `cancelOrder` takes no lock (E3 review, PR #17) | E4; Plan 3 via TR-X8 |
