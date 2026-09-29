@@ -33,7 +33,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | # | Slice | Title | Status | External | Branch | PR | Notes |
 |:--|:--|:--|:--|:--|:--|:--|:--|
-| 1 | E1 | Event contracts library | `todo` | — | | | |
+| 1 | E1 | Event contracts library | `in-progress` | — | | | |
 | 2 | E2 | Recording events atomically | `todo` | Flyway V15 still free | | | |
 | 3 | E3 | Relay to a transport port | `todo` | — | | | |
 | 4 | E4 | Order records `order.placed` | `todo` | Gaps plan S4 merged | | | |
