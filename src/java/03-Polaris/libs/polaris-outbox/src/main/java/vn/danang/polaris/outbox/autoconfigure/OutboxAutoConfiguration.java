@@ -5,6 +5,7 @@ import java.util.function.Supplier;
 
 import javax.sql.DataSource;
 
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
@@ -88,7 +89,15 @@ public class OutboxAutoConfiguration {
         OutboxProperties.Backoff backoff = relay.backoff();
         // Resolved when the worker starts, so a transport from a later auto-configuration (Plan 2) is found.
         Supplier<OutboxRelay> relayFactory = () -> {
-            EventTransport configured = transport.getIfUnique();
+            EventTransport configured;
+            try {
+                configured = transport.getIfAvailable();
+            } catch (NoUniqueBeanDefinitionException ambiguous) {
+                // Never go silently idle; picking one would also split a key's events across transports.
+                throw new IllegalStateException("The outbox relay needs exactly one EventTransport bean but found "
+                        + ambiguous.getNumberOfBeansFound() + ": " + ambiguous.getBeanNamesFound()
+                        + ". Mark one @Primary or set polaris.outbox.relay.enabled=false", ambiguous);
+            }
             if (configured == null) {
                 return null;
             }

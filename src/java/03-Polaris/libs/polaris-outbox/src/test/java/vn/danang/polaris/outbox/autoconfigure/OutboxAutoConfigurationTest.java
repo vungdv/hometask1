@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import javax.sql.DataSource;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -15,6 +16,7 @@ import vn.danang.polaris.outbox.relay.OutboxRelayWorker;
 import vn.danang.polaris.outbox.store.JdbcOutboxRelayStore;
 import vn.danang.polaris.outbox.store.OutboxRelayStore;
 import vn.danang.polaris.outbox.telemetry.OutboxMetrics;
+import vn.danang.polaris.outbox.transport.EventTransport;
 import vn.danang.polaris.outbox.store.JdbcOutboxStore;
 import vn.danang.polaris.outbox.store.OutboxStore;
 
@@ -73,6 +75,19 @@ class OutboxAutoConfigurationTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(IntegrationEventPublisher.class);
                     assertThat(context).doesNotHaveBean(OutboxRelayWorker.class);
+                });
+    }
+
+    @Test
+    void twoTransports_failStartupClearly_insteadOfIdling() {
+        runner.withBean(DataSource.class, () -> mock(DataSource.class))
+                .withBean("kafkaTransport", EventTransport.class, () -> event -> { })
+                .withBean("otherTransport", EventTransport.class, () -> event -> { })
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(NoUniqueBeanDefinitionException.class)
+                            .hasStackTraceContaining("needs exactly one EventTransport bean but found 2");
                 });
     }
 

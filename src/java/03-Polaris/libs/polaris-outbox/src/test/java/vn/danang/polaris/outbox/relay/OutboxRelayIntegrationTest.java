@@ -92,6 +92,8 @@ class OutboxRelayIntegrationTest {
     private OutboxRelayWorker worker;
     @Autowired
     private JdbcClient jdbc;
+    @Autowired
+    private javax.sql.DataSource dataSource;
 
     private final MutableClock clock = new MutableClock();
     private MeterRegistry meters;
@@ -272,6 +274,48 @@ class OutboxRelayIntegrationTest {
         assertThat(beforeCrash).extracting(OutgoingEvent::id).containsExactly(recorded);
         assertThat(restarted.sent).extracting(OutgoingEvent::id).containsExactly(recorded);
         assertThat(row(recorded).status()).isEqualTo("DELIVERED");
+    }
+
+    @Test
+    void relaySessionKilledAfterHandOff_theEventIsReSentWithTheSameId() {
+        UUID recorded = record("A");
+        List<OutgoingEvent> beforeCrash = new CopyOnWriteArrayList<>();
+        OutboxRelay dying = relay(event -> {
+            beforeCrash.add(event);
+            // The relay process dies after the transport accepted the event: its database session goes away
+            // before "delivered" is committed. The relay's own session is the one bound to this thread.
+            Integer pid = jdbc.sql("SELECT pg_backend_pid()").query(Integer.class).single();
+            try (java.sql.Connection other = dataSource.getConnection();
+                    java.sql.PreparedStatement kill = other.prepareStatement("SELECT pg_terminate_backend(?)")) {
+                kill.setInt(1, pid);
+                kill.execute();
+            }
+        }, 100);
+
+        assertThatThrownBy(dying::relayOnce).as("marking delivered fails on the dead session")
+                .isInstanceOf(RuntimeException.class);
+        assertThat(row(recorded).status()).isEqualTo("PENDING");
+        assertThat(row(recorded).attempts()).isZero();
+
+        RecordingTransport restarted = new RecordingTransport();
+        drain(relay(restarted, 100));
+
+        assertThat(beforeCrash).extracting(OutgoingEvent::id).containsExactly(recorded);
+        assertThat(restarted.sent).extracting(OutgoingEvent::id).containsExactly(recorded);
+        assertThat(row(recorded).status()).isEqualTo("DELIVERED");
+    }
+
+    @Test
+    void newEvents_areDueAtTheirApplicationClockRecordingTime_notTheDatabaseClock() {
+        UUID recorded = record("A");
+
+        OffsetDateTime[] times = jdbc.sql("SELECT occurred_at, next_attempt_at FROM outbox_events WHERE event_id = :id")
+                .param("id", recorded)
+                .query((rs, n) -> new OffsetDateTime[] {
+                        rs.getObject(1, OffsetDateTime.class), rs.getObject(2, OffsetDateTime.class) })
+                .single();
+
+        assertThat(times[1].toInstant()).isEqualTo(times[0].toInstant());
     }
 
     @Test

@@ -98,9 +98,14 @@ public class OutboxRelayWorker implements SmartLifecycle {
             do {
                 result = relay.relayOnce();
             } while (result.drainAgain() && isRunning());
-        } catch (RuntimeException | Error failure) {
+        } catch (RuntimeException failure) {
             // A scheduled task that throws is never run again: log and poll on the next interval.
             log.error("Outbox relay cycle failed; retrying in {}", pollInterval, failure);
+        } catch (Error fatal) {
+            // OutOfMemoryError, StackOverflowError...: don't keep polling in an unknown state. The relay stops;
+            // recorded events stay pending and the backlog metrics show them.
+            log.error("Outbox relay stopped by a fatal error; recorded events stay pending", fatal);
+            throw fatal;
         }
     }
 
