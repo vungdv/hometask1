@@ -17,7 +17,7 @@ Several emulated partners receive every new order, race to claim it, and the sin
 | TR-O2 | **Claim is first-wins and atomic.** Only a `PLACED` order can be claimed. Under any number of concurrent claims exactly one succeeds: status → `CONFIRMED`, partner and claim time recorded. Every other claim, **including a repeat by the winner**, is rejected without changing state or revealing the winner |
 | TR-O3 | Claim and cancel on the same order are serialized: when they race, exactly one succeeds. The DB forbids a fulfilled order without an assigned partner |
 | TR-O4 | Shipment reports advance the order `PACKED → PARCELED`, `DISPATCHED → DELIVERING`, `DELIVERED → DELIVERED`, only from the assigned partner and only from the expected previous status. Anything else (wrong partner, duplicate, late, cancelled order) is a no-op, logged with a reason and counted. Unknown orders are skipped, never retried forever |
-| TR-O5 | Every status change announces its milestone once, through the outbox (Plan 1), carrying customer, items, total and assigned partner |
+| TR-O5 | Every status change announces its milestone once, through the outbox (Plan 1), carrying customer, items, total and assigned partner. Transitions follow TR-X7 |
 | TR-O6 | The assigned partner is visible in the existing order read paths (REST and MCP `get_order_details`) |
 
 **Claim API** (OpenAPI): `POST /api/v1/orders/{orderNumber}/claim`, body `{ "partnerId": "…" }`, requires permission `order.fulfil`. `POST` because it's a conditional state-transition command (RFC 9110).

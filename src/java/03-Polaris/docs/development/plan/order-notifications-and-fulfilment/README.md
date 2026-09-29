@@ -100,9 +100,10 @@ Every plan meets these; plans reference them by ID.
 | TR-X1 | **Security:** OAuth 2.0 / Keycloak only; new permissions and service clients are declared in the realm export; secrets come from env. Kafka is unauthenticated in dev (internal emulator only) |
 | TR-X2 | **Observability** (ADR-0016): W3C trace context across HTTP and messaging; structured logs with `trace_id` plus business keys (`orderNumber`, `ce_id`); invocation, outcome and latency metrics for every new entry point |
 | TR-X3 | **Platform:** new services and modules run in `docker compose` with pinned images and healthchecks, and build in every existing Dockerfile |
-| TR-X4 | **Data:** forward-only Flyway migrations. Reserved: **V15** (Plan 1), **V16** (Plan 3) |
+| TR-X4 | **Data:** forward-only Flyway migrations. Reserved: **V15** (Plan 1), **V16** (Plan 3). Plan 1 may add `V15_x` sub-versions (never edit a merged V15); they must be applied before V16 exists in any environment (`outOfOrder=false`) |
 | TR-X5 | **Testing:** integration tests use real infrastructure (Postgres, Kafka, Mailpit via Testcontainers); stubs only at external boundaries |
 | TR-X6 | **Contracts:** REST in OpenAPI with Problem Details errors; events are CloudEvents 1.0, keyed by aggregate id, additive-only within a `.vN` type |
+| TR-X7 | **Event-raising state changes:** an aggregate's status changes only through its own methods, which register the domain event; no public status setters, and no bulk or `@Modifying` status updates. Tests assert exactly one event per transition |
 
 ---
 

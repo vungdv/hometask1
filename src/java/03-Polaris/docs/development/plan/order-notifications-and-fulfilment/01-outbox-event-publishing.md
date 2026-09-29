@@ -62,13 +62,14 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 - No transport configured → the relay stays idle and events accumulate as pending, without errors.
 - Retention purge never touches pending events. Backlog, oldest-pending age and delivery lag metrics exposed.
 
-*Design questions:* relay trigger (polling and/or post-commit signal); multi-instance ordering strategy; backoff limits; transport port shape (what a transport receives: key, destination, payload, headers, trace context).
+*Design questions:* relay trigger (polling and/or post-commit signal); multi-instance ordering strategy; backoff limits; transport port shape (what a transport receives: key, destination, payload, headers, trace context). Confirm or change the delivery columns and indexes E2 pre-created in V15 (status check, lease/owner columns for multiple instances, index shape); any change is a forward-only `V15_x` migration (TR-X4).
 
 ### E4: Order records `order.placed`
-**Covers:** TR-O1, TR-E5 (first adopter). **Detail design:** covered by E2.
+**Covers:** TR-O1, TR-E5 (first adopter), TR-X7. **Detail design:** covered by E2.
 - A placed order → exactly one recorded `order.placed` event, committed with the order, keyed by order number, carrying customer, items and total, in the placing request's trace.
 - Rejected placement (stock, price) → none. Idempotent replay, including the gaps plan's concurrent-duplicate path → none.
 - Order code depends only on the publish abstraction.
+- Order status changes only through aggregate methods that register domain events (TR-X7): the public `setStatus` is removed, `OrderService` no longer sets `PLACED`/`CANCELLED` directly, and there are no bulk or `@Modifying` status updates. Tests assert exactly one event per transition.
 
 ## Definition of Done
 
@@ -80,3 +81,5 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | Date | Change | Reason | Slices affected |
 |:--|:--|:--|:--|
+| 2026-09-29 | E3 design questions now include confirming or changing V15's delivery columns and indexes via `V15_x`; TR-X4 allows `V15_x` sub-versions applied before V16 | V15 pre-creates relay columns because it is Plan 1's only reserved version (E2 review, PR #16) | E3 |
+| 2026-09-29 | New TR-X7 (status changes only through event-registering aggregate methods); E4 gains a bullet enforcing it on Order | The aggregate-events design relies on every change going through `save` (E2 review, PR #16) | E4; Plan 3 via TR-X7 |
