@@ -59,6 +59,7 @@ public interface IntegrationEventPublisher {
 `OutboxIntegrationEventPublisher.publish(event)`:
 
 1. **Fail fast outside a transaction.** If `TransactionSynchronizationManager.isActualTransactionActive()` is false, throw Spring's `IllegalTransactionStateException` (the same exception `Propagation.MANDATORY` throws). Nothing is written. Without this check the insert would auto-commit on its own connection and an event could exist for a change that later rolls back.
+   **Also fail fast inside a read-only transaction** (`TransactionSynchronizationManager.isCurrentTransactionReadOnly()`), with the same exception. A read-only JPA transaction never flushes the business change (FlushMode.MANUAL), while the outbox insert is plain JDBC. PostgreSQL would reject that insert, but H2 treats `setReadOnly` as a hint and would commit an event with no change behind it. The check keeps local H2 behaving like production.
 2. **Assign `ce_id`**: a random UUID (v4) generated in the application at record time. It is returned to the caller (for logs), stored `UNIQUE`, and reused on every delivery attempt (TR-E4).
 3. **Capture trace context**: inject the current OpenTelemetry `Context` with the standard `W3CTraceContextPropagator` into a map, keeping `traceparent` and `tracestate`. Spring Boot's Micrometer→OTel bridge makes the request span current in the OTel context, so this is the placing request's span. No valid span → both `NULL` (e.g. a background job without tracing).
 4. **Append** one row through `JdbcOutboxStore`, which uses `JdbcClient` over the application `DataSource`. `JdbcClient` obtains its connection through `DataSourceUtils`, so it joins the caller's transaction under both `DataSourceTransactionManager` and `JpaTransactionManager` (Boot sets the JPA manager's `DataSource`, so JDBC and JPA share one connection). Commit → the row commits with the business change; rollback → it disappears with it.
@@ -115,7 +116,7 @@ In `libs/polaris-common/src/main/resources/db/migration` with V1–V14, so both 
 | `event_key` | `VARCHAR(255) NOT NULL` | Aggregate id; partition key and ordering key |
 | `payload` | `TEXT NOT NULL` | JSON `data`. `TEXT` rather than `JSON`/`JSONB`: opaque to storage (TR-E5), and portable JDBC writes on both H2 and PostgreSQL |
 | `traceparent` | `VARCHAR(55)` | W3C `traceparent` of the raising request (TR-E7); `NULL` if none |
-| `tracestate` | `VARCHAR(512)` | W3C `tracestate`; `NULL` if empty |
+| `tracestate` | `TEXT` | W3C `tracestate`; `NULL` if empty. Stored in full, not truncated: W3C allows 32 members with 256-char keys and values, and 512 chars is only the minimum vendors *should* propagate. A bounded column would let a long inbound header fail the business transaction. `TEXT` also avoids a truncation rule of our own (W3C §3.3.1.5) and keeps the value the relay hands on (E3) identical to the one received |
 | `occurred_at` | `TIMESTAMPTZ NOT NULL` | `ce_time`: when recorded |
 | `status` | `VARCHAR(16) NOT NULL DEFAULT 'PENDING'` | `PENDING` / `DELIVERED` (`CHECK`) |
 | `attempts` | `INT NOT NULL DEFAULT 0` | Relay bookkeeping (E3) |
@@ -131,11 +132,11 @@ The relay columns are created now because V15 is the only version reserved for P
 
 | Test | Kind | Proves |
 |:--|:--|:--|
-| `OutboxRecordingIntegrationTest` | Real PostgreSQL 16 via Testcontainers, all real migrations V1–V15 | Commit → exactly one row with a unique `ce_id`, `PENDING`, the JSON payload and the active span's `traceparent`; two events → two different ids; rollback → none; publish outside a transaction → `IllegalTransactionStateException` and no row. Uses a **test-only** domain event, translator and payload, no Order code |
-| `OutboxIntegrationEventPublisherTest` | Unit, fake `OutboxStore` | Fail fast without a transaction; field mapping, id and clock; unserializable payload throws |
+| `OutboxRecordingIntegrationTest` | Real PostgreSQL 16 via Testcontainers, all real migrations V1–V15 | Commit → exactly one row with a unique `ce_id`, `PENDING`, the JSON payload and the active span's `traceparent`; two events → two different ids; rollback → none; publish outside a transaction, or inside a read-only one → `IllegalTransactionStateException` and no row; a maximum-size `tracestate` (32 × 256 chars) is stored in full and the transaction commits. Uses a **test-only** domain event, translator and payload, no Order code |
+| `OutboxIntegrationEventPublisherTest` | Unit, fake `OutboxStore` | Fail fast without a transaction and inside a read-only one; field mapping, id and clock; unserializable payload throws |
 | `W3cTraceContextTest` | Unit | Valid span → well-formed `traceparent`; no span → none |
 | `IntegrationEventTest` | Unit | Required attributes are validated |
 | `OutboxAutoConfigurationTest` | `ApplicationContextRunner` | Beans with a datasource; none without one; none when disabled; app beans win |
-| `OutboxMigrationH2Test` | Flyway on in-memory H2 | V15 stays portable to the local H2 default |
+| `OutboxMigrationH2Test` | Flyway on in-memory H2 | V15 stays portable to the local H2 default; a read-only transaction records nothing on H2 either |
 
 The integration test lives in `polaris-outbox` and runs `polaris-common`'s migrations from its classpath (test scope only), so it exercises the production schema rather than a copy.
