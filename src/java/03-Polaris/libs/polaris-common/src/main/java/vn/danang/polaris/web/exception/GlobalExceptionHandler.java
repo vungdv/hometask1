@@ -5,8 +5,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.springframework.dao.InvalidDataAccessApiUsageException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -335,6 +337,35 @@ public class GlobalExceptionHandler {
         problem.setTitle("Optimistic Lock Conflict");
         problem.setType(URI.create("https://polaris.local/errors/optimistic-lock-conflict"));
         problem.setProperty("remedy", "Reload the latest resource representation and retry your update with the updated version.");
+        return problem;
+    }
+
+    @ExceptionHandler(DraftProblemException.class)
+    public ResponseEntity<ProblemDetail> handleDraftProblemException(DraftProblemException ex) {
+        ProblemDetail problem = ex.getProblem();
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(problem.getStatus());
+        if (problem.getStatus() == HttpStatus.UNAUTHORIZED.value()) {
+            response.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        }
+        return response.body(problem);
+    }
+
+    @ExceptionHandler(DraftConflictException.class)
+    public ProblemDetail handleDraftConflictException(DraftConflictException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Draft Conflict");
+        problem.setType(URI.create("https://polaris.local/errors/draft-conflict"));
+        problem.setProperty("remedy", "The order draft was changed concurrently and nothing was applied. Reload the draft and retry.");
+        problem.setProperty("actions", java.util.List.of(java.util.Map.of("label", "Refresh Draft", "action", "refresh_draft")));
+        return problem;
+    }
+
+    @ExceptionHandler(SessionAccessDeniedException.class)
+    public ProblemDetail handleSessionAccessDeniedException(SessionAccessDeniedException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+        problem.setTitle("Forbidden");
+        problem.setType(URI.create("https://polaris.local/errors/forbidden"));
+        problem.setProperty("remedy", "Open a new assistant session; sessions can only be used by the user who opened them.");
         return problem;
     }
 

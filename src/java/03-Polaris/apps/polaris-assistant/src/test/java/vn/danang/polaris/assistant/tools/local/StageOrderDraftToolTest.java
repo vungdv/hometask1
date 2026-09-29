@@ -47,7 +47,7 @@ import vn.danang.polaris.assistant.dto.OrderDraftCard;
 import vn.danang.polaris.assistant.entity.DraftLine;
 import vn.danang.polaris.assistant.entity.OrderDraft;
 import vn.danang.polaris.assistant.security.UserContext;
-import vn.danang.polaris.assistant.service.DraftConflictException;
+import vn.danang.polaris.web.exception.DraftConflictException;
 import vn.danang.polaris.assistant.service.OrderDraftService;
 import vn.danang.polaris.assistant.tools.PolarisMcpClient;
 import vn.danang.polaris.assistant.tools.ToolExecutionContext;

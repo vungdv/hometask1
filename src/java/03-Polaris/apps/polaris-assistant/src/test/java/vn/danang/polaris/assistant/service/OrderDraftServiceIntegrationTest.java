@@ -34,6 +34,7 @@ import vn.danang.polaris.assistant.entity.DraftStatus;
 import vn.danang.polaris.assistant.entity.OrderDraft;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
 import vn.danang.polaris.assistant.repository.OrderDraftRepository;
+import vn.danang.polaris.web.exception.SessionAccessDeniedException;
 import vn.danang.polaris.assistant.tools.PolarisMcpClient;
 
 /**

@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.service;
+package vn.danang.polaris.web.exception;
 
 /**
  * A draft change kept losing to a concurrent change of the same session's drafts (optimistic-lock or

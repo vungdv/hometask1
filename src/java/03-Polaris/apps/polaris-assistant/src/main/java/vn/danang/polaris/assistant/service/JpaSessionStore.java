@@ -20,6 +20,7 @@ import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.AssistantSession;
 import vn.danang.polaris.assistant.repository.AssistantMessageRepository;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
+import vn.danang.polaris.web.exception.SessionAccessDeniedException;
 
 /**
  * {@link SessionStore} backed by {@code assistant_sessions} / {@code assistant_messages}.

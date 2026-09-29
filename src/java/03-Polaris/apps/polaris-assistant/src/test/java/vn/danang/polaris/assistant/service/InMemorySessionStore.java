@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import vn.danang.polaris.assistant.entity.AssistantMessage;
+import vn.danang.polaris.web.exception.SessionAccessDeniedException;
 
 /**
  * Test double for {@link SessionStore} with the same contract as {@link JpaSessionStore}

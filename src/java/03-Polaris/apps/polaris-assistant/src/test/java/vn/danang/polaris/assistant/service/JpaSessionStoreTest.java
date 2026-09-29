@@ -25,6 +25,7 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 import vn.danang.polaris.assistant.entity.AssistantSession;
 import vn.danang.polaris.assistant.repository.AssistantMessageRepository;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
+import vn.danang.polaris.web.exception.SessionAccessDeniedException;
 
 /**
  * Unit tests for {@link JpaSessionStore}'s open-session race: two first messages with the same

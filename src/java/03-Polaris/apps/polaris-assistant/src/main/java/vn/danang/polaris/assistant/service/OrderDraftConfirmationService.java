@@ -38,6 +38,8 @@ import vn.danang.polaris.assistant.observability.trace.SpanTag;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
 import vn.danang.polaris.assistant.repository.OrderDraftRepository;
 import vn.danang.polaris.assistant.security.UserContext;
+import vn.danang.polaris.web.exception.DraftProblemException;
+import vn.danang.polaris.web.exception.SessionAccessDeniedException;
 import vn.danang.polaris.assistant.tools.PolarisMcpClient;
 import vn.danang.polaris.web.exception.DraftExpiredException;
 import vn.danang.polaris.web.exception.InsufficientStockException;

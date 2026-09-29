@@ -28,7 +28,7 @@ import vn.danang.polaris.assistant.ai.AssistantModelClient;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.entity.SessionStatus;
-import vn.danang.polaris.assistant.service.SessionAccessDeniedException;
+import vn.danang.polaris.web.exception.SessionAccessDeniedException;
 import vn.danang.polaris.assistant.service.SessionStore;
 import vn.danang.polaris.assistant.tools.PolarisMcpClient;
 

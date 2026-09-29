@@ -3,11 +3,9 @@ package vn.danang.polaris.assistant.web;
 import java.net.URI;
 import java.security.Principal;
 
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -25,7 +23,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.dto.OrderDraftStatusResponse;
-import vn.danang.polaris.assistant.service.DraftProblemException;
+import vn.danang.polaris.web.exception.DraftProblemException;
 import vn.danang.polaris.assistant.service.OrderDraftConfirmationService;
 
 /**
@@ -105,16 +103,6 @@ public class OrderDraftController {
             @PathVariable String draftId,
             Principal principal) {
         return ResponseEntity.ok(OrderDraftStatusResponse.from(confirmationService.cancel(sessionId, callerId(principal), draftId)));
-    }
-
-    @ExceptionHandler(DraftProblemException.class)
-    public ResponseEntity<ProblemDetail> handleDraftProblem(DraftProblemException ex) {
-        ProblemDetail problem = ex.getProblem();
-        ResponseEntity.BodyBuilder response = ResponseEntity.status(problem.getStatus());
-        if (problem.getStatus() == HttpStatus.UNAUTHORIZED.value()) {
-            response.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
-        }
-        return response.body(problem);
     }
 
     /** {@code /api/v1/assistant/**} admits anonymous callers (chat), so these endpoints refuse them here. */

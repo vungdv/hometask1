@@ -42,6 +42,7 @@ import vn.danang.polaris.assistant.intent.DefaultIntentManager;
 import vn.danang.polaris.assistant.intent.IntentDefinition;
 import vn.danang.polaris.assistant.intent.IntentToolExecutor;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
+import vn.danang.polaris.web.exception.SessionAccessDeniedException;
 import vn.danang.polaris.assistant.tools.DefaultToolManager;
 import vn.danang.polaris.assistant.tools.PolarisMcpClient;
 import vn.danang.polaris.assistant.tools.ToolExecutionContext;

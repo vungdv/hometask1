@@ -24,6 +24,8 @@ import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
 import vn.danang.polaris.assistant.repository.OrderDraftRepository;
+import vn.danang.polaris.web.exception.DraftConflictException;
+import vn.danang.polaris.web.exception.SessionAccessDeniedException;
 
 /**
  * Draft lifecycle for the model-callable tools (BPMN {@code A_Stage}, {@code A_EndDeclined}): stage a

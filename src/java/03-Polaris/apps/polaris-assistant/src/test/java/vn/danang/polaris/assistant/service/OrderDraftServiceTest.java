@@ -29,6 +29,7 @@ import vn.danang.polaris.assistant.entity.DraftLine;
 import vn.danang.polaris.assistant.entity.OrderDraft;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
 import vn.danang.polaris.assistant.repository.OrderDraftRepository;
+import vn.danang.polaris.web.exception.DraftConflictException;
 
 /**
  * Conflict handling of {@link OrderDraftService}: a lost race rolls the whole transaction back and is

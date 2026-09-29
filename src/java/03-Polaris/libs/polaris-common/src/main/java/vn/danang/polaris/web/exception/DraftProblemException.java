@@ -1,4 +1,4 @@
-package vn.danang.polaris.assistant.service;
+package vn.danang.polaris.web.exception;
 
 import java.net.URI;
 import java.util.List;
@@ -35,14 +35,14 @@ public class DraftProblemException extends RuntimeException {
         return problem;
     }
 
-    static DraftProblemException draftNotFound(String draftId) {
+    public static DraftProblemException draftNotFound(String draftId) {
         ProblemDetail problem = problem(HttpStatus.NOT_FOUND, TYPE_DRAFT_NOT_FOUND, "Draft Not Found",
                 "Order draft " + draftId + " does not exist in this session.");
         problem.setProperty("remedy", "Stage a new order draft in this chat session.");
         return new DraftProblemException(problem);
     }
 
-    static DraftProblemException draftCancelled(String draftId) {
+    public static DraftProblemException draftCancelled(String draftId) {
         ProblemDetail problem = problem(HttpStatus.CONFLICT, TYPE_DRAFT_CANCELLED, "Draft Cancelled",
                 "Order draft " + draftId + " was cancelled or replaced by a newer draft and cannot be confirmed.");
         problem.setProperty("draftId", draftId);
@@ -51,7 +51,7 @@ public class DraftProblemException extends RuntimeException {
         return new DraftProblemException(problem);
     }
 
-    static DraftProblemException draftInvalidated(String draftId) {
+    public static DraftProblemException draftInvalidated(String draftId) {
         ProblemDetail problem = problem(HttpStatus.CONFLICT, TYPE_DRAFT_INVALIDATED, "Draft Invalidated",
                 "Order draft " + draftId + " was rejected by Order Management (price or stock changed) and cannot be confirmed.");
         problem.setProperty("draftId", draftId);
@@ -60,7 +60,7 @@ public class DraftProblemException extends RuntimeException {
         return new DraftProblemException(problem);
     }
 
-    static DraftProblemException draftAlreadyConfirmed(String draftId, String orderNumber) {
+    public static DraftProblemException draftAlreadyConfirmed(String draftId, String orderNumber) {
         ProblemDetail problem = problem(HttpStatus.CONFLICT, TYPE_DRAFT_ALREADY_CONFIRMED, "Draft Already Confirmed",
                 "Order draft " + draftId + " was already confirmed as order " + orderNumber + "; a placed order is not cancelled here.");
         problem.setProperty("draftId", draftId);
@@ -85,7 +85,7 @@ public class DraftProblemException extends RuntimeException {
     }
 
     /** Order Management could not be reached or failed; nothing is known to be ordered and the draft stays open. */
-    static DraftProblemException placementFailed(String draftId, String detail) {
+    public static DraftProblemException placementFailed(String draftId, String detail) {
         ProblemDetail problem = problem(HttpStatus.BAD_GATEWAY, TYPE_ORDER_PLACEMENT_FAILED, "Order Placement Failed", detail);
         problem.setProperty("draftId", draftId);
         problem.setProperty("remedy", "Retry the confirmation: it is idempotent, so a retry never places a second order.");

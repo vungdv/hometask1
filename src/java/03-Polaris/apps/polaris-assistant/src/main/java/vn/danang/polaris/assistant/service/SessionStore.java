@@ -3,6 +3,7 @@ package vn.danang.polaris.assistant.service;
 import java.util.List;
 
 import vn.danang.polaris.assistant.entity.AssistantMessage;
+import vn.danang.polaris.web.exception.SessionAccessDeniedException;
 
 /**
  * Durable conversation store: owns the assistant session and its message history, and enforces
