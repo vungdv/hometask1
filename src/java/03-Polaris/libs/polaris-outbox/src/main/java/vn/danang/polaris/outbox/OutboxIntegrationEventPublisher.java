@@ -48,6 +48,12 @@ public class OutboxIntegrationEventPublisher implements IntegrationEventPublishe
             throw new IllegalTransactionStateException(
                     "Integration event " + event.type() + " must be published inside a transaction");
         }
+        if (TransactionSynchronizationManager.isCurrentTransactionReadOnly()) {
+            // A read-only transaction never writes its business change (JPA FlushMode.MANUAL), yet H2 would
+            // still commit this insert: an event with no change behind it.
+            throw new IllegalTransactionStateException(
+                    "Integration event " + event.type() + " must not be published inside a read-only transaction");
+        }
         UUID eventId = idGenerator.get();
         W3cTraceContext trace = traceContext.get();
         store.append(new OutboxRecord(

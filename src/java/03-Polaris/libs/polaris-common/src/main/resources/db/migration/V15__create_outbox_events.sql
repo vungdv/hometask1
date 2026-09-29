@@ -22,7 +22,9 @@ CREATE TABLE outbox_events (
     payload TEXT NOT NULL,
     -- W3C Trace Context of the raising request; NULL when it had no span.
     traceparent VARCHAR(55),
-    tracestate VARCHAR(512),
+    -- TEXT, not VARCHAR(512): W3C allows up to 32 members of 256-char keys and values, and 512 is only the
+    -- size vendors should at least propagate. Trace metadata must never fail the business transaction.
+    tracestate TEXT,
     occurred_at TIMESTAMP WITH TIME ZONE NOT NULL,
     -- Delivery state, owned by the relay (E3).
     status VARCHAR(16) NOT NULL DEFAULT 'PENDING',

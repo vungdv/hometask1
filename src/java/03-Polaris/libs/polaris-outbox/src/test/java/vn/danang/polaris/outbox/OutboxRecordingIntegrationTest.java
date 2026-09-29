@@ -27,6 +27,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -36,6 +37,7 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.TraceFlags;
 import io.opentelemetry.api.trace.TraceState;
+import io.opentelemetry.api.trace.TraceStateBuilder;
 import io.opentelemetry.context.Scope;
 import vn.danang.polaris.outbox.autoconfigure.OutboxAutoConfiguration;
 import vn.danang.polaris.outbox.store.OutboxRecord;
@@ -59,6 +61,8 @@ class OutboxRecordingIntegrationTest {
 
     @Autowired
     private TransactionTemplate tx;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
     @Autowired
     private ApplicationEventPublisher domainEvents;
     @Autowired
@@ -154,6 +158,38 @@ class OutboxRecordingIntegrationTest {
                 .isInstanceOf(IllegalTransactionStateException.class);
 
         assertThat(rows()).isEmpty();
+    }
+
+    @Test
+    void readOnlyTransaction_failsFastAndRecordsNothing() {
+        TransactionTemplate readOnly = new TransactionTemplate(transactionManager);
+        readOnly.setReadOnly(true);
+
+        assertThatThrownBy(() -> readOnly.executeWithoutResult(status ->
+                domainEvents.publishEvent(new SampleThingHappened("T-8", "read-only"))))
+                .isInstanceOf(IllegalTransactionStateException.class)
+                .hasMessageContaining("read-only");
+
+        assertThat(rows()).isEmpty();
+    }
+
+    @Test
+    void oversizedTracestate_isRecordedInFullAndTheBusinessTransactionCommits() {
+        // W3C maximum: 32 members, each with a 256-char value; far beyond the 512 chars vendors must at least propagate.
+        TraceStateBuilder builder = TraceState.builder();
+        for (int i = 0; i < 32; i++) {
+            builder.put("vendor" + i, "v".repeat(256));
+        }
+        SpanContext context = SpanContext.create(TRACE_ID, SPAN_ID, TraceFlags.getSampled(), builder.build());
+
+        try (Scope ignored = Span.wrap(context).makeCurrent()) {
+            tx.executeWithoutResult(status -> domainEvents.publishEvent(new SampleThingHappened("T-9", "long tracestate")));
+        }
+
+        assertThat(rows()).singleElement().satisfies(row -> {
+            assertThat(row.traceparent()).isEqualTo("00-" + TRACE_ID + "-" + SPAN_ID + "-01");
+            assertThat(row.tracestate()).hasSizeGreaterThan(512).contains("vendor0=", "vendor31=");
+        });
     }
 
     private static Scope currentSpan() {

@@ -36,6 +36,18 @@ class OutboxIntegrationEventPublisherTest {
     @AfterEach
     void clearTransaction() {
         TransactionSynchronizationManager.setActualTransactionActive(false);
+        TransactionSynchronizationManager.setCurrentTransactionReadOnly(false);
+    }
+
+    @Test
+    void readOnlyTransaction_failsFastWithoutWriting() {
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.setCurrentTransactionReadOnly(true);
+
+        assertThatThrownBy(() -> publisher.publish(event(new Payload("A-1", 3))))
+                .isInstanceOf(IllegalTransactionStateException.class)
+                .hasMessageContaining("read-only");
+        assertThat(appended).isEmpty();
     }
 
     @Test

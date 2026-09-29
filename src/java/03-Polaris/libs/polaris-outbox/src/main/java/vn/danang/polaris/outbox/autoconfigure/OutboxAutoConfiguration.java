@@ -39,6 +39,6 @@ public class OutboxAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     IntegrationEventPublisher integrationEventPublisher(OutboxStore outboxStore, ObjectProvider<JsonMapper> jsonMapper) {
-        return new OutboxIntegrationEventPublisher(outboxStore, jsonMapper.getIfAvailable(JsonMapper::new));
+        return new OutboxIntegrationEventPublisher(outboxStore, jsonMapper.getIfUnique(JsonMapper::new));
     }
 }
