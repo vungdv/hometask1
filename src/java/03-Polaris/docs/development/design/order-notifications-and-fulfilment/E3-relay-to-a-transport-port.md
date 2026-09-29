@@ -155,7 +155,7 @@ New packages in `libs/polaris-outbox`, dependencies flowing downwards only:
 | `…outbox.telemetry` | `OutboxMetrics` (Micrometer), `HandOffTracing` (OpenTelemetry API) |
 | `…outbox.autoconfigure` | `OutboxAutoConfiguration` gains the relay beans; `OutboxProperties` |
 
-New dependency: `micrometer-core` (the Micrometer API the apps already ship with actuator). With no `MeterRegistry` bean, metrics go to Micrometer's global registry.
+New dependency: `micrometer-core` (the Micrometer API the apps already ship with actuator). With no `MeterRegistry` bean (an app without actuator), the meters are kept in a local in-memory registry and not exported.
 
 Properties (`polaris.outbox.*`, all optional, 12-factor via env):
 
@@ -173,8 +173,10 @@ Properties (`polaris.outbox.*`, all optional, 12-factor via env):
 
 | Test | Kind | Proves |
 |:--|:--|:--|
-| `OutboxRelayIntegrationTest` | Real PostgreSQL 16 (Testcontainers), all migrations; a recording test transport is the only stub | Commit order per key and `DELIVERED`/`delivered_at`; commit → hand-off < 1 s with the running worker; transport down → `PENDING`, `attempts`, `last_error`, backoff; recovery → all delivered in order per key; one failing key holds back only itself; two relay instances concurrently → every event once, in order per key; crash after hand-off before commit → re-sent with the same `ce_id`; no transport → idle, events stay pending; purge removes only old delivered rows; metrics values; hand-off span parented to the recorded trace and its context handed to the transport |
+| `OutboxRelayIntegrationTest` | Real PostgreSQL 16 (Testcontainers), all migrations; a recording test transport is the only stub; relay instances driven directly with an adjustable clock | Commit order per key, `DELIVERED`/`delivered_at`, CloudEvents attributes and recorded trace context handed over; transport down → `PENDING`, `attempts`, `last_error`, 1 s then 2 s backoff, a failure ends the batch; recovery → all delivered in order per key; one failing key holds back only itself; two relay instances concurrently → every event once, in order per key; crash after hand-off before commit → re-sent with the same `ce_id`; no transport → worker idle, events stay pending; purge removes only old delivered rows; backlog, oldest-pending-age, delivery-lag and hand-off metrics |
+| `OutboxRelayWorkerIntegrationTest` | Real PostgreSQL 16, auto-configured worker with a test transport bean | Commit → hand-off in under 1 s with default settings (TR-E8), then `DELIVERED`; metrics in the app's registry |
+| `HandOffTracingTest` | Unit, in-memory OpenTelemetry SDK | Hand-off span is a `PRODUCER` child of the recorded context and current while open; its context (with `tracestate`) is what the transport gets; failures set `ERROR` and record the exception; no-op API hands the recorded context over unchanged |
 | `RetryBackoffTest` | Unit | Exponential growth and cap |
 | `OutgoingEventTest` | Unit | Required attributes; trace headers omit absent values |
-| `OutboxAutoConfigurationTest` | `ApplicationContextRunner` | Relay worker and metrics beans present with a datasource, absent without one or when disabled; relay disabled by property |
-| `OutboxMigrationH2Test` | Flyway + relay on H2 | The head-locking query (`FOR UPDATE SKIP LOCKED`) runs on the local H2 default and delivers in order |
+| `OutboxAutoConfigurationTest` | `ApplicationContextRunner` | Relay worker and metrics beans present with a datasource and idle without a transport; absent without a datasource or when the outbox is disabled; `relay.enabled=false` keeps recording and metrics without a worker |
+| `OutboxMigrationH2Test` | Flyway + relay on H2 | The head-locking query (`FOR UPDATE SKIP LOCKED`), backlog queries and purge run on the local H2 default; one head per key per cycle, delivered in order |
