@@ -66,6 +66,9 @@ public class OrderConcurrencyTest {
     @Autowired
     private TransactionTemplate transactionTemplate;
 
+    @Autowired
+    private org.springframework.jdbc.core.simple.JdbcClient jdbc;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private void cleanupSku(String sku) {
@@ -530,6 +533,13 @@ public class OrderConcurrencyTest {
         return productRepository.saveAndFlush(product);
     }
 
+    /** Recorded {@code order.placed.v1} events for an order: TR-O1 allows exactly one, even under a replay race. */
+    private long placedEvents(String orderNumber) {
+        return jdbc.sql("SELECT COUNT(*) FROM outbox_events WHERE event_key = ? AND event_type = ?")
+                .params(orderNumber, "vn.danang.polaris.order.placed.v1")
+                .query(Long.class).single();
+    }
+
     private long ordersWithKey(String key) {
         return transactionTemplate.execute(status ->
                 orderRepository.findAll().stream().filter(o -> key.equals(o.getIdempotencyKey())).count());
@@ -573,6 +583,7 @@ public class OrderConcurrencyTest {
         assertThat(placements.stream().filter(p -> !p.replayed())).hasSize(1);
         assertThat(ordersWithKey(key)).isEqualTo(1);
         assertThat(productRepository.findBySku(sku).orElseThrow().getStockQty()).isEqualTo(100 - 3);
+        assertThat(placedEvents(placements.getFirst().order().getOrderNumber())).isEqualTo(1);
     }
 
     @Test
@@ -613,6 +624,8 @@ public class OrderConcurrencyTest {
         assertThat(errors.get()).isEqualTo(0);
         assertThat(placements.stream().map(p -> p.order().getOrderNumber()).distinct()).hasSize(1);
         assertThat(ordersWithKey(key)).isEqualTo(1);
+        // Losers of the unique-index race re-read the winner (S4's concurrent-duplicate path) and record nothing
+        assertThat(placedEvents(placements.getFirst().order().getOrderNumber())).isEqualTo(1);
         int totalDeducted = (50 - productRepository.findBySku(skuA).orElseThrow().getStockQty())
                 + (50 - productRepository.findBySku(skuB).orElseThrow().getStockQty());
         assertThat(totalDeducted).isEqualTo(1);
@@ -670,5 +683,6 @@ public class OrderConcurrencyTest {
         assertThat(replayed.get()).isEqualTo(totalRequests - 1);
         assertThat(orderNumbers.stream().distinct()).hasSize(1);
         assertThat(productRepository.findBySku(sku).orElseThrow().getStockQty()).isEqualTo(100 - 2);
+        assertThat(placedEvents(orderNumbers.getFirst())).isEqualTo(1);
     }
 }

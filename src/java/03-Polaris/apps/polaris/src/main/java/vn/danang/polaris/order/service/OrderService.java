@@ -189,40 +189,22 @@ public class OrderService {
             }
         }
 
-        // Phase 3: stock deduction and order construction
-        Order order = new Order();
-        order.setCustomer(customer);
-        order.setStatus(OrderStatus.PLACED);
-        order.setOrderNumber(generateOrderNumber());
-        order.setPlacedAt(Instant.now());
-        order.setUpdatedAt(Instant.now());
-        order.setIdempotencyKey(key);
-
-        BigDecimal total = BigDecimal.ZERO;
+        // Phase 3: stock deduction and order construction; Order.place registers OrderPlaced, recorded on save
         List<Product> touched = new ArrayList<>();
+        List<Order.Line> orderLines = new ArrayList<>();
         for (LockedLine l : locked) {
             Product product = l.product();
-            int quantity = l.line().quantity();
-
-            product.setStockQty(product.getStockQty() - quantity);
+            product.setStockQty(product.getStockQty() - l.line().quantity());
             productRepo.save(product);
             touched.add(product);
-
-            OrderItem orderItem = new OrderItem();
-            orderItem.setOrder(order);
-            orderItem.setProduct(product);
-            orderItem.setQuantity(quantity);
-            orderItem.setUnitPrice(product.getPrice());
-            order.getItems().add(orderItem);
-
-            total = total.add(product.getPrice().multiply(BigDecimal.valueOf(quantity)));
+            orderLines.add(new Order.Line(product, l.line().quantity()));
         }
-        order.setTotalAmount(total);
+        Order order = Order.place(generateOrderNumber(), customer, orderLines, key, Instant.now());
 
         Order saved = orderRepo.save(order);
         evictProductsAfterCommit(touched);
         log.info("Order placed: orderNumber={}, customerId={}, lines={}, total={}",
-                saved.getOrderNumber(), customerId, locked.size(), total);
+                saved.getOrderNumber(), customerId, locked.size(), saved.getTotalAmount());
         return new Placement(saved, false);
     }
 
@@ -313,42 +295,17 @@ public class OrderService {
         }
     }
 
-    @Transactional
-    public Order placeOrder(Long customerId, List<OrderItem> requestedItems) {
-        Customer customer = customerRepo.findById(customerId)
-                .orElseThrow(() -> new ResourceNotFoundException("Customer not found with ID: " + customerId));
-
-        Order order = new Order();
-        order.setCustomer(customer);
-        order.setStatus(OrderStatus.PLACED);
-        order.setOrderNumber(generateOrderNumber());
-        order.setPlacedAt(Instant.now());
-        order.setUpdatedAt(Instant.now());
-
-        BigDecimal total = BigDecimal.ZERO;
-        for (OrderItem item : requestedItems) {
-            Product product = productRepo.findById(item.getProduct().getId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Product not found with ID: " + item.getProduct().getId()));
-            item.setUnitPrice(product.getPrice());
-            item.setOrder(order);
-            order.getItems().add(item);
-            total = total.add(product.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
-        }
-        order.setTotalAmount(total);
-        return orderRepo.save(order);
-    }
-
+    /**
+     * Cancels the order and restores its stock. The order row is locked before the transition, so concurrent
+     * transitions of the same order are serialised before any event is recorded (TR-X8): a concurrent second
+     * cancellation waits, then sees {@code CANCELLED} and is rejected.
+     */
     @Transactional
     public Order cancelOrder(String orderNumber) {
-        Order order = orderRepo.findByOrderNumber(orderNumber)
+        Order order = orderRepo.findByOrderNumberForUpdate(orderNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with order number: " + orderNumber));
 
-        if (!order.getStatus().isCancellable()) {
-            throw new IllegalStateException(
-                "Order " + orderNumber + " cannot be cancelled — current status is " + order.getStatus());
-        }
-        order.setStatus(OrderStatus.CANCELLED);
-        order.setUpdatedAt(Instant.now());
+        order.cancel(Instant.now());
 
         // Restore inventory stock for all line items
         List<Product> touched = new ArrayList<>();

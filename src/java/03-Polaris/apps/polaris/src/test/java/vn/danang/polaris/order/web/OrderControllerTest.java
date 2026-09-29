@@ -21,6 +21,7 @@ import vn.danang.polaris.config.SecurityConfig;
 import vn.danang.polaris.order.dto.OrderResponse;
 import vn.danang.polaris.order.entity.Customer;
 import vn.danang.polaris.order.entity.Order;
+import org.springframework.test.util.ReflectionTestUtils;
 import vn.danang.polaris.order.entity.OrderItem;
 import vn.danang.polaris.order.entity.OrderStatus;
 import vn.danang.polaris.catalog.entity.Product;
@@ -57,7 +58,7 @@ public class OrderControllerTest {
         Order order = new Order();
         order.setId(1L);
         order.setOrderNumber(orderNumber);
-        order.setStatus(status);
+        ReflectionTestUtils.setField(order, "status", status); // fixture for a mocked service; production uses Order methods
         order.setTotalAmount(new BigDecimal("99.90"));
         order.setPlacedAt(Instant.now());
         order.setUpdatedAt(Instant.now());

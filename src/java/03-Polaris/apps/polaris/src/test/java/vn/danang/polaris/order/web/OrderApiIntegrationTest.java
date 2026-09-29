@@ -33,12 +33,13 @@ public class OrderApiIntegrationTest {
     @Autowired
     private OrderRepository orderRepository;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     @BeforeEach
     void setUp() {
-        orderRepository.findByOrderNumber("ORD-1001").ifPresent(order -> {
-            order.setStatus(OrderStatus.PLACED);
-            orderRepository.save(order);
-        });
+        // Test fixture reset (rolled back with the test); production code changes status only via Order methods
+        jdbcTemplate.update("UPDATE orders SET status = 'PLACED' WHERE order_number = 'ORD-1001'");
     }
 
     @Test
