@@ -8,6 +8,11 @@ import java.util.UUID;
  * <p>Publishing records the event atomically with the caller's business change: it is delivered
  * if and only if the surrounding transaction commits (TR-E1). Delivery itself is asynchronous and
  * at-least-once, with the returned id stable across retries (TR-E4).
+ *
+ * <p><b>Per-key ordering precondition (TR-X8, for TR-E3):</b> events of one key are delivered in the order they were
+ * recorded. That equals commit order only if the transactions raising events for the same key are serialised
+ * <em>before</em> publishing: lock the aggregate pessimistically ({@code PESSIMISTIC_WRITE}) before the
+ * transition, or use optimistic locking ({@code @Version}) so a losing transaction rolls back with its event.
  */
 public interface IntegrationEventPublisher {
 

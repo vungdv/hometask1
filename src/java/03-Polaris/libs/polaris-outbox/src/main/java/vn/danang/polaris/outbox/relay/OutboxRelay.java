@@ -67,7 +67,7 @@ public class OutboxRelay {
         });
         // Only now are the deliveries committed.
         delivered.forEach(d -> metrics.recordDelivered(d.destination(), d.lag()));
-        return new CycleResult(locked[0], delivered.size(), failed[0], locked[0] == batchSize);
+        return new CycleResult(locked[0], delivered.size(), failed[0]);
     }
 
     private boolean handOff(PendingEvent event, List<Delivery> delivered) {
@@ -115,13 +115,15 @@ public class OutboxRelay {
      * @param locked    heads locked for hand-off
      * @param delivered events handed off and marked delivered
      * @param failed    failed hand-offs (at most one: a failure ends the batch)
-     * @param full      the batch was full, so more events may be due
      */
-    public record CycleResult(int locked, int delivered, int failed, boolean full) {
+    public record CycleResult(int locked, int delivered, int failed) {
 
-        /** A full batch with no failure: run the next cycle straight away to drain a backlog. */
+        /**
+         * Something was delivered and nothing failed: run the next cycle straight away. A delivery can make the
+         * key's next event its head, so a backlog (even on a single key) drains back-to-back, not one per poll.
+         */
         public boolean drainAgain() {
-            return full && failed == 0;
+            return delivered > 0 && failed == 0;
         }
     }
 }

@@ -3,6 +3,8 @@ package vn.danang.polaris.outbox.relay;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
@@ -74,6 +76,7 @@ class OutboxRelayWorkerIntegrationTest {
 
     @Test
     void committedEvent_isHandedOffWithinOneSecond_andMarkedDelivered() throws Exception {
+        QueueTransport.SENT.clear();
         assertThat(worker.isRelaying()).isTrue();
 
         UUID recorded;
@@ -97,6 +100,31 @@ class OutboxRelayWorkerIntegrationTest {
         assertThat(meters.get(OutboxMetrics.DELIVERY_LAG).timer().count()).isGreaterThanOrEqualTo(1);
         assertThat(meters.get(OutboxMetrics.BACKLOG).gauge().value()).isZero();
         assertThat(meters.find(OutboxMetrics.OLDEST_PENDING_AGE).gauge()).isNotNull();
+    }
+
+    @Test
+    void aSingleKeyBacklog_drainsBackToBack_notOneEventPerPoll() throws Exception {
+        QueueTransport.SENT.clear();
+        int events = 12; // at one per 250 ms poll this would take 3 s
+        List<UUID> recorded = tx.execute(status -> {
+            List<UUID> ids = new ArrayList<>();
+            for (int i = 0; i < events; i++) {
+                ids.add(publisher.publish(new IntegrationEvent("vn.danang.polaris.test.thing.happened.v1",
+                        "/polaris/test", "polaris.test.thing", "HOT-KEY", Map.of("seq", i))));
+            }
+            return ids;
+        });
+        long committedAt = System.nanoTime();
+
+        List<UUID> handedOff = new ArrayList<>();
+        while (handedOff.size() < events) {
+            OutgoingEvent next = QueueTransport.SENT.poll(1, TimeUnit.SECONDS);
+            assertThat(next).as("hand-off %d", handedOff.size()).isNotNull();
+            handedOff.add(next.id());
+        }
+
+        assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - committedAt)).isLessThan(1000);
+        assertThat(handedOff).containsExactlyElementsOf(recorded);
     }
 
     private boolean awaitStatus(UUID eventId, String status, Duration timeout) throws InterruptedException {
