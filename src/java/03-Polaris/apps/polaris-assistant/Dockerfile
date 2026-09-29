@@ -6,6 +6,7 @@ WORKDIR /app
 # Copy parent and module POMs for layer caching
 COPY pom.xml .
 COPY libs/polaris-common/pom.xml libs/polaris-common/
+COPY libs/polaris-events/pom.xml libs/polaris-events/
 COPY apps/polaris/pom.xml apps/polaris/
 COPY apps/polaris-assistant/pom.xml apps/polaris-assistant/
 
