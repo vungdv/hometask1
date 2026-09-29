@@ -1,7 +1,7 @@
 # Detail Design: E3 — Relay to a Transport Port
 
 - **Plan:** [Plan 1: Outbox & Generic Event Publishing](../../plan/order-notifications-and-fulfilment/01-outbox-event-publishing.md), slice **E3**
-- **Covers:** TR-E2, TR-E3, TR-E6, TR-E8, TR-X2 (and TR-X4: V15 confirmed, no `V15_x`)
+- **Covers:** TR-E2, TR-E3, TR-E6, TR-E8, TR-X2 (and TR-X4: V15 confirmed, no `V15_x`). Relies on TR-X8 (producers serialise same-key changes; §5)
 - **Extends:** [E2 — Recording events atomically](E2-recording-events-atomically.md) (same `libs/polaris-outbox` module, same `outbox_events` table)
 - **Decision record:** [ADR-0018 Transactional outbox for integration events](../../../technical/decisions/0018-transactional-outbox-for-integration-events.md) (Proposed; Option 3 "in-app relay")
 - **Status:** Draft for review
@@ -16,7 +16,7 @@ Out: any real transport (Kafka is Plan 2), Order code (E4), a dead-letter state 
 
 | Question | Decision |
 |:--|:--|
-| Relay trigger | **Polling** every `poll-interval` (default **250 ms**), draining back-to-back while batches come back full. No post-commit signal (§4) |
+| Relay trigger | **Polling** every `poll-interval` (default **250 ms**), running cycles back-to-back while they deliver something without failure. No post-commit signal (§4) |
 | Multi-instance ordering | **Row locks on the head event of each key**: `SELECT … FOR UPDATE SKIP LOCKED`, hand-off and mark in one short relay transaction. No leader election, no lease columns (§5) |
 | Backoff limits | Exponential per event: **1 s × 2ⁿ, capped at 5 min**, never given up; a failure also ends the current batch (§6) |
 | Transport port shape | `EventTransport.send(OutgoingEvent)`: id, type, source, time, destination, key, JSON payload and the W3C trace context; returns only when the transport has accepted the event (§3) |
@@ -54,7 +54,7 @@ public record OutgoingEvent(
 ## 4. Relay trigger: polling
 
 - One daemon thread per app instance (`polaris-outbox-relay`), owned by a `SmartLifecycle` bean, so it starts after the context is ready and stops on shutdown (finishing the in-flight batch).
-- Each cycle is one relay transaction (§5). If the batch was **full and fully delivered**, the next cycle runs immediately (draining a backlog); otherwise the thread waits `poll-interval`.
+- Each cycle is one relay transaction (§5). If the cycle **delivered at least one event and nothing failed**, the next cycle runs immediately; otherwise the thread waits `poll-interval`. A cycle hands off at most one event per key (its head), and a delivery can make that key's next event the head, so this drains a backlog back-to-back, including a single hot key (e.g. an order with several quick transitions after an outage), instead of one event per poll.
 - **TR-E8:** worst case commit → hand-off is one poll interval plus one cycle: 250 ms + a few ms of indexed query, well under 1 s. The integration test asserts it.
 - A post-commit in-process signal would only speed up the instance that raised the event, and PostgreSQL `LISTEN/NOTIFY` has no H2 equivalent (dev–prod parity). Neither is needed for 1 s; both can be added later behind the same relay without changing producers or storage.
 - Cost: one indexed `SELECT` per instance every 250 ms when idle.
@@ -86,13 +86,19 @@ Why this preserves **per-key commit order** (TR-E3):
 
 | Situation | Outcome |
 |:--|:--|
-| Several events for one key | Only the key's oldest `PENDING` row qualifies (`NOT EXISTS`); the next one becomes selectable only after the previous one is committed `DELIVERED`. At most one event per key is in flight anywhere |
+| Several events for one key (recorded by serialised transactions, see the precondition below) | Only the key's oldest `PENDING` row qualifies (`NOT EXISTS`); the next one becomes selectable only after the previous one is committed `DELIVERED`. At most one event per key is in flight anywhere |
 | A head is failing | It stays `PENDING` with a future `next_attempt_at`, so it is not due, and its followers are not heads: **that key is held back, other keys are not** |
 | Two instances | Instance B's `SKIP LOCKED` passes over heads A has locked, and B cannot pick a locked head's follower because B still sees the head as `PENDING`. If A commits while B scans, PostgreSQL re-checks the locked row and finds it `DELIVERED`. So **no double hand-off and no reordering in normal operation** |
 | Crash after hand-off, before commit | The transaction rolls back (the connection dies with the process); the row is still `PENDING` with the same `event_id` and is re-sent by whichever instance polls next. **At-least-once, same `ce_id`** (TR-E4) |
 | App restart / transport outage | Nothing is lost: rows stay `PENDING` until handed off (TR-E2). The business transaction never calls the transport |
 
-`id` is the identity assigned at insert. Within one key, events are raised by transactions that lock the aggregate row (e.g. `placeOrder` is row-locked), so insert order equals commit order for a key.
+**What the relay guarantees, and what it relies on.** The relay hands off a key's events in `id` order, and `id` is assigned when `publish` inserts the row, **not** when the transaction commits. So "id order = commit order per key" holds only if producers meet this precondition:
+
+> **Producer precondition ([TR-X8](../../plan/order-notifications-and-fulfilment/README.md)):** transactions that raise events for the same key must be serialised **before** the event is recorded. Either load the aggregate with a pessimistic lock (`PESSIMISTIC_WRITE` / `SELECT … FOR UPDATE`) before the transition, or make them mutually exclusive with optimistic locking (`@Version`), so the losing transaction rolls back together with its event.
+
+Without that, two unserialised same-key transactions T1 and T2 can record ids 10 and 11, T2 can commit first and have 11 handed off, and T1 can then commit 10. The relay cannot tell this apart from a normal commit: it is a producer-side ordering bug, not a relay bug. A relay-side guard (for example, taking only rows older than the oldest running transaction, via `pg_snapshot_xmin(pg_current_snapshot())`) is PostgreSQL-only and would break H2 parity, so E3 does not add one.
+
+**`Order` does not meet the precondition yet.** `placeOrder` locks the **product** rows, not the order row. `Order` has no `@Version`, and `cancelOrder` loads the order without a lock. The outbox row is inserted at `save()`/listener time, before the flush-time `UPDATE` would lock the order row. `order.placed` (E4) is safe regardless: it is the first event of a new key, and nothing else can raise an event for that key before the order commits. The later transitions (cancel, and Plan 3's claim and shipment milestones) need the precondition. **E4 enforces TR-X8 on `Order`** (`@Version` or a row lock before recording, with a concurrency test against real Postgres); E3 changes no Order code. The precondition is also stated on `IntegrationEventPublisher` and in ADR-0018's consequences.
 
 Why not the alternatives:
 
@@ -124,14 +130,14 @@ Trade-off accepted: a relay transaction (one pooled connection) stays open for t
 
 Gauges are read from the database (two indexed queries) when the registry samples them. They exist whenever the outbox is configured, with or without a transport, so a growing backlog is visible even when no transport is configured. Every instance reports the same table-wide value; dashboards use `max`, not `sum`.
 
-**Logs** (SLF4J, `key=value`; `trace_id`/`span_id` come from the existing logback OTel appender while the hand-off span is current): `DEBUG` per delivery (`ce_id`, `ce_type`, `key`, `destination`); `WARN` per failed attempt (`ce_id`, `key`, `attempt`, `retry_in`, error); `INFO` once at start saying whether a transport is configured; `INFO` per purge that removed rows; `ERROR` if a relay cycle itself fails (e.g. database down), after which the loop continues on the next interval. Logs never go to protocol `stdout`.
+**Logs** (SLF4J, `key=value`; `trace_id`/`span_id` come from the existing logback OTel appender while the hand-off span is current): `DEBUG` per delivery (`ce_id`, `ce_type`, `key`, `destination`); `WARN` per failed attempt (`ce_id`, `key`, `attempt`, `retry_in`, error); `INFO` once at start saying whether a transport is configured; `INFO` per purge that removed rows; `ERROR` if a relay cycle itself fails (e.g. database down), after which the loop continues on the next interval. A fatal JVM `Error` (e.g. `OutOfMemoryError`) is logged and **stops** the relay rather than polling on in an unknown state; recorded events stay pending and the backlog metrics show them. Logs never go to protocol `stdout`.
 
 ## 8. V15 delivery columns and indexes: confirmed, no `V15_x`
 
 | V15 item | Verdict |
 |:--|:--|
 | `status` `CHECK (PENDING, DELIVERED)` and the `delivered_at` consistency check | **Keep.** No dead-letter state (programme §7); a failing event is `PENDING` with `attempts > 0` |
-| `attempts`, `next_attempt_at` (default now), `last_error VARCHAR(2000)` | **Keep.** Exactly the backoff bookkeeping of §6; new rows are due immediately |
+| `attempts`, `next_attempt_at`, `last_error VARCHAR(2000)` | **Keep.** Exactly the backoff bookkeeping of §6. The recording insert now sets `next_attempt_at = occurred_at` from the application clock instead of relying on the column's database default, because the relay compares it with the application clock: with one authoritative clock, an app clock behind the database's cannot delay new events (TR-E8). The default stays as a harmless fallback. Different app instances still compare against their own clocks; NTP-level skew only shifts a retry by that skew |
 | `delivered_at` | **Keep.** Set when marked delivered; retention key |
 | Lease/owner columns | **Not needed**: row locks (§5) |
 | `idx_outbox_events_pending (status, event_key, id)` | **Keep.** Serves the `NOT EXISTS` head check (equality on `status, event_key`, range on `id`) and the backlog count |
@@ -167,16 +173,19 @@ Properties (`polaris.outbox.*`, all optional, 12-factor via env):
 | `relay.backoff.initial` / `.multiplier` / `.max` | `1s` / `2.0` / `5m` |
 | `retention.period` / `retention.purge-interval` | `7d` / `1h` |
 
+**Several `EventTransport` beans** fail startup with a clear message (mark one `@Primary`, or disable the relay): the relay never goes silently idle, and never splits a key's events across transports.
+
 **No transport configured** (no `EventTransport` bean, the situation until Plan 2): the worker logs once that events stay pending, never polls for hand-off, and raises no errors; the backlog and oldest-age gauges keep reporting and the purge still runs. The worker resolves the transport lazily at start, so a transport contributed by a later auto-configuration (Plan 2) is still found.
 
 ## 11. Tests
 
 | Test | Kind | Proves |
 |:--|:--|:--|
-| `OutboxRelayIntegrationTest` | Real PostgreSQL 16 (Testcontainers), all migrations; a recording test transport is the only stub; relay instances driven directly with an adjustable clock | Commit order per key, `DELIVERED`/`delivered_at`, CloudEvents attributes and recorded trace context handed over; transport down → `PENDING`, `attempts`, `last_error`, 1 s then 2 s backoff, a failure ends the batch; recovery → all delivered in order per key; one failing key holds back only itself; two relay instances concurrently → every event once, in order per key; crash after hand-off before commit → re-sent with the same `ce_id`; no transport → worker idle, events stay pending; purge removes only old delivered rows; backlog, oldest-pending-age, delivery-lag and hand-off metrics |
-| `OutboxRelayWorkerIntegrationTest` | Real PostgreSQL 16, auto-configured worker with a test transport bean | Commit → hand-off in under 1 s with default settings (TR-E8), then `DELIVERED`; metrics in the app's registry |
+| `OutboxRelayIntegrationTest` | Real PostgreSQL 16 (Testcontainers), all migrations; a recording test transport is the only stub; relay instances driven directly with an adjustable clock | Commit order per key, `DELIVERED`/`delivered_at`, CloudEvents attributes and recorded trace context handed over; transport down → `PENDING`, `attempts`, `last_error`, 1 s then 2 s backoff, a failure ends the batch; recovery → all delivered in order per key; one failing key holds back only itself; two relay instances concurrently → every event once, in order per key; crash after hand-off before commit (an `Error` from the transport, and the relay's database session terminated with `pg_terminate_backend`) → re-sent with the same `ce_id`; new rows are due at their application-clock recording time; no transport → worker idle, events stay pending; purge removes only old delivered rows; backlog, oldest-pending-age, delivery-lag and hand-off metrics |
+| `OutboxRelayWorkerIntegrationTest` | Real PostgreSQL 16, auto-configured worker with a test transport bean | Commit → hand-off in under 1 s with default settings (TR-E8), then `DELIVERED`; a 12-event single-key backlog drains in order in under 1 s; metrics in the app's registry |
+| `OutboxRelayWorkerTest` | Unit, mocked relay | A failing cycle is retried next interval; a fatal `Error` stops the relay; delivering cycles run back-to-back |
 | `HandOffTracingTest` | Unit, in-memory OpenTelemetry SDK | Hand-off span is a `PRODUCER` child of the recorded context and current while open; its context (with `tracestate`) is what the transport gets; failures set `ERROR` and record the exception; no-op API hands the recorded context over unchanged |
 | `RetryBackoffTest` | Unit | Exponential growth and cap |
 | `OutgoingEventTest` | Unit | Required attributes; trace headers omit absent values |
-| `OutboxAutoConfigurationTest` | `ApplicationContextRunner` | Relay worker and metrics beans present with a datasource and idle without a transport; absent without a datasource or when the outbox is disabled; `relay.enabled=false` keeps recording and metrics without a worker |
+| `OutboxAutoConfigurationTest` | `ApplicationContextRunner` | Relay worker and metrics beans present with a datasource and idle without a transport; two transports fail startup clearly; absent without a datasource or when the outbox is disabled; `relay.enabled=false` keeps recording and metrics without a worker |
 | `OutboxMigrationH2Test` | Flyway + relay on H2 | The head-locking query (`FOR UPDATE SKIP LOCKED`), backlog queries and purge run on the local H2 default; one head per key per cycle, delivered in order |
