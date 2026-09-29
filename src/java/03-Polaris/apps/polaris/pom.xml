@@ -30,6 +30,16 @@
 			<artifactId>polaris-events</artifactId>
 		</dependency>
 
+		<!-- Kafka transport for the outbox: Spring Kafka + the CloudEvents Kafka binding (Plan 2, ADR-0019) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-kafka</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.cloudevents</groupId>
+			<artifactId>cloudevents-kafka</artifactId>
+		</dependency>
+
 		<!-- Web & Security -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -155,6 +165,17 @@
 		<dependency>
 			<groupId>org.testcontainers</groupId>
 			<artifactId>testcontainers-junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-kafka</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- In-memory span capture: HTTP request → hand-off → Kafka produce in one trace (TR-B4) -->
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-sdk-testing</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

@@ -8,6 +8,9 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  kafka:
+    admin:
+      operation-timeout: 10s
   security:
     oauth2:
       resourceserver:

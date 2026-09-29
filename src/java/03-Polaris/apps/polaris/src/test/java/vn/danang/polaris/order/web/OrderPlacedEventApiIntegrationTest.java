@@ -40,9 +40,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * E4 through the REST API against real PostgreSQL: placing an order records exactly one {@code order.placed.v1}
  * in the outbox, committed with the order and in the placing request's trace; rejected placements and idempotent
- * replays record nothing (TR-O1). With no transport configured the event stays pending (Definition of Done).
+ * replays record nothing (TR-O1). With no transport configured the event stays pending (Plan 1 Definition of Done),
+ * so this suite switches the Kafka transport off; delivery to Kafka is covered by {@code OrderLifecycleKafkaIntegrationTest}.
  */
-@SpringBootTest
+@SpringBootTest(properties = "polaris.outbox.kafka.enabled=false")
 @AutoConfigureMockMvc
 @RecordApplicationEvents
 @Import(TestcontainersConfiguration.class)
