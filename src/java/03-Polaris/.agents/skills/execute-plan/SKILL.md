@@ -31,7 +31,7 @@ source of truth for slices, ordering, and acceptance criteria. Never execute wor
 ## Slice Tracker
 
 Progress and order live in the [plan] itself, in a **Slice Tracker** table. Example:
-[`order-notifications-and-fulfilment.md` §5.0](../../../docs/development/plan/order-notifications-and-fulfilment.md).
+[`order-notifications-and-fulfilment/01-outbox-event-publishing.md`](../../../docs/development/plan/order-notifications-and-fulfilment/01-outbox-event-publishing.md).
 
 | # | Slice | Title | Status | External | Branch | PR | Notes |
 |:--|:--|:--|:--|:--|:--|:--|:--|
