@@ -33,7 +33,7 @@ metrics_generator:
         send_exemplars: true
   processor:
     span_metrics:
-      dimensions: [http.request.method, http.response.status_code, http.route]
+      dimensions: [http.request.method, http.response.status_code, http.route, polaris.sse]
       enable_target_info: true
     service_graphs:
       dimensions: []

@@ -18,11 +18,53 @@ receivers:
       http:
         endpoint: "0.0.0.0:4318"
 
+  # Gateway access log (plan O2a): nginx sends JSON access-log lines over syslog/UDP.
+  syslog:
+    udp:
+      listen_address: "0.0.0.0:5514"
+    protocol: rfc3164
+    location: UTC
+  # Gateway connection metrics from the internal-only stub_status listener.
+  nginx:
+    endpoint: "http://nginx:8088/stub_status"
+    collection_interval: 10s
+
 processors:
   memory_limiter:
     check_interval: 1s
     limit_percentage: 30
     spike_limit_percentage: 6
+  resource/nginx:
+    attributes:
+      - {key: service.name, value: nginx-gateway, action: upsert}
+  # ngx_otel_module always records http.target WITH the raw query string (OAuth code/state) and
+  # otel_span_attr cannot replace it (it appends a duplicate). Remove every copy on gateway
+  # spans; the query-free path is carried by url.path (set in nginx.conf).
+  transform/nginx_spans:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        conditions:
+          - resource.attributes["service.name"] == "nginx-gateway"
+        statements:
+          - delete_matching_keys(span.attributes, "^http\\.target$")
+          - delete_matching_keys(span.attributes, "^url\\.query$")
+  # Parse the JSON access log: promote trace_id/span_id to the log record (Loki structured
+  # metadata, same correlation as app logs), keep the JSON as body, map 5xx to ERROR.
+  transform/nginx_logs:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(log.cache, ParseJSON(log.attributes["message"]))
+          - set(log.body, log.attributes["message"])
+          - set(log.trace_id.string, log.cache["trace_id"]) where IsString(log.cache["trace_id"]) and log.cache["trace_id"] != ""
+          - set(log.span_id.string, log.cache["span_id"]) where IsString(log.cache["span_id"]) and log.cache["span_id"] != ""
+          - set(log.attributes["http.route"], log.cache["route"])
+          - set(log.attributes["http.response.status_code"], log.cache["status"])
+          - set(log.severity_number, SEVERITY_NUMBER_ERROR) where log.cache["status"] >= 500
+          - set(log.severity_number, SEVERITY_NUMBER_INFO) where log.cache["status"] < 500
+          - delete_key(log.attributes, "message")
   batch:
     timeout: 2s
     send_batch_max_size: 8192
@@ -73,7 +115,7 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, transform/nginx_spans, batch]
       exporters: [otlp_grpc/tempo]
     metrics:
       receivers: [otlp]
@@ -83,3 +125,11 @@ service:
       receivers: [otlp]
       processors: [memory_limiter, batch]
       exporters: [otlp_http/logs]
+    logs/nginx:
+      receivers: [syslog]
+      processors: [memory_limiter, resource/nginx, transform/nginx_logs, batch]
+      exporters: [otlp_http/logs]
+    metrics/nginx:
+      receivers: [nginx]
+      processors: [memory_limiter, resource/nginx, batch]
+      exporters: [prometheus]
