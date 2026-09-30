@@ -1,10 +1,13 @@
-.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency gcx gcx-exec status playwright-ui playwright-close run run-assistant clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders
+.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders
 
 run:
 	mvn spring-boot:run -pl apps/polaris
 
 run-assistant:
 	mvn spring-boot:run -pl apps/polaris-assistant
+
+run-fulfilment:
+	mvn spring-boot:run -pl apps/polaris-fulfilment-emulator
 
 pull: 
 	docker compose pull
