@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import vn.danang.polaris.events.order.OrderLifecycleEvent;
 import vn.danang.polaris.events.order.OrderMilestone;
+import vn.danang.polaris.order.entity.OrderStatus;
 import vn.danang.polaris.outbox.IntegrationEvent;
 import vn.danang.polaris.outbox.IntegrationEventPublisher;
 
@@ -58,6 +59,31 @@ class OrderIntegrationEventTranslatorTest {
                     List.of(new OrderLifecycleEvent.Item("NG-EARBUD-01", "Nova Wireless Earbuds", 1, new BigDecimal("49.90")),
                             new OrderLifecycleEvent.Item("NG-CHARGER-01", "Fast Charger", 2, new BigDecimal("24.90"))),
                     new BigDecimal("99.70"), "USD", null));
+        });
+    }
+
+    @Test
+    @DisplayName("OrderProgressed → parceled/delivering/delivered event with customer, items, total and the partner")
+    void orderProgressed_isPublishedAsMatchingMilestone() {
+        RecordingPublisher publisher = new RecordingPublisher();
+        var translator = new OrderIntegrationEventTranslator(publisher);
+        var lines = List.of(new OrderPlaced.Line("NG-CHARGER-01", "Fast Charger", 2, new BigDecimal("24.90")));
+
+        for (OrderStatus status : List.of(OrderStatus.PARCELED, OrderStatus.DELIVERING, OrderStatus.DELIVERED)) {
+            translator.on(new OrderProgressed("ORD-000042", AT, status, "partner-a", 1L, "Alice Tran",
+                    "alice.tran@example.com", lines, new BigDecimal("49.80")));
+        }
+
+        assertThat(publisher.published).extracting(IntegrationEvent::type).containsExactly(
+                "vn.danang.polaris.order.parceled.v1", "vn.danang.polaris.order.delivering.v1",
+                "vn.danang.polaris.order.delivered.v1");
+        assertThat(publisher.published).allSatisfy(event -> {
+            assertThat(event.key()).isEqualTo("ORD-000042");
+            OrderLifecycleEvent data = (OrderLifecycleEvent) event.data();
+            assertThat(data.assignedPartner()).isEqualTo("partner-a");
+            assertThat(data.customer().id()).isEqualTo(1L);
+            assertThat(data.items()).hasSize(1);
+            assertThat(data.totalAmount()).isEqualByComparingTo("49.80");
         });
     }
 
