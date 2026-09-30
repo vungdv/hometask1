@@ -36,15 +36,15 @@ Polaris is organized around clear bounded contexts adhering to Domain-Driven Des
 ```mermaid
 flowchart LR
     subgraph External["External"]
-        direction TB
+        direction LR
         subgraph LLM["LLM"]
-            Gemini-3.6-flash["Gemni-3.6-flash"]
+            TypeSafe["TypeSafe/Intent"]
+            Gemini-3.6-flash["Gemni-3.6-flash/Reasoning"]
         end
     end
     subgraph Observability["Observability/Grafana-Stack"]
         direction LR
         Grafana["Grafana"]
-        Tempo["Tempo"]
         Loki["Loki"]
         Prometheus["Prometheus"]
     end
@@ -63,13 +63,17 @@ flowchart LR
             Keycloak["Keycloak IdP<br/>(id.polaris.local)"]
             Polaris-App["Order, Product Catalog<br/>(polaris.local/*)"]
             Polaris-Assistant["AI Assistant<br/>(polaris.local/api/v1/assistant/*)"]
+            Fulfillment["Fulfillment"]
+            Notification["Notification"]
         end
     end
     L1 -->|HTTPS / REST| L2
     L2 -->|Proxy| L3
     Polaris-Assistant -->|MCP /http| Polaris-App
+    Polaris-App -.->|Messaging/kafka| Fulfillment
+    Polaris-App -.->|Messaging/kafka| Notification
     Main -.->|Collector/OTLP| Observability
-    Polaris-Assistant -->|Gemini-3.6-flash| Gemini-3.6-flash
+    Polaris-Assistant -->|LLM| LLM
 ```
 
 ---
@@ -105,7 +109,7 @@ make up
 | **Keycloak Admin** | [https://id.polaris.local](https://id.polaris.local) | Username: `admin` \| Password: `admin` |
 | **Grafana Telemetry** | [https://grafana.polaris.local](https://grafana.polaris.local) | Username: `admin` \| Password: `admin` (or Keycloak SSO) |
 | **Polaris Database** | Internal `polaris-db:5432` | `make polaris-sql` opens psql into PostgreSQL 16 database |
-| **Kafka** | Internal `kafka:9092` · host `localhost:9094` | Single-node KRaft broker, no auto-created topics: each owner provisions its own (Order: `polaris.order.lifecycle`, [ADR-0019](docs/technical/decisions/0019-kafka-and-cloudevents-binding.md)). `make run` uses `localhost:9094` by default. `make kafka-topics` lists topics; `make kafka-tail TOPIC=polaris.order.lifecycle` shows placed orders as CloudEvents |
+| **Kafka** | Internal `kafka-{1,2,3}:9092` · host `localhost:9094-9096` | Three-node KRaft cluster (every node broker + controller), no auto-created topics: each owner provisions its own (Order: `polaris.order.lifecycle`, 3 partitions × 3 replicas, min ISR 2, [ADR-0019](docs/technical/decisions/0019-kafka-and-cloudevents-binding.md)). `make run` bootstraps from `localhost:9094-9096`. See [Kafka cluster experiments](#kafka-cluster-experiments) |
 
 > **Shopper accounts & realm changes:** `alice.tran`, `ben.nguyen` and `chi.le` (password `testpass`, realm role `shopper`) are linked to the seeded customers by `customers.auth_subject` (Flyway V12). Keycloak imports `docker/keycloak/realm-export.json` only when its volume is empty, so after pulling realm changes run `make clean && make up` to re-import them.
 
@@ -131,6 +135,28 @@ make up
 | **Access Polaris DB** | `make polaris-sql` | Opens psql shell into the containerized PostgreSQL DB |
 | **Kafka Topics** | `make kafka-topics` | Describes every non-internal topic (partitions, replicas) on the local broker |
 | **Tail Kafka Topic** | `make kafka-tail TOPIC=<topic>` | Prints a topic from the beginning with key, headers, partition and offset |
+| **Kafka Cluster** | `make kafka-cluster` | Controller quorum (leader, voters, lag) and any under-replicated partitions |
+| **Kafka Offsets** | `make kafka-offsets [TOPIC=<topic>]` | End offset per partition: how keys spread over partitions |
+| **Kafka Groups** | `make kafka-groups` | Every consumer group: partition assignment and lag |
+| **Kafka Leaders** | `make kafka-leaders` | Moves each partition's leadership back to its preferred replica |
+| **Stop/Start a Broker** | `make kafka-stop-2` / `make kafka-start-2` | Takes one node down or brings it back (Kafka targets accept `NODE=2` when `kafka-1` is down) |
+
+---
+
+## Kafka Cluster Experiments
+
+The dev stack runs three Kafka nodes (`kafka-1..3`). Each node is both a broker and a KRaft controller. `polaris.order.lifecycle` has 3 partitions, each with 3 replicas, and `min.insync.replicas=2`. The outbox sends with `acks=all`, so a write needs 2 replicas in sync.
+
+| Experiment | Do | What you see |
+|:--|:--|:--|
+| **Partitioning** | Place a few orders, then `make kafka-offsets` and `make kafka-tail TOPIC=polaris.order.lifecycle` | Each order number (the record key) hashes to one partition (murmur2 % 3). All of an order's events land there in order. Different orders spread over the three partitions |
+| **Replicas & leaders** | `make kafka-topics` | One leader per partition, spread over the nodes. `Replicas` lists the preferred order, and `Isr` shows which replicas are caught up |
+| **Lose one node** | `make kafka-stop-1`, then `make kafka-topics NODE=2`, then place an order | Partitions that `kafka-1` led elect a new leader, and the ISR shrinks to 2. Writes still succeed (2 ≥ min ISR), and the controller quorum (2 of 3 voters) keeps working |
+| **Lose two nodes** | Also run `make kafka-stop-2` and place an order | The API still returns `201`, but the event stays `PENDING`: `acks=all` gets `NotEnoughReplicasException` (1 < min ISR), and the controller quorum has lost its majority. Start the nodes again and the relay delivers the event (TR-B7) |
+| **Recover** | `make kafka-start-1 kafka-start-2`, then `make kafka-cluster` | The restarted replicas catch up and rejoin the ISR. Leadership stays where it moved until the preferred-leader check runs (every 5 min) or you run `make kafka-leaders` |
+| **Consumers** (Plans 3–4) | `make kafka-groups` | Each partition is assigned to one consumer in a group. Consumers beyond the partition count (3) sit idle |
+
+Before this change the stack had a single `kafka` service. Remove its orphaned container and volume with `docker rm -f kafka && docker volume rm 03-polaris_kafka_data` (check the volume name with `docker volume ls`), or run `make clean`.
 
 ---
 

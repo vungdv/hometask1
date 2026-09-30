@@ -1,6 +1,7 @@
 # ADR-0019: Kafka & CloudEvents Binding
 
 * **Status:** Accepted (2026-09-29, Plan 2 B2)
+* **Amended:** 2026-09-29, Plan 2 B3: the dev broker becomes a three-node cluster; topics carry their own `min.insync.replicas` (§4 items 3–4)
 * **Deciders:** Polaris Architecture Team, Core Platform Engineering
 * **Date:** 2026-09-29
 * **Technical Story:** Kafka joins the platform, and the outbox relay ([ADR-0018](0018-transactional-outbox-for-integration-events.md)) gets a Kafka transport. Every recorded event, starting with `order.placed.v1`, arrives on Kafka as a CloudEvent in the originating trace. This ADR also fixes the conventions every producer and consumer in Plans 3 and 4 follows.
@@ -76,12 +77,12 @@ Plan 1 records integration events in an outbox and relays them to an `EventTrans
    * `max.in.flight.requests.per.connection=5`, the most that idempotence allows while still keeping order;
    * `linger.ms=0`.
 
-   `send` blocks until the broker acknowledges the record. Only then does the relay mark the event delivered. Each send is bounded by `polaris.outbox.kafka.send-timeout` (default 10 s): `max.block.ms`, `request.timeout.ms` and `delivery.timeout.ms` are each capped at that value. A timeout is a failed attempt, which the relay retries with its capped exponential backoff. This transport adds no retry loop of its own. Order across attempts comes from the relay: at most one event per key is in flight at a time ([E3 §5](../../development/design/order-notifications-and-fulfilment/E3-relay-to-a-transport-port.md)).
+   `send` blocks until the broker acknowledges the record. With `acks=all`, that means every in-sync replica holds it, and the topic's `min.insync.replicas` sets how many must be in sync: on the three-node dev cluster (replication 3, min ISR 2), one node can be down without refusing or losing a write. With fewer in-sync replicas the broker rejects the write (`NotEnoughReplicasException`), and the relay retries it like any other failed attempt. Only then does the relay mark the event delivered. Each send is bounded by `polaris.outbox.kafka.send-timeout` (default 10 s): `max.block.ms`, `request.timeout.ms` and `delivery.timeout.ms` are each capped at that value. A timeout is a failed attempt, which the relay retries with its capped exponential backoff. This transport adds no retry loop of its own. Order across attempts comes from the relay: at most one event per key is in flight at a time ([E3 §5](../../development/design/order-notifications-and-fulfilment/E3-relay-to-a-transport-port.md)).
 4. **Topics (TR-B1, TR-B5).**
    * Topic names follow `polaris.<context>.<stream>`.
    * Each topic is owned and provisioned by the one context that produces to it.
    * The broker never auto-creates topics.
-   * Order owns `polaris.order.lifecycle`, with **3 partitions** in dev (`polaris.order.lifecycle-topic.partitions` / `.replicas`). Because the key is the order number, an order's events share a partition and keep their order, while a consumer group can process up to 3 orders in parallel. Partitions can be added later but never removed. Adding partitions moves keys to different partitions, so it is a planned change, not a routine one.
+   * Order owns `polaris.order.lifecycle`, with **3 partitions × 3 replicas and `min.insync.replicas=2`** in dev (`polaris.order.lifecycle-topic.partitions` / `.replicas` / `.min-insync-replicas`). The owner declares the minimum ISR on the topic rather than relying on the broker default, because it decides how many copies an `acks=all` write needs. Because the key is the order number, an order's events share a partition and keep their order, while a consumer group can process up to 3 orders in parallel. Partitions can be added later but never removed. Adding partitions moves keys to different partitions, so it is a planned change, not a routine one.
    * `KafkaAdmin` provisions topics at startup. If the broker was unreachable then, the transport provisions them again before its first successful send. So events still flow once Kafka returns, without restarting Order (TR-B7).
 5. **Tracing (TR-B4).**
    * The relay's hand-off span is a child of the trace context recorded with the event (ADR-0018).

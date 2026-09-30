@@ -19,10 +19,12 @@ import java.util.stream.Collectors;
 
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -131,7 +133,7 @@ class OrderLifecycleKafkaIntegrationTest {
     }
 
     @Test
-    @DisplayName("Order provisions polaris.order.lifecycle with several partitions; the broker never auto-creates topics")
+    @DisplayName("Order provisions polaris.order.lifecycle with several partitions and its own min ISR; the broker never auto-creates topics")
     void lifecycleTopic_isProvisionedByOrder() throws Exception {
         try (Admin admin = admin()) {
             String autoCreate = admin.describeConfigs(List.of(new ConfigResource(ConfigResource.Type.BROKER, "1")))
@@ -139,6 +141,11 @@ class OrderLifecycleKafkaIntegrationTest {
             assertThat(autoCreate).isEqualTo("false");
             assertThat(admin.describeTopics(List.of(TOPIC)).allTopicNames().get().get(TOPIC).partitions())
                     .hasSize(3);
+            // Declared on the topic by its owner (single broker here: 1; the dev cluster: 2).
+            var minIsr = admin.describeConfigs(List.of(new ConfigResource(ConfigResource.Type.TOPIC, TOPIC)))
+                    .all().get().values().iterator().next().get(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG);
+            assertThat(minIsr.value()).isEqualTo("1");
+            assertThat(minIsr.source()).isEqualTo(ConfigEntry.ConfigSource.DYNAMIC_TOPIC_CONFIG);
         }
     }
 

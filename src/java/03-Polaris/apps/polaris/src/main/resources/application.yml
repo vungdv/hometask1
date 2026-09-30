@@ -30,8 +30,8 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:6379}
       password: ${SPRING_DATA_REDIS_PASSWORD:}
   kafka:
-    # Host default for `make run` (the broker's HOST listener); compose sets SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092.
-    bootstrap-servers: localhost:9094
+    # Host default for `make run` (the cluster's HOST listeners); compose sets the internal kafka-N:9092 list.
+    bootstrap-servers: localhost:9094,localhost:9095,localhost:9096
     admin:
       # Bounds topic provisioning when the broker is down (at startup, and retried by the outbox transport).
       operation-timeout: 10s
