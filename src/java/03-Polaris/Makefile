@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders
-=======
-.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders
->>>>>>> origin/main
+.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders
 
 run:
 	mvn spring-boot:run -pl apps/polaris
