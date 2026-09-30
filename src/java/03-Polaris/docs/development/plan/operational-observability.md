@@ -74,7 +74,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | # | Slice | Title | Status | External | Branch | PR | Notes |
 |:--|:--|:--|:--|:--|:--|:--|:--|
-| 1 | O0 | Requirements rewrite and ADR | `in-progress` | — | | | Docs only; blocks the rest |
+| 1 | O0 | Requirements rewrite and ADR | `in-review` | — | `docs/o0-observability-requirements` | [#28](https://github.com/vungdv/hometask1/pull/28) | Docs only; blocks the rest |
 | 2 | O1 | Pipeline hardening and self-monitoring | `todo` | O0 | | | |
 | 3 | O2 | Signal correlation and span metrics | `todo` | O1 | | | |
 | 4 | O2a | Gateway (nginx) telemetry | `todo` | O1, O2 | | | Lands before O3 so redaction covers edge logs |
