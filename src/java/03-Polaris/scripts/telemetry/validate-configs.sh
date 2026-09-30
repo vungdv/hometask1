@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Validates telemetry configs with the pinned images (plan O1). Needs docker only.
+# Validates telemetry configs with the pinned images (plan O1, O2). Needs docker only.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 T=docker/telemetry
 OTEL_IMG=$(grep -o 'otel/opentelemetry-collector-contrib:[0-9.]*' docker-compose.override.yml | head -1)
 PROM_IMG=$(grep -o 'prom/prometheus:v[0-9.]*' docker-compose.override.yml | head -1)
+TEMPO_IMG=$(grep -o 'BASE: grafana/tempo:[0-9.]*' docker-compose.override.yml | head -1 | sed 's/BASE: //')
 fail=0
 ok() { echo "PASS $1"; }
 bad() { echo "FAIL $1"; fail=1; }
@@ -19,6 +20,29 @@ docker run --rm -v "$PWD/$T/otel-collector-config.yaml:/c.yaml:ro" "$OTEL_IMG" v
 
 docker run --rm --entrypoint promtool -v "$PWD/$T/prometheus/prometheus.yml:/p.yml:ro" "$PROM_IMG" check config /p.yml >/dev/null \
   && ok "promtool check config ($PROM_IMG)" || bad "promtool check config"
+
+# Tempo: strict parse of the pinned image (unknown keys such as a misspelt processor fail)
+docker run --rm -v "$PWD/$T/tempo/tempo.yml:/c.yml:ro" "$TEMPO_IMG" -config.file=/c.yml -config.verify=true >/dev/null 2>&1 \
+  && ok "tempo -config.verify ($TEMPO_IMG)" || bad "tempo -config.verify"
+
+# Prometheus must accept Tempo's remote write and keep exemplars (plan O2)
+grep -q -- '--web.enable-remote-write-receiver' docker-compose.override.yml && grep -q -- '--enable-feature=exemplar-storage' docker-compose.override.yml \
+  && ok "prometheus remote-write receiver + exemplar storage enabled" || bad "prometheus remote-write receiver / exemplar storage"
+
+ruby -ryaml -e '
+t = YAML.load_file(ARGV[0]); g = t["metrics_generator"]
+abort "no remote_write to prometheus" unless g["storage"]["remote_write"].any? { |r| r["url"] == "http://prometheus:9090/api/v1/write" && r["send_exemplars"] }
+procs = t["overrides"]["defaults"]["metrics_generator"]["processors"]
+abort "span-metrics/service-graphs not enabled" unless (%w[span-metrics service-graphs] - procs).empty?
+d = YAML.load_file(ARGV[1])["datasources"].to_h { |x| [x["uid"], x["jsonData"] || {}] }
+j = d.fetch("tempo")
+abort "tempo->loki" unless j.dig("tracesToLogsV2", "datasourceUid") == "loki"
+abort "tempo->prometheus" unless j.dig("tracesToMetrics", "datasourceUid") == "prometheus"
+abort "service map" unless j.dig("serviceMap", "datasourceUid") == "prometheus"
+abort "loki derived field" unless d["loki"]["derivedFields"].any? { |f| f["datasourceUid"] == "tempo" }
+abort "prometheus exemplar" unless d["prometheus"]["exemplarTraceIdDestinations"].any? { |f| f["datasourceUid"] == "tempo" }
+' "$T/tempo/tempo.yml" "$T/grafana/provisioning/datasources/datasources.yml" \
+  && ok "tempo metrics_generator + grafana correlation jsonData" || bad "tempo metrics_generator / grafana correlation jsonData"
 
 ruby -ryaml -e '
 c = YAML.load_file(ARGV[0])
