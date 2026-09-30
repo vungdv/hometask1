@@ -35,7 +35,7 @@ Package `vn.danang.polaris.fulfilment` (one responsibility each, dependencies po
 | `ShipmentPublisher` | Sends one `ShipmentEvent` as a binary-mode CloudEvent (key = order number, `ce_type` from `ShipmentStep`) to `polaris.fulfilment.shipments`; declares that topic (Fulfilment owns it, ADR-0019 §4.4) |
 | `FulfilmentMetrics` | Micrometer counters and timer (§7) |
 
-The clock and randomness are beans (`java.util.random.RandomGenerator`, `ScheduledExecutorService`), so tests replace them with a seeded generator and a controllable executor. No datasource, JPA, Flyway or web starter is on the classpath; only actuator is exposed (TR-F4).
+The clock and randomness are beans (`java.util.random.RandomGenerator`, `ScheduledExecutorService`), so tests replace them with a seeded generator and a controllable executor. The generator is `java.util.Random`, not `RandomGenerator.getDefault()` (L32X64MixRandom lives in `jdk.random`, absent from the JRE runtime image). No datasource, JPA, Flyway or web starter is on the classpath; only actuator is exposed (TR-F4).
 
 Not reused: `CloudEventsKafkaBinding` in `polaris-outbox`. That module auto-configures around a datasource and relay; the emulator writes the record with `KafkaMessageFactory` directly (a few lines) and depends on `polaris-events` only.
 
