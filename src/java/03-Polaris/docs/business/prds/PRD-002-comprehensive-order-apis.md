@@ -145,3 +145,5 @@ A human or automated agent checking customer order records, order status breakdo
 2. **Shopping Cart Sessions / Abandoned Cart Reminders:** Dedicated temporary shopping cart storage and session persistence are deferred to a separate Cart PRD candidate.
 3. **Complex Promotion Voucher Codes:** Discount codes, multi-buy promotions, and loyalty points calculations are out of scope (deferred to PRD-006 candidate).
 4. **Physical Shipment Tracking Carrier APIs:** Integration with third-party logistics carriers (FedEx, DHL) is out of scope; internal status progression suffices for this milestone.
+
+> **Note (2026-09-30, PRD-007):** `CONFIRMED` now means "claimed by a partner": a fulfilment partner claims a `PLACED` order first-wins, and the order records that partner as `assignedPartner`. Staff no longer confirm orders. See [EM-002](../../technical/event-models/EM-002-order-lifecycle-notifications-and-fulfilment.md).
