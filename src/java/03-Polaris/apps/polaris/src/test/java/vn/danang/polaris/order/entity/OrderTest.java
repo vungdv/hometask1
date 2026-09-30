@@ -11,6 +11,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import vn.danang.polaris.catalog.entity.Product;
 import vn.danang.polaris.order.event.OrderCancelled;
+import vn.danang.polaris.order.event.OrderConfirmed;
 import vn.danang.polaris.order.event.OrderPlaced;
 import vn.danang.polaris.order.repository.OrderRepository;
 
@@ -114,5 +115,55 @@ class OrderTest {
     void noBulkOrderUpdates() {
         assertThat(OrderRepository.class.getDeclaredMethods())
                 .noneMatch(m -> m.isAnnotationPresent(org.springframework.data.jpa.repository.Modifying.class));
+    }
+
+    @Test
+    @DisplayName("confirm → CONFIRMED with partner and claim time, and exactly one more event, OrderConfirmed")
+    void confirm_registersExactlyOneOrderConfirmed() {
+        Order order = placed();
+        Instant at = PLACED_AT.plusSeconds(30);
+
+        order.confirm("partner-a", at);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(order.getAssignedPartner()).isEqualTo("partner-a");
+        assertThat(order.getClaimedAt()).isEqualTo(at);
+        assertThat(order.getUpdatedAt()).isEqualTo(at);
+        assertThat(registeredEvents(order)).hasSize(2).last().isEqualTo(new OrderConfirmed("ORD-000042", at, "partner-a",
+                1L, "Alice Tran", "alice.tran@example.com",
+                List.of(new OrderPlaced.Line("NG-EARBUD-01", "Nova Wireless Earbuds", 1, new BigDecimal("49.90")),
+                        new OrderPlaced.Line("NG-CHARGER-01", "Fast Charger", 2, new BigDecimal("24.90"))),
+                order.getTotalAmount()));
+    }
+
+    @Test
+    @DisplayName("confirm of a claimed order (repeat, even by the winner) is rejected, changes nothing and registers no event")
+    void confirm_twice_registersNothing() {
+        Order order = placed();
+        order.confirm("partner-a", PLACED_AT);
+        int before = registeredEvents(order).size();
+
+        assertThatThrownBy(() -> order.confirm("partner-a", PLACED_AT.plusSeconds(1)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> order.confirm("partner-b", PLACED_AT.plusSeconds(1)))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(order.getAssignedPartner()).isEqualTo("partner-a");
+        assertThat(order.getClaimedAt()).isEqualTo(PLACED_AT);
+        assertThat(registeredEvents(order)).hasSize(before);
+    }
+
+    @Test
+    @DisplayName("confirm of a cancelled order is rejected and leaves no partner")
+    void confirm_cancelled_isRejected() {
+        Order order = placed();
+        order.cancel(PLACED_AT);
+        int before = registeredEvents(order).size();
+
+        assertThatThrownBy(() -> order.confirm("partner-a", PLACED_AT)).isInstanceOf(IllegalStateException.class);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order.getAssignedPartner()).isNull();
+        assertThat(registeredEvents(order)).hasSize(before);
     }
 }

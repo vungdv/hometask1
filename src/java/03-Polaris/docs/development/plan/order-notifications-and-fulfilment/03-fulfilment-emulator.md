@@ -47,7 +47,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | # | Slice | Title | Status | External | Branch | PR | Notes |
 |:--|:--|:--|:--|:--|:--|:--|:--|
-| 1 | F1 | First-wins claim | `todo` | Plan 2 done; Flyway V16 still free | | | |
+| 1 | F1 | First-wins claim | `in-progress` | Plan 2 done; Flyway V16 still free | | | |
 | 2 | F2 | Fulfilment emulator | `todo` | — | | | |
 | 3 | F3 | Shipment progress drives the order | `todo` | — | | | |
 | 4 | F4 | Fulfilment end-to-end | `todo` | — | | | |
@@ -93,3 +93,4 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | Date | Change | Reason | Slices affected |
 |:--|:--|:--|:--|
+| 2026-09-30 | F1: cancelling a `CONFIRMED` (claimed) order keeps today's behaviour; a separate process will own it. The claim-vs-cancel race criterion applies only to concurrent attempts on a `PLACED` order, and the DB check requires a partner for fulfilled statuses but does not forbid one on `CANCELLED` | User decision: cancel of claimed orders needs its own process | F1 |

@@ -30,6 +30,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import vn.danang.polaris.order.dto.ClaimOrderRequest;
 import vn.danang.polaris.order.dto.CreateOrderRequest;
 import vn.danang.polaris.order.dto.OrderResponse;
 import vn.danang.polaris.order.entity.Order;
@@ -235,5 +236,31 @@ public class OrderController {
         }
         Order order = orderService.cancelOrder(orderNumber);
         return ResponseEntity.ok(OrderResponse.from(order));
+    }
+
+    @PostMapping("/{orderNumber}/claim")
+    @PreAuthorize("hasAuthority('PERM_order.fulfil')")
+    @Operation(summary = "Claim order",
+        description = "First-wins claim by a fulfilment partner: only a PLACED order can be claimed. Exactly one concurrent claim "
+            + "succeeds (status becomes CONFIRMED, partner recorded); every other claim, including a repeat by the winner, gets 409 "
+            + "without revealing the winner. POST because it is a conditional state-transition command.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Order claimed; status is CONFIRMED and assignedPartner is set",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = OrderResponse.class))),
+        @ApiResponse(responseCode = "400", description = "partnerId is missing, blank, or longer than 64 characters",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "401", description = "Missing or invalid OAuth2 Bearer token"),
+        @ApiResponse(responseCode = "403", description = "Missing order.fulfil permission",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Order not found with the specified order number",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "409", description = "order-not-claimable: the order is no longer PLACED (already claimed or cancelled); the body keeps status 409 and carries the order state as orderStatus only",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public ResponseEntity<OrderResponse> claim(
+            @Parameter(description = "Unique business order number to claim (e.g. 'ORD-1001')", required = true)
+            @PathVariable String orderNumber,
+            @Valid @RequestBody ClaimOrderRequest request) {
+        return ResponseEntity.ok(OrderResponse.from(orderService.claimOrder(orderNumber, request.partnerId().trim())));
     }
 }

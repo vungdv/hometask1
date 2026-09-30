@@ -15,6 +15,7 @@ public record OrderResponse(
     Instant placedAt,
     Instant updatedAt,
     String customerName,
+    String assignedPartner,
     List<OrderItemResponse> items
 ) {
     public static OrderResponse from(Order order) {
@@ -30,6 +31,7 @@ public record OrderResponse(
             order.getPlacedAt(),
             order.getUpdatedAt(),
             custName,
+            order.getAssignedPartner(),
             itemResponses
         );
     }

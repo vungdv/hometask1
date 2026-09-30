@@ -81,6 +81,22 @@
       "protocol": "openid-connect"
     },
     {
+      "clientId": "polaris-fulfilment-emulator",
+      "name": "Polaris Fulfilment Emulator",
+      "description": "Machine client (client-credentials) used by the fulfilment emulator to claim orders.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${POLARIS_FULFILMENT_EMULATOR_SECRET}",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "openid", "basic", "profile", "email", "roles", "web-origins"
+      ]
+    },
+    {
       "clientId": "grafana",
       "name": "Grafana Observability",
       "enabled": true,
@@ -162,6 +178,7 @@
         { "name": "catalog.write", "description": "Write access to the product catalog — manage products and categories" },
         { "name": "order.read", "description": "Read access to orders — status checks, full details, and order history" },
         { "name": "order.write", "description": "Write access to orders — place new orders and cancel existing ones" },
+        { "name": "order.fulfil", "description": "Fulfilment access to orders — claim a placed order on behalf of a fulfilment partner" },
         { "name": "customer.read", "description": "Read access to customer profiles and account information" },
         { "name": "customer.write", "description": "Write access to customer profiles — update customer details and accounts" },
         { "name": "inventory.read", "description": "Read access to store inventory, stock levels, and warehouse counts" },
@@ -176,6 +193,12 @@
   },
 
   "users": [
+    {
+      "username": "service-account-polaris-fulfilment-emulator",
+      "enabled": true,
+      "serviceAccountClientId": "polaris-fulfilment-emulator",
+      "clientRoles": { "polaris-api": ["order.fulfil"] }
+    },
     {
       "username": "testuser",
       "enabled": true,

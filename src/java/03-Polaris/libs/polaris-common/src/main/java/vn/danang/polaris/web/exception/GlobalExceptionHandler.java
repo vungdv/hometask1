@@ -276,6 +276,15 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(OrderNotClaimableException.class)
+    public ProblemDetail handleOrderNotClaimableException(OrderNotClaimableException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Order Not Claimable");
+        problem.setType(URI.create(OrderNotClaimableException.TYPE));
+        problem.setProperty("orderStatus", ex.getStatus());
+        return problem;
+    }
+
     @ExceptionHandler(IllegalStateException.class)
     public ProblemDetail handleIllegalStateException(IllegalStateException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
