@@ -4,6 +4,7 @@
 - **Sources:** [PRD-007](../../business/prds/PRD-007-order-notifications-and-fulfilment-emulator.md); order statuses from [PRD-002](../../business/prds/PRD-002-comprehensive-order-apis.md) and [`OrderStatus.java`](../../../apps/polaris/src/main/java/vn/danang/polaris/order/entity/OrderStatus.java).
 - **Status:** **Design only, not yet built.** Unlike [EM-001](EM-001-order-staging-out-of-stock-exception.md) this model has no as-built section; every box below is to be implemented. The [As-Is Baseline](#1-as-is-baseline) lists what already exists.
 - **Scope:** Happy path only. It is a demo of Kafka + Spring Boot inside Polaris, not a production fulfilment design.
+- **Partner claim (updated 2026-09-30):** a fulfilment **partner claims** an order over REST, first wins; staff no longer confirm. See §3.1 and the programme departures [Δ1–Δ3, Δ6, Δ7](../../development/plan/order-notifications-and-fulfilment/README.md#3-departures-from-em-002).
 - **Publishing:** Order publishes through a **transactional outbox** (updated 2026-09-29; see §2.1 and the [programme plan](../../development/plan/order-notifications-and-fulfilment/README.md), Δ8).
 
 See the [notation](README.md#notation) for frame types. Two conventions are specific to this model:
@@ -18,7 +19,7 @@ See the [notation](README.md#notation) for frame types. Two conventions are spec
 | :--- | :--- |
 | Statuses `PLACED`, `CONFIRMED`, `PARCELED`, `DELIVERING`, `DELIVERED` | Yes: [`OrderStatus.java:5`](../../../apps/polaris/src/main/java/vn/danang/polaris/order/entity/OrderStatus.java), DB `CHECK` in [`V1__init_schema.sql:22-23`](../../../libs/polaris-common/src/main/resources/db/migration/V1__init_schema.sql). No migration needed for statuses (the outbox table is new, §5.1). |
 | `PlaceOrder` command | Yes: `OrderService.placeOrder` ([`OrderService.java:50-121`](../../../apps/polaris/src/main/java/vn/danang/polaris/order/service/OrderService.java)), REST `POST /api/v1/orders` and MCP `place_order` |
-| `ConfirmOrder` command | **No.** Nothing sets `CONFIRMED` |
+| `ConfirmOrder` command | **Replaced by `ClaimOrder`** (Δ1): a partner claims a `PLACED` order and it becomes `CONFIRMED`; there is no staff confirm |
 | Transitions to `PARCELED` / `DELIVERING` / `DELIVERED` | **No** |
 | Customer email for the recipient | Yes: `Customer.email` ([`Customer.java:29`](../../../apps/polaris/src/main/java/vn/danang/polaris/order/entity/Customer.java)) |
 | Kafka, outbox, event publishing, Mailpit | **No.** No broker in [`docker-compose.yml`](../../../docker-compose.yml), no `outbox_events` table and no `spring-kafka` dependency |
@@ -32,7 +33,7 @@ Three bounded contexts talk only through two Kafka topics. Each topic is owned b
 ```mermaid
 flowchart TB
     subgraph ORD["Order Context · apps/polaris"]
-        OAPI["REST / MCP<br/>place · confirm"]
+        OAPI["REST / MCP<br/>place · claim"]
         OSVC["OrderService"]
         OAGG["Order aggregate<br/>raises domain events"]
         OTRN["OrderIntegrationEventTranslator"]
@@ -61,7 +62,9 @@ flowchart TB
     OAPI --> OSVC --> OAGG --> ODB
     OAGG -. "domain event (sync, same tx)" .-> OTRN --> OPUB --> OBX
     OBX -. "after commit / poll" .-> ORLY --> T1
-    T1 -- "order.confirmed only" --> FLIS --> FSIM --> FPUB --> T2
+    T1 -- "order.placed = the offer (Δ2)" --> FLIS --> FSIM
+    FSIM -- "POST /orders/{n}/claim" --> OAPI
+    FSIM --> FPUB --> T2
     T2 --> OLIS --> OSVC
     T1 -- "all 5 milestones" --> NLIS --> NSVC --> NCH --> MP
 ```
@@ -88,7 +91,7 @@ sequenceDiagram
     participant R as OutboxRelay
     participant K as Kafka
 
-    C->>S: command (place · confirm · record progress)
+    C->>S: command (place · claim · record progress)
     rect rgba(120, 160, 255, 0.12)
         Note over S,DB: one transaction
         S->>A: change state (guarded)
@@ -125,8 +128,8 @@ tf 01 ui ShopperPlacesOrder
 tf 02 cmd PlaceOrder
 tf 03 evt OrderPlaced
 tf 04 rmo PlacedOrders ->> 03
-tf 05 ui StaffConfirmsOrder
-tf 06 cmd ConfirmOrder
+tf 05 ui PartnerAutomation
+tf 06 cmd ClaimOrder
 tf 07 evt OrderConfirmed
 tf 08 rmo OrdersToFulfil ->> 07
 tf 09 ui FulfilmentAutomation
@@ -148,13 +151,13 @@ tf 24 rmo OrderStatus ->> 23
 ```
 
 1. **01–03 — Place (exists):** The shopper (via the Assistant's `place_order` tool or REST) issues `PlaceOrder`. The order is saved `PLACED` and stock deducted, as today. **New:** `OrderPlaced` is recorded in the outbox in the same transaction and relayed to Kafka after commit (§2.1). An idempotent replay of the same `Idempotency-Key` returns the existing order and raises nothing.
-2. **04–07 — Confirm (new):** Staff see the placed order (`PlacedOrders` is the existing `GET /api/v1/orders?status=PLACED`) and issue `ConfirmOrder` → `POST /api/v1/orders/{orderNumber}/confirm` (`ROLE_STAFF`). Allowed only from `PLACED`; any other status → `409` Problem Detail and no event. On success: `CONFIRMED`, with `OrderConfirmed` recorded in the outbox in the same transaction.
-3. **08–11 — Pack (Fulfilment):** `OrdersToFulfil` is Fulfilment's view of `polaris.order.lifecycle`, filtered to `ce_type = …order.confirmed.v1`; it ignores every other type. `FulfilmentAutomation` waits `step-delay`, then `PackShipment` → publishes `ShipmentPacked` on `polaris.fulfilment.shipments`.
+2. **04–07 — Claim (replaces staff confirm, Δ1–Δ3):** Each partner in the emulator consumes `order.placed.v1` from `polaris.order.lifecycle` in its own consumer group; that event is the *offer* (Δ2). After a random pause each partner calls `POST /api/v1/orders/{orderNumber}/claim` with its `partnerId`, authenticated as the emulator's service client (`client_credentials`, permission `order.fulfil`). Order serialises claims on the order row: the first claim on a `PLACED` order wins and gets `200`; every later claim, a repeat by the winner, or a claim on a `CANCELLED` order gets `409` (`order-not-claimable` Problem Detail, Δ6) and no event. The `409` body does not name the winner. On success the order is `CONFIRMED` with `assignedPartner` and claim time recorded (Δ3), and `OrderConfirmed` is recorded in the outbox in the same transaction. Cancellation locks the same row, so a cancel and a claim on one order cannot both succeed (Δ7); cancelling an already claimed (`CONFIRMED`) order keeps its previous behaviour and will be owned by a separate process.
+3. **08–11 — Pack (Fulfilment):** `OrdersToFulfil` is the claim result: only the partner that received `200` continues (the loser does nothing further). `FulfilmentAutomation` waits `step-delay`, then `PackShipment` → publishes `ShipmentPacked` (carrying its `partnerId`) on `polaris.fulfilment.shipments`.
 4. **12–15 — Order follows (Order Context):** `OrderStatusAutomation` (`FulfilmentEventListener` in `apps/polaris`) reads `ShipmentPacked` and issues `RecordShipmentPacked` → `OrderService.recordShipmentProgress(orderNumber, PACKED)`, which moves `CONFIRMED → PARCELED` and records `OrderParceled` in the outbox in the same transaction.
 5. **16–23 — Dispatch and deliver:** Same pattern twice more. Fulfilment schedules each next step on its own timer (it does not wait for Order), and Order maps `ShipmentDispatched → DELIVERING` and `ShipmentDelivered → DELIVERED`, publishing `OrderDelivering` and `OrderDelivered`.
 6. **24 — View:** `OrderStatus` is the existing `GET /api/v1/orders/{orderNumber}/status` and MCP `get_order_details`, now showing `DELIVERED`.
 
-**Rejected / no-op commands (bare `rmo`, no event):** each `Record…` command is guarded by the expected *previous* status (`PACKED` needs `CONFIRMED`, `DISPATCHED` needs `PARCELED`, `DELIVERED` needs `DELIVERING`). A duplicate or late report finds the order in some other status, logs at `INFO`, and records nothing in the outbox, so no duplicate email is sent ([PRD-007](../../business/prds/PRD-007-order-notifications-and-fulfilment-emulator.md) Scenario 5). A `CANCELLED` order also stops here, even if the emulator keeps running.
+**Rejected / no-op commands (bare `rmo`, no event):** each `Record…` command is guarded by the assigned partner and the expected *previous* status; a report from a partner other than the assigned one is also ignored, (`PACKED` needs `CONFIRMED`, `DISPATCHED` needs `PARCELED`, `DELIVERED` needs `DELIVERING`). A duplicate or late report finds the order in some other status, logs at `INFO`, and records nothing in the outbox, so no duplicate email is sent ([PRD-007](../../business/prds/PRD-007-order-notifications-and-fulfilment-emulator.md) Scenario 5). A `CANCELLED` order also stops here, even if the emulator keeps running.
 
 ### 3.2 Notification slice (repeats for each of the 5 order milestones)
 
@@ -195,8 +198,8 @@ Each owner declares its topic as a `NewTopic` bean, so the topic is created on s
 
 | `ce_type` | Topic | Emitted when | Consumed by |
 | :--- | :--- | :--- | :--- |
-| `vn.danang.polaris.order.placed.v1` | order.lifecycle | `PLACED` committed (with its outbox row) | Notification |
-| `vn.danang.polaris.order.confirmed.v1` | order.lifecycle | `PLACED → CONFIRMED` | Notification, Fulfilment |
+| `vn.danang.polaris.order.placed.v1` | order.lifecycle | `PLACED` committed (with its outbox row) | Notification, Fulfilment (the offer) |
+| `vn.danang.polaris.order.confirmed.v1` | order.lifecycle | `PLACED → CONFIRMED` (a partner claimed it; carries `assignedPartner`) | Notification |
 | `vn.danang.polaris.order.parceled.v1` | order.lifecycle | `CONFIRMED → PARCELED` | Notification |
 | `vn.danang.polaris.order.delivering.v1` | order.lifecycle | `PARCELED → DELIVERING` | Notification |
 | `vn.danang.polaris.order.delivered.v1` | order.lifecycle | `DELIVERING → DELIVERED` | Notification |
@@ -240,13 +243,13 @@ Money is a JSON **string**, so no float rounding is possible and consumers need 
 
 | Component | Responsibility |
 | :--- | :--- |
-| `OrderController` | **+** `POST /api/v1/orders/{orderNumber}/confirm`, `@PreAuthorize("hasRole('STAFF')")` → `200 OrderResponse`, `404`/`409` Problem Detail |
-| `OrderService` | **+** `confirmOrder(orderNumber)`, **+** `recordShipmentProgress(orderNumber, ShipmentStep)`. Each state change goes through an `Order` method that registers an `OrderStatusChanged` **domain event**; saving the order dispatches it inside the transaction. The existing `placeOrder` does the same for new orders only, not idempotent replays. |
+| `OrderController` | **+** `POST /api/v1/orders/{orderNumber}/claim` `{partnerId}`, `@PreAuthorize("hasAuthority('PERM_order.fulfil')")` → `200 OrderResponse`, `404`, `409 order-not-claimable` Problem Detail (Δ1, Δ6). `assignedPartner` is shown by `GET /api/v1/orders/{n}` and MCP `get_order_details` |
+| `OrderService` | **+** `claimOrder(orderNumber, partnerId)` (row-locked; `cancelOrder` takes the same lock, Δ7), **+** `recordShipmentProgress(orderNumber, ShipmentStep)`. Each state change goes through an `Order` method that registers an `OrderStatusChanged` **domain event**; saving the order dispatches it inside the transaction. The existing `placeOrder` does the same for new orders only, not idempotent replays. |
 | `order/messaging/OrderIntegrationEventTranslator` | Synchronous listener, same transaction: maps `OrderStatusChanged` → `OrderLifecycleEvent`, picks `ce_type`, and calls `EventPublisher.publish(…)`. No `KafkaTemplate` in the Order Context. |
 | Outbox library (`EventPublisher`, `OutboxRelay`, Kafka transport) | Generic, not Order-specific. `EventPublisher` writes an `outbox_events` row in the caller's transaction (fails fast without one). `OutboxRelay` sends committed rows to Kafka in order per key, retries with backoff, marks them published, and purges old ones (§2.1). |
 | `order/messaging/FulfilmentEventListener` | `@KafkaListener(topics = "polaris.fulfilment.shipments", groupId = "polaris-order")` → `OrderService.recordShipmentProgress` |
 | `order/messaging/KafkaTopicsConfig` | `NewTopic polaris.order.lifecycle` |
-| Migration | `outbox_events` table in `polaris-db` (the only schema change in this model) |
+| Migration | `outbox_events` table in `polaris-db`, and V16: `assigned_partner` and claim time on `orders` with a `CHECK` requiring a partner for fulfilled statuses (Δ3) |
 
 Status guard (the only new domain rule), added to `OrderStatus`:
 ```java
@@ -257,12 +260,12 @@ public OrderStatus next(ShipmentStep step)   // CONFIRMED+PACKED→PARCELED, PAR
 
 | Package | Component | Responsibility |
 | :--- | :--- | :--- |
-| `messaging` | `ConfirmedOrderListener` | Consumes `polaris.order.lifecycle` and ignores every `ce_type` except `order.confirmed.v1` |
+| `messaging` | `OfferListener` (one consumer group per partner) | Consumes `polaris.order.lifecycle` and ignores every `ce_type` except `order.placed.v1`; each partner pauses randomly, then claims over REST. Only the winner (`200`) starts a shipment |
 | `domain` | `FulfilmentSimulator` | Uses `TaskScheduler` to schedule `PACKED` at +d, `DISPATCHED` at +2d and `DELIVERED` at +3d (`d = polaris.fulfilment.step-delay`, default `PT5S`) |
 | `messaging` | `ShipmentEventPublisher` | Sends `ShipmentEvent` to `polaris.fulfilment.shipments` |
 | `config` | `FulfilmentProperties`, `KafkaTopicsConfig` | Step delay; `NewTopic polaris.fulfilment.shipments` |
 
-No database and no REST API (only `/actuator`). If the emulator restarts, in-flight simulations are lost. That is acceptable for a demo; to recover an order, confirm a new one.
+No database and no REST API (only `/actuator`). If the emulator restarts, in-flight simulations are lost. That is acceptable for a demo; to recover an order, place a new one.
 
 ### 5.3 Notification Context: `apps/polaris-notification` (new, stateless)
 
@@ -280,7 +283,7 @@ Dependency direction: `messaging → domain ← channel.email` (the domain owns 
 
 | Concern | How |
 | :--- | :--- |
-| **Tracing** | `spring.kafka.template.observation-enabled=true` and `spring.kafka.listener.observation-enabled=true` add W3C `traceparent` to each record header and continue the trace on consume. For Order events the relay first restores the trace context stored in the outbox row, so a record sent later still belongs to the request that caused it. Fulfilment's delayed steps run on a `TaskScheduler` wrapped with `ContextPropagatingTaskDecorator`, so the trace survives the delay. Result: one trace from `POST /confirm` through three shipment steps to the emails. |
+| **Tracing** | `spring.kafka.template.observation-enabled=true` and `spring.kafka.listener.observation-enabled=true` add W3C `traceparent` to each record header and continue the trace on consume. For Order events the relay first restores the trace context stored in the outbox row, so a record sent later still belongs to the request that caused it. Fulfilment's delayed steps run on a `TaskScheduler` wrapped with `ContextPropagatingTaskDecorator`, so the trace survives the delay. Result: one trace from `POST /orders` through three shipment steps to the emails. |
 | **Logs** | Existing OTLP logback appender; every log line carries `trace_id`, `span_id`, `orderNumber`, `ce_type`. |
 | **Metrics** | Built-in `spring.kafka.template` / `spring.kafka.listener` timers; **+** outbox backlog, oldest-pending age and publish lag; **+** `polaris.notifications.sent{channel,milestone,outcome}` counter. Exported over OTLP as today. |
 | **Serialization** | Order: the payload is serialized to JSON once, when the outbox row is written, and the relay sends the bytes unchanged. Fulfilment: `JsonSerializer` with `spring.json.add.type.headers=false`. Either way there are no Java class names on the wire. Consumer: `StringDeserializer`, then Jackson maps the value to the DTO chosen by `ce_type`. |
@@ -323,10 +326,10 @@ Split per bounded context ([AGENTS.md](../../../AGENTS.md) Principle 2). Each sl
 | # | Slice | Context | Done when | Tests |
 | :--- | :--- | :--- | :--- | :--- |
 | S0 | Kafka + Mailpit in compose; `events` contract package in `polaris-common` | Platform | `docker compose up` starts both, and Mailpit UI is reachable | JSON round-trip test for each payload record |
-| S1 | `ConfirmOrder` endpoint + outbox publishing (translator, `EventPublisher`, `OutboxRelay`) | Order | Placing and confirming an order produces `placed`/`confirmed` records on `polaris.order.lifecycle` | `@SpringBootTest` + **Testcontainers Kafka + Postgres**: outbox row committed with the order, nothing on rollback, nothing on idempotent replay, delivered after a Kafka outage; `409` on invalid confirm |
+| S1 | `ClaimOrder` endpoint (replaces the staff confirm slice) + outbox publishing (translator, `EventPublisher`, `OutboxRelay`) | Order | Placing and claiming an order produces `placed`/`confirmed` records on `polaris.order.lifecycle` | `@SpringBootTest` + **Testcontainers Kafka + Postgres**: outbox row committed with the order, nothing on rollback, nothing on idempotent replay, delivered after a Kafka outage; `409` on invalid confirm |
 | S2 | `FulfilmentEventListener` + `recordShipmentProgress` | Order | Hand-produced shipment events move the order to `DELIVERED` and republish milestones | Testcontainers Kafka; guard matrix (valid, duplicate, out-of-order, cancelled) |
-| S3 | `apps/polaris-fulfilment` | Fulfilment | A confirmed event yields 3 shipment events in order | Testcontainers Kafka, with `step-delay=PT0.1S` |
+| S3 | `apps/polaris-fulfilment` | Fulfilment | An offer (`order.placed.v1`) yields one claim per partner and, for the winner, 3 shipment events in order | Testcontainers Kafka, with `step-delay=PT0.1S` |
 | S4 | `apps/polaris-notification` | Notification | Each order event yields one email in Mailpit | Testcontainers Kafka + **Mailpit container**, asserting through Mailpit's REST API (`GET /api/v1/messages`) |
-| S5 | End-to-end demo | All | [PRD-007](../../business/prds/PRD-007-order-notifications-and-fulfilment-emulator.md) Scenarios 1–3 and 6: 5 emails in Mailpit and one connected trace in Grafana | `tests/e2e` script: place → confirm → poll Mailpit for 5 messages |
+| S5 | End-to-end demo | All | [PRD-007](../../business/prds/PRD-007-order-notifications-and-fulfilment-emulator.md) Scenarios 1–3 and 6: 5 emails in Mailpit and one connected trace in Grafana. Scenarios 2, 4–7 (claim, shipment, 5 events on Kafka, more than one winning partner): `make e2e-fulfilment` (`tests/e2e/fulfilment-e2e.sh`) | `tests/e2e` script: place → (partners claim) → poll Mailpit for 5 messages |
 
 S3 and S4 depend only on S0's contract and can be built in parallel with S1–S2.
