@@ -79,7 +79,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | 3 | O2 | Signal correlation and span metrics | `done` | O1 | `feat/o2-signal-correlation` | [#32](https://github.com/vungdv/hometask1/pull/32) | |
 | 4 | O2a | Gateway (nginx) telemetry | `done` | O1, O2 | `feat/o2a-gateway-telemetry` | [#33](https://github.com/vungdv/hometask1/pull/33) | Lands before O3 so redaction covers edge logs |
 | 5 | O3 | Redaction and cardinality guardrails | `done` | O1, O2a | `feat/o3-redaction-guardrails` | [#34](https://github.com/vungdv/hometask1/pull/34) | |
-| 6 | O4 | Dashboards as code | `in-progress` | O2, O2a | | | |
+| 6 | O4 | Dashboards as code | `in-review` | O2, O2a | `feat/o4-dashboards-as-code` | [#35](https://github.com/vungdv/hometask1/pull/35) | |
 | 7 | O5 | SLOs, alerts and runbooks | `todo` | O2, O4 | | | |
 | 8 | O6 | Async visibility (outbox and Kafka) | `todo` | O2 | | | Touches `libs/polaris-outbox` and Kafka; see note |
 | 9 | O7 | Access, retention and exposure | `todo` | O1 | | | |
