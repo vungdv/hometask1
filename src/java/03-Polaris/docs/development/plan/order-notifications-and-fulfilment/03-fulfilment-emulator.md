@@ -25,7 +25,7 @@ Several emulated partners receive every new order, race to claim it, and the sin
 | Outcome | Response |
 |:--|:--|
 | Claimed | `200` order representation, now including `assignedPartner` |
-| Not claimable (already claimed by anyone, or not `PLACED`) | `409` Problem Details, type `…/errors/order-not-claimable`, current `status`; no winner identity |
+| Not claimable (already claimed by anyone, or not `PLACED`) | `409` Problem Details, type `…/errors/order-not-claimable`, `status: 409` plus current order state in `orderStatus`; no winner identity |
 | Unknown order | `404` |
 | `partnerId` blank or > 64 chars | `400` |
 
@@ -93,4 +93,5 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | Date | Change | Reason | Slices affected |
 |:--|:--|:--|:--|
+| 2026-09-30 | Claim 409 body reports the current order state as `orderStatus`, keeping the RFC 7807 `status` member as the numeric 409 | Reviewer of PR #22: reusing `status` for the order state breaks RFC 7807 (AGENTS.md Principle 1); user approved | F1 |
 | 2026-09-30 | F1: cancelling a `CONFIRMED` (claimed) order keeps today's behaviour; a separate process will own it. The claim-vs-cancel race criterion applies only to concurrent attempts on a `PLACED` order, and the DB check requires a partner for fulfilled statuses but does not forbid one on `CANCELLED` | User decision: cancel of claimed orders needs its own process | F1 |
