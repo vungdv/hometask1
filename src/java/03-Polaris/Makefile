@@ -30,7 +30,7 @@ test-perf:
 test-concurrency:
 	docker run --network host --rm -i -v $$(pwd)/tests/perf:/scripts -w /scripts -e SKU=NG-CHARGER-02 grafana/k6 run order-concurrency-test.js
 e2e-fulfilment:
-	./tests/e2e/fulfilment-e2e.sh
+	./tests/e2e/run-fulfilment.sh
 gcx: 
 	docker exec -it gcx-cli sh
 gcx-exec:
