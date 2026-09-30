@@ -2,7 +2,7 @@
 
 - **Use case:** "Follow my order" — [PRD-007](../../business/prds/PRD-007-order-notifications-and-fulfilment-emulator.md) §2, from order placement to delivery, with one shopper email per milestone.
 - **Sources:** [PRD-007](../../business/prds/PRD-007-order-notifications-and-fulfilment-emulator.md); order statuses from [PRD-002](../../business/prds/PRD-002-comprehensive-order-apis.md) and [`OrderStatus.java`](../../../apps/polaris/src/main/java/vn/danang/polaris/order/entity/OrderStatus.java).
-- **Status:** **Design only, not yet built.** Unlike [EM-001](EM-001-order-staging-out-of-stock-exception.md) this model has no as-built section; every box below is to be implemented. The [As-Is Baseline](#1-as-is-baseline) lists what already exists.
+- **Status:** **Partly built.** The Order Context (partner claim, shipment progress, transactional outbox) and the Fulfilment emulator (`apps/polaris-fulfilment-emulator`) are implemented and covered by `make e2e-fulfilment`; the Notification Context (`apps/polaris-notification`, Mailpit) is not yet built. Unlike [EM-001](EM-001-order-staging-out-of-stock-exception.md) this model has no as-built section, so for those two contexts read the boxes as design intent that the code follows. The [As-Is Baseline](#1-as-is-baseline) lists what already exists.
 - **Scope:** Happy path only. It is a demo of Kafka + Spring Boot inside Polaris, not a production fulfilment design.
 - **Partner claim (updated 2026-09-30):** a fulfilment **partner claims** an order over REST, first wins; staff no longer confirm. See §3.1 and the programme departures [Δ1–Δ3, Δ6, Δ7](../../development/plan/order-notifications-and-fulfilment/README.md#3-departures-from-em-002).
 - **Publishing:** Order publishes through a **transactional outbox** (updated 2026-09-29; see §2.1 and the [programme plan](../../development/plan/order-notifications-and-fulfilment/README.md), Δ8).
@@ -45,10 +45,10 @@ flowchart TB
             OBX[("outbox_events")]
         end
     end
-    subgraph FUL["Fulfilment Context · apps/polaris-fulfilment (emulator)"]
+    subgraph FUL["Fulfilment Context · apps/polaris-fulfilment-emulator"]
         FLIS["ConfirmedOrderListener"]
         FSIM["FulfilmentSimulator"]
-        FPUB["ShipmentEventPublisher"]
+        FPUB["ShipmentPublisher"]
     end
     subgraph NOT["Notification Context · apps/polaris-notification"]
         NLIS["OrderEventListener"]
@@ -189,7 +189,7 @@ Every message uses **CloudEvents 1.0, Kafka protocol binding, binary content mod
 
 | Topic | Owner (sole producer) | Consumers (group id) | Partitions (dev) | Key |
 | :--- | :--- | :--- | :--- | :--- |
-| `polaris.order.lifecycle` | Order Context (`ce_source=/polaris/order`) | `polaris-fulfilment`, `polaris-notification` | 3 | `orderNumber` |
+| `polaris.order.lifecycle` | Order Context (`ce_source=/polaris/order`) | `polaris-fulfilment-emulator`, `polaris-notification` | 3 | `orderNumber` |
 | `polaris.fulfilment.shipments` | Fulfilment Context (`ce_source=/polaris/fulfilment`) | `polaris-order` | 3 | `orderNumber` |
 
 Each owner declares its topic as a `NewTopic` bean, so the topic is created on startup. The broker's auto-create is turned off to keep dev behaviour close to production.
@@ -256,13 +256,13 @@ Status guard (the only new domain rule), added to `OrderStatus`:
 public OrderStatus next(ShipmentStep step)   // CONFIRMED+PACKED→PARCELED, PARCELED+DISPATCHED→DELIVERING, DELIVERING+DELIVERED→DELIVERED, else empty/no-op
 ```
 
-### 5.2 Fulfilment Context: `apps/polaris-fulfilment` (new, stateless emulator)
+### 5.2 Fulfilment Context: `apps/polaris-fulfilment-emulator` (new, stateless emulator)
 
 | Package | Component | Responsibility |
 | :--- | :--- | :--- |
-| `messaging` | `OfferListener` (one consumer group per partner) | Consumes `polaris.order.lifecycle` and ignores every `ce_type` except `order.placed.v1`; each partner pauses randomly, then claims over REST. Only the winner (`200`) starts a shipment |
+| `messaging` | `OfferListenerRegistrar` (one consumer group per partner) | Consumes `polaris.order.lifecycle` and ignores every `ce_type` except `order.placed.v1`; each partner pauses randomly, then claims over REST. Only the winner (`200`) starts a shipment |
 | `domain` | `FulfilmentSimulator` | Uses `TaskScheduler` to schedule `PACKED` at +d, `DISPATCHED` at +2d and `DELIVERED` at +3d (`d = polaris.fulfilment.step-delay`, default `PT5S`) |
-| `messaging` | `ShipmentEventPublisher` | Sends `ShipmentEvent` to `polaris.fulfilment.shipments` |
+| `messaging` | `ShipmentPublisher` | Sends `ShipmentEvent` to `polaris.fulfilment.shipments` |
 | `config` | `FulfilmentProperties`, `KafkaTopicsConfig` | Step delay; `NewTopic polaris.fulfilment.shipments` |
 
 No database and no REST API (only `/actuator`). If the emulator restarts, in-flight simulations are lost. That is acceptable for a demo; to recover an order, place a new one.
@@ -296,7 +296,7 @@ Dependency direction: `messaging → domain ← channel.email` (the domain owns 
 | :--- | :--- | :--- |
 | `kafka-1..3` | `apache/kafka:3.9.1` | Three-node KRaft cluster (no ZooKeeper; every node broker + controller), PLAINTEXT listeners `kafka-N:9092` on `polaris-net`, `KAFKA_AUTO_CREATE_TOPICS_ENABLE=false`, replication 3 with min ISR 2 (Plan 2 B3) |
 | `mailpit` | `axllent/mailpit` (pin the version when implementing) | SMTP `1025` (internal), web UI `8025` published to the host → `http://localhost:8025` |
-| `polaris-fulfilment` | built from `apps/polaris-fulfilment/Dockerfile` | depends on `kafka` |
+| `polaris-fulfilment-emulator` | built from `apps/polaris-fulfilment-emulator/Dockerfile` | depends on `kafka` |
 | `polaris-notification` | built from `apps/polaris-notification/Dockerfile` | depends on `kafka`, `mailpit` |
 
 `pom.xml` gets two new `<module>` entries. `spring-kafka` and `spring-boot-starter-mail` versions come from the Spring Boot parent.
@@ -328,7 +328,7 @@ Split per bounded context ([AGENTS.md](../../../AGENTS.md) Principle 2). Each sl
 | S0 | Kafka + Mailpit in compose; `events` contract package in `polaris-common` | Platform | `docker compose up` starts both, and Mailpit UI is reachable | JSON round-trip test for each payload record |
 | S1 | `ClaimOrder` endpoint (replaces the staff confirm slice) + outbox publishing (translator, `EventPublisher`, `OutboxRelay`) | Order | Placing and claiming an order produces `placed`/`confirmed` records on `polaris.order.lifecycle` | `@SpringBootTest` + **Testcontainers Kafka + Postgres**: outbox row committed with the order, nothing on rollback, nothing on idempotent replay, delivered after a Kafka outage; `409` on invalid confirm |
 | S2 | `FulfilmentEventListener` + `recordShipmentProgress` | Order | Hand-produced shipment events move the order to `DELIVERED` and republish milestones | Testcontainers Kafka; guard matrix (valid, duplicate, out-of-order, cancelled) |
-| S3 | `apps/polaris-fulfilment` | Fulfilment | An offer (`order.placed.v1`) yields one claim per partner and, for the winner, 3 shipment events in order | Testcontainers Kafka, with `step-delay=PT0.1S` |
+| S3 | `apps/polaris-fulfilment-emulator` | Fulfilment | An offer (`order.placed.v1`) yields one claim per partner and, for the winner, 3 shipment events in order | Testcontainers Kafka, with `step-delay=PT0.1S` |
 | S4 | `apps/polaris-notification` | Notification | Each order event yields one email in Mailpit | Testcontainers Kafka + **Mailpit container**, asserting through Mailpit's REST API (`GET /api/v1/messages`) |
 | S5 | End-to-end demo | All | [PRD-007](../../business/prds/PRD-007-order-notifications-and-fulfilment-emulator.md) Scenarios 1–3 and 6: 5 emails in Mailpit and one connected trace in Grafana. Scenarios 2, 4–7 (claim, shipment, 5 events on Kafka, more than one winning partner): `make e2e-fulfilment` (`tests/e2e/run-fulfilment.sh`) | k6 scenario `tests/e2e/k6/fulfilment.js`: place → (partners claim) → poll to `DELIVERED`; then `tests/e2e/verify-kafka-events.sh` checks the 5 `order.*.v1` events per order on Kafka, in order. The Mailpit check belongs to the notification scenarios, not this command |
 
