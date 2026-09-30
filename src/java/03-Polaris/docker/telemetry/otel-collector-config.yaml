@@ -1,8 +1,16 @@
 # https://opentelemetry.io/docs/collector/configuration/
+# Pipeline hardening (plan O1, OBS-RES-1 / OBS-PIPE-1):
+#   - memory_limiter is FIRST in every pipeline
+#   - every exporter has a bounded sending_queue and retry_on_failure; when a backend is
+#     down the queue fills, then data is dropped (never back-pressures the apps for long)
+#   - collector self-metrics on :8888 are scraped by Prometheus
+#   - health_check on :13133 drives the compose healthcheck
 
-# How data gets into the Collector
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+
 receivers:
-  # Data sources: traces, metrics, logs
   otlp:
     protocols:
       grpc:
@@ -11,64 +19,67 @@ receivers:
         endpoint: "0.0.0.0:4318"
 
 processors:
-  # Data sources: traces, metrics, logs
   memory_limiter:
     check_interval: 1s
     limit_percentage: 30
     spike_limit_percentage: 6
-  # Data sources: traces, metrics, logs
   batch:
     timeout: 2s
-    send_batch_max_size: 32768
-  attributes:
-    actions:
-      - key: trace_id
-        action: insert
-        from_attribute: trace_id
-      - key: user_id
-        action: insert
-        from_attribute: user_id
-      - key: service_name
-        action: insert
-        from_attribute: service_name
-# How you send data to one or more backends. Configuring an exporter does not enable it.
+    send_batch_max_size: 8192
+
 exporters:
-  # Data sources: traces
   otlp_grpc/tempo:
     endpoint: tempo:4317
     tls:
       insecure: true
+    timeout: 10s
     retry_on_failure:
       enabled: true
       initial_interval: 5s
       max_interval: 30s
-      max_elapsed_time: 300s
+      max_elapsed_time: 120s
     sending_queue:
       enabled: true
-      num_consumers: 10
-      queue_size: 10000
-  # this should work out to about 8M batches/second for 10s buffer
-  # Data sources: metrics
+      num_consumers: 4
+      queue_size: 1000        # batches; bounded, new data is refused (dropped) when full
   prometheus:
-    endpoint: otel-collector:8889 # prometheus will scrape this endpoint for metrics.
-  debug:
-    verbosity: detailed
-  # Log exporters
+    endpoint: "0.0.0.0:8889"  # prometheus scrapes this; pull-based, no queue applies
   otlp_http/logs:
     endpoint: "http://loki:3100/otlp"
     tls:
       insecure: true
+    timeout: 10s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 120s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+
 service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, attributes, batch]
+      processors: [memory_limiter, batch]
       exporters: [otlp_grpc/tempo]
     metrics:
       receivers: [otlp]
-      processors: [batch]
+      processors: [memory_limiter, batch]
       exporters: [prometheus]
     logs:
       receivers: [otlp]
-      processors: [attributes, batch]
-      exporters: [otlp_http/logs, debug]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/logs]

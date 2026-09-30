@@ -1,7 +1,7 @@
 services:
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.14.0
     container_name: prometheus
 
     ports:
@@ -15,6 +15,13 @@ services:
 
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
 
   loki:
     image: grafana/loki:3.1.0
@@ -31,6 +38,13 @@ services:
 
     command:
       - "-config.file=/etc/loki/config.yml"
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3100/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
   logseeding:
     image: python:3.11-slim
     container_name: logseeding
@@ -48,7 +62,11 @@ services:
     networks:
       - polaris-net
   tempo:
-    image: grafana/tempo:latest
+    build:
+      context: ./docker/telemetry/healthcheck
+      args:
+        BASE: grafana/tempo:3.0.0
+    image: polaris/tempo-hc:3.0.0
     container_name: tempo
 
     ports:
@@ -64,8 +82,19 @@ services:
     command:
       - "-config.file=/etc/tempo/config.yml"
 
+    healthcheck:
+      test: ["CMD", "/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3200/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    build:
+      context: ./docker/telemetry/healthcheck
+      args:
+        BASE: otel/opentelemetry-collector-contrib:0.160.0
+    image: polaris/otelcol-contrib-hc:0.160.0
     container_name: otel-collector
 
     command:
@@ -81,13 +110,29 @@ services:
     networks:
       - polaris-net
 
+    healthcheck:
+      test: ["CMD", "/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:13133/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
     depends_on:
-      - tempo
-      - loki
+      tempo:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.2.1
     container_name: grafana
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
 
     ports:
       - "3000:3000"
@@ -145,11 +190,13 @@ services:
     networks:
       - polaris-net
     depends_on:
-      - grafana
+      grafana:
+        condition: service_healthy
 
   nginx:
     depends_on:
-      - grafana
+      grafana:
+        condition: service_healthy
 
 volumes:
 
