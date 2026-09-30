@@ -61,4 +61,35 @@ c["service"]["pipelines"].each do |name, p|
 end
 req c["service"]["telemetry"]["metrics"]["readers"][0]["pull"]["exporter"]["prometheus"]["port"] == 8888, "self-metrics not on 8888"
 ' "$T/otel-collector-config.yaml" && ok "collector policy (memory_limiter first, bounded queues, retry, no debug/attributes)" || bad "collector policy"
+# ---- Gateway (plan O2a) ----
+NGX_IMG=$(grep -o 'nginx:[0-9][0-9.]*-alpine-otel' docker-compose.yml | head -1)
+[ -n "$NGX_IMG" ] && ok "nginx pinned to official -otel image ($NGX_IMG)" || bad "nginx not pinned to nginx:<version>-alpine-otel"
+if [ -n "$NGX_IMG" ]; then
+  HOSTS=""; for h in otel-collector polaris polaris-assistant keycloak grafana swagger-ui; do HOSTS="$HOSTS --add-host $h:127.0.0.1"; done
+  # shellcheck disable=SC2086
+  docker run --rm $HOSTS -v "$PWD/docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" -v "$PWD/docker/nginx/certs:/etc/nginx/certs:ro" "$NGX_IMG" nginx -t >/dev/null 2>&1 \
+    && ok "nginx -t ($NGX_IMG)" || bad "nginx -t"
+fi
+N=docker/nginx/nginx.conf
+grep -q 'load_module modules/ngx_otel_module.so' $N && grep -q 'otel_service_name nginx-gateway' $N \
+  && grep -q 'otel_trace_context propagate' $N && grep -qE 'otel_exporter' $N && grep -q 'endpoint otel-collector:4317' $N \
+  && ok "nginx exports OTLP spans (nginx-gateway, propagate traceparent)" || bad "nginx OTLP wiring"
+grep -q 'access_log syslog:server=otel-collector:5514' $N && grep -q 'access_log /dev/stdout edge_json' $N \
+  && ok "access log to syslog and stdout" || bad "access log wiring"
+LF=$(sed -n '/log_format edge_json/,/;$/p' $N)
+echo "$LF" | grep -q '\$otel_trace_id' && echo "$LF" | grep -q '\$otel_span_id' && echo "$LF" | grep -q '\$upstream_status' \
+  && ! echo "$LF" | grep -qE '\$(args|query_string|request|request_uri|http_[a-z_]+|cookie_[a-z_]+|arg_[a-z_]+)\b' \
+  && ok "log_format has trace ids and no query/header/cookie variables" || bad "log_format content"
+grep -q 'otel_span_attr http.target "\$uri"' $N && ok "span http.target overridden without query string" || bad "span http.target may leak query"
+[ "$(grep -c 'set \$sse "true"' $N)" -eq 2 ] && ok "SSE locations labelled (/mcp/, /api/v1/assistant)" || bad "SSE labels"
+grep -q 'stub_status' $N && grep -q 'listen 8088' $N && ! grep -qE '"[0-9]*:?8088' docker-compose.yml docker-compose.override.yml \
+  && ok "stub_status internal listener not published" || bad "stub_status listener / published"
+ruby -ryaml -e '
+c = YAML.load_file(ARGV[0]); ps = c["service"]["pipelines"]
+req = ->(cond, msg) { abort(msg) unless cond }
+req.(c["receivers"]["syslog"]["udp"]["listen_address"].end_with?(":5514"), "syslog receiver not on 5514")
+l = ps.values.find { |p| p["receivers"].include?("syslog") }
+req.(l && l["processors"][0] == "memory_limiter" && l["exporters"] == ["otlp_http/logs"], "syslog pipeline must start with memory_limiter and use the bounded logs exporter")
+req.(ps.values.any? { |p| p["receivers"].include?("nginx") }, "no nginx stub_status metrics pipeline")
+' "$T/otel-collector-config.yaml" && ok "collector syslog receiver + nginx metrics pipelines (policy applies)" || bad "collector syslog/nginx pipelines"
 exit $fail
