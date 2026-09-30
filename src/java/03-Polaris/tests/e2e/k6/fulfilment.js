@@ -2,7 +2,7 @@
 //   setup (idempotent, repeatable): Keycloak Admin API users -> unlimited-stock product via catalog REST
 //   scenario: place 1 order + a batch, poll GET /orders/{n} until DELIVERED with an assignedPartner,
 //             assert the batch was won by more than one partner.
-// The order numbers are logged as an `E2E_ORDERS ...` line; tests/e2e/run-fulfilment.sh feeds them to
+// The order numbers and their assignedPartner are logged as an `E2E_ORDERS ORD-1=partner ...` line; tests/e2e/run-fulfilment.sh feeds them to
 // verify-kafka-events.sh (the 5 order.*.v1 events on Kafka). Run with: make e2e-fulfilment
 import { check, fail } from 'k6';
 import { Counter, Gauge } from 'k6/metrics';
@@ -72,7 +72,7 @@ export default function (data) {
   check(distinct, { 'batch has more than one winning partner': (d) => d.size > 1 });
 
   // Machine-readable hand-off for verify-kafka-events.sh (k6 has no Kafka client).
-  console.log(`E2E_ORDERS ${numbers.join(' ')}`);
+  console.log(`E2E_ORDERS ${numbers.map((n) => `${n}=${states[n].assignedPartner}`).join(' ')}`);
 }
 
 export function handleSummary(data) {

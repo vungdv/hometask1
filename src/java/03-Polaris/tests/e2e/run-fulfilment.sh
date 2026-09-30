@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-command fulfilment e2e: k6 scenario (setup + place + poll to DELIVERED) followed by the Kafka event check
 # for exactly the orders that run placed. Usage: make e2e-fulfilment   (stack must be up: make up)
+# No -e on purpose: the Kafka check must still run after a k6 failure, and both exit codes are aggregated below.
 set -uo pipefail
 cd "$(dirname "$0")/../.."   # compose project directory
 
@@ -13,7 +14,7 @@ trap 'rm -f "$LOG"' EXIT
 # nginx that fronts Keycloak so the token issuer is the canonical public URL.
 docker run --rm -i --add-host id.polaris.local:host-gateway --add-host host.docker.internal:host-gateway \
   -v "$PWD/tests/e2e/k6:/scripts:ro" -w /scripts \
-  -e API_BASE -e KC_BASE -e E2E_USER -e E2E_PASSWORD -e E2E_EMAIL -e SKU -e BATCH -e TIMEOUT -e POLL_INTERVAL \
+  -e API_BASE -e KC_BASE -e KC_ADMIN_USER -e KC_ADMIN_PASSWORD -e E2E_STAFF_USER -e E2E_STAFF_PASSWORD -e E2E_USER -e E2E_PASSWORD -e E2E_EMAIL -e SKU -e BATCH -e TIMEOUT -e POLL_INTERVAL \
   grafana/k6 run fulfilment.js "$@" 2>&1 | tee "$LOG"
 k6_rc=${PIPESTATUS[0]}
 
