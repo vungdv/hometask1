@@ -254,7 +254,7 @@ public class OrderController {
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
         @ApiResponse(responseCode = "404", description = "Order not found with the specified order number",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
-        @ApiResponse(responseCode = "409", description = "order-not-claimable: the order is no longer PLACED (already claimed or cancelled); the body carries the current status only",
+        @ApiResponse(responseCode = "409", description = "order-not-claimable: the order is no longer PLACED (already claimed or cancelled); the body keeps status 409 and carries the order state as orderStatus only",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<OrderResponse> claim(

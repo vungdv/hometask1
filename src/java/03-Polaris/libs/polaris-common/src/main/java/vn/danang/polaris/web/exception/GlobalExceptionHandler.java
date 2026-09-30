@@ -281,7 +281,7 @@ public class GlobalExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
         problem.setTitle("Order Not Claimable");
         problem.setType(URI.create(OrderNotClaimableException.TYPE));
-        problem.setProperty("status", ex.getStatus());
+        problem.setProperty("orderStatus", ex.getStatus());
         return problem;
     }
 

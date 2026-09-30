@@ -143,7 +143,7 @@ class OrderClaimApiIntegrationTest {
     }
 
     @Test
-    @DisplayName("Repeat claim (by the winner or another partner) → 409 order-not-claimable with status, no winner, no second event")
+    @DisplayName("Repeat claim (by the winner or another partner) → 409 order-not-claimable with orderStatus, no winner, no second event")
     void claim_twice_returns409WithoutWinner() throws Exception {
         String orderNumber = placeOrder();
         assertThat(claimBy(orderNumber, "partner-a").getStatus()).isEqualTo(200);
@@ -154,7 +154,8 @@ class OrderClaimApiIntegrationTest {
             assertThat(response.getContentType()).contains("application/problem+json");
             JsonNode problem = objectMapper.readTree(response.getContentAsString());
             assertThat(problem.path("type").asText()).isEqualTo("https://polaris.local/errors/order-not-claimable");
-            assertThat(problem.path("status").asText()).isEqualTo("CONFIRMED");
+            assertThat(problem.path("status").asInt()).isEqualTo(409);
+            assertThat(problem.path("orderStatus").asText()).isEqualTo("CONFIRMED");
             assertThat(response.getContentAsString()).doesNotContain("partner-a").doesNotContain("partner-b");
         }
         assertThat(confirmedEvents(orderNumber)).isEqualTo(1);
@@ -171,7 +172,7 @@ class OrderClaimApiIntegrationTest {
         MockHttpServletResponse response = claimBy(orderNumber, "partner-a");
 
         assertThat(response.getStatus()).isEqualTo(409);
-        assertThat(objectMapper.readTree(response.getContentAsString()).path("status").asText()).isEqualTo("CANCELLED");
+        assertThat(objectMapper.readTree(response.getContentAsString()).path("orderStatus").asText()).isEqualTo("CANCELLED");
         assertThat(statusOf(orderNumber)).isEqualTo("CANCELLED");
         assertThat(confirmedEvents(orderNumber)).isZero();
     }
