@@ -12,7 +12,7 @@ Kafka becomes part of the platform, and the outbox relay gets a Kafka transport:
 
 | ID | Requirement |
 |:--|:--|
-| TR-B1 | **Platform:** single-node Kafka (KRaft) in compose, pinned, healthchecked, reachable by every app on the internal network. Topics are created explicitly by their owner (no auto-create) |
+| TR-B1 | **Platform:** a three-node Kafka (KRaft) cluster in compose, every node broker and controller, pinned, healthchecked, reachable by every app on the internal network. It survives the loss of any one node: 3 controller voters, topics replicated 3× with min ISR 2. Topics are created explicitly by their owner (no auto-create) |
 | TR-B2 | **Binding:** events are sent as CloudEvents 1.0 in Kafka **binary mode**, keyed by aggregate id, JSON payload without type headers |
 | TR-B3 | **Delivery:** the Kafka transport acknowledges an event only after the broker has durably accepted it, without producer-side duplicates or reordering per key |
 | TR-B4 | **Traced:** the recorded trace context becomes the parent of the Kafka produce span and is propagated in the record headers (W3C `traceparent`) |
@@ -30,6 +30,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 |:--|:--|:--|:--|:--|:--|:--|:--|
 | 1 | B1 | Kafka in the platform | `done` | Plan 1 done | `feature/b1-kafka-in-the-platform` | [#19](https://github.com/vungdv/hometask1/pull/19) | |
 | 2 | B2 | Kafka transport for the outbox | `done` | — | `feature/b2-kafka-transport-for-the-outbox` | [#20](https://github.com/vungdv/hometask1/pull/20) | |
+| 3 | B3 | Kafka as a three-node cluster | `in-progress` | — | `feature/b3-kafka-cluster` | | |
 
 **Statuses:** `todo` → `in-progress` → `in-review` → `approved` (not merged) → `done` (merged), plus `blocked` (reason in *Notes*) and `dropped`.
 
@@ -45,6 +46,13 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 - Several orders placed quickly → per-order order preserved.
 - ADR-0019 *Kafka & CloudEvents binding* (topics per owner, binary mode, keys, consumer conventions TR-B6) accepted; ADR-0018 accepted.
 
+### B3: Kafka as a three-node cluster
+**Covers:** TR-B1 (amended), TR-B3, TR-B5, TR-B7. **Detail design:** not needed; ADR-0019 amended.
+- `docker compose up` runs `kafka-1..3` as one KRaft cluster (3 voters); Order bootstraps from all three nodes.
+- Order provisions `polaris.order.lifecycle` with 3 partitions × 3 replicas and `min.insync.replicas=2`, declared on the topic; the Testcontainers suite keeps a single broker (replicas 1, min ISR 1) and asserts the topic-level setting.
+- One node stopped → writes still succeed; two stopped → `acks=all` is rejected, the event stays pending and is delivered once the nodes return.
+- Makefile targets and a README section for cluster and partitioning experiments (quorum, offsets per partition, groups, stop/start a node, preferred-leader election).
+
 ## Definition of Done
 
 - [x] TR-B1–B7 verified by automated tests.
@@ -55,3 +63,4 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | Date | Change | Reason | Slices affected |
 |:--|:--|:--|:--|
+| 2026-09-29 | Added B3: the dev broker becomes a three-node KRaft cluster; TR-B1 amended from single-node | Exercise replication, leader failover and partitioning locally, closer to a production topology | B3 |

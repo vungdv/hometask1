@@ -285,13 +285,13 @@ Dependency direction: `messaging → domain ← channel.email` (the domain owns 
 | **Metrics** | Built-in `spring.kafka.template` / `spring.kafka.listener` timers; **+** outbox backlog, oldest-pending age and publish lag; **+** `polaris.notifications.sent{channel,milestone,outcome}` counter. Exported over OTLP as today. |
 | **Serialization** | Order: the payload is serialized to JSON once, when the outbox row is written, and the relay sends the bytes unchanged. Fulfilment: `JsonSerializer` with `spring.json.add.type.headers=false`. Either way there are no Java class names on the wire. Consumer: `StringDeserializer`, then Jackson maps the value to the DTO chosen by `ce_type`. |
 | **Errors** | Default `DefaultErrorHandler` (a few in-memory retries with back-off, then log and skip). No DLT for the demo. |
-| **Config (12-factor)** | `SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092`, `SPRING_MAIL_HOST=mailpit`, `SPRING_MAIL_PORT=1025`, `POLARIS_FULFILMENT_STEP_DELAY=PT5S`, plus the existing `MANAGEMENT_OTLP_*` / `MANAGEMENT_OPENTELEMETRY_*` endpoints |
+| **Config (12-factor)** | `SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka-1:9092,kafka-2:9092,kafka-3:9092`, `SPRING_MAIL_HOST=mailpit`, `SPRING_MAIL_PORT=1025`, `POLARIS_FULFILMENT_STEP_DELAY=PT5S`, plus the existing `MANAGEMENT_OTLP_*` / `MANAGEMENT_OPENTELEMETRY_*` endpoints |
 
 ### 5.5 Local infrastructure (`docker-compose.yml` additions)
 
 | Service | Image | Notes |
 | :--- | :--- | :--- |
-| `kafka` | `apache/kafka` (pin the version when implementing) | Single node in KRaft mode (no ZooKeeper), PLAINTEXT listener `kafka:9092` on `polaris-net`, `KAFKA_AUTO_CREATE_TOPICS_ENABLE=false` |
+| `kafka-1..3` | `apache/kafka:3.9.1` | Three-node KRaft cluster (no ZooKeeper; every node broker + controller), PLAINTEXT listeners `kafka-N:9092` on `polaris-net`, `KAFKA_AUTO_CREATE_TOPICS_ENABLE=false`, replication 3 with min ISR 2 (Plan 2 B3) |
 | `mailpit` | `axllent/mailpit` (pin the version when implementing) | SMTP `1025` (internal), web UI `8025` published to the host → `http://localhost:8025` |
 | `polaris-fulfilment` | built from `apps/polaris-fulfilment/Dockerfile` | depends on `kafka` |
 | `polaris-notification` | built from `apps/polaris-notification/Dockerfile` | depends on `kafka`, `mailpit` |

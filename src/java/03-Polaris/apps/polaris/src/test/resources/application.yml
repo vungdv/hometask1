@@ -38,3 +38,9 @@ management:
     readinessstate:
       enabled: true
 
+# Testcontainers runs a single Kafka broker; the dev stack runs three (replicas 3, min ISR 2).
+polaris:
+  order:
+    lifecycle-topic:
+      replicas: 1
+      min-insync-replicas: 1
