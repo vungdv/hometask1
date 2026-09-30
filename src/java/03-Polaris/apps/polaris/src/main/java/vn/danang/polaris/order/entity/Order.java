@@ -28,12 +28,13 @@ import lombok.Setter;
 import vn.danang.polaris.catalog.entity.Product;
 import vn.danang.polaris.order.event.OrderCancelled;
 import vn.danang.polaris.order.event.OrderConfirmed;
+import vn.danang.polaris.order.event.OrderProgressed;
 import vn.danang.polaris.order.event.OrderPlaced;
 
 /**
  * The Order aggregate root.
  *
- * <p>Its status changes only through {@link #place}, {@link #confirm} and {@link #cancel}, which register the matching domain event
+ * <p>Its status changes only through {@link #place}, {@link #confirm}, {@link #parcel}, {@link #dispatch}, {@link #deliver} and {@link #cancel}, which register the matching domain event
  * (TR-X7); Spring Data publishes registered events when the order is passed to {@code save}. There is no status
  * setter.
  *
@@ -167,5 +168,42 @@ public class Order extends AbstractAggregateRoot<Order> {
                 customer != null ? customer.getFullName() : null,
                 customer != null ? customer.getEmail() : null,
                 lines, totalAmount));
+    }
+
+    /** {@code CONFIRMED → PARCELED}: the partner packed the order. Registers exactly one {@link OrderProgressed}. */
+    public void parcel(Instant at) {
+        progress(OrderStatus.CONFIRMED, OrderStatus.PARCELED, at);
+    }
+
+    /** {@code PARCELED → DELIVERING}: the partner dispatched the order. Registers exactly one {@link OrderProgressed}. */
+    public void dispatch(Instant at) {
+        progress(OrderStatus.PARCELED, OrderStatus.DELIVERING, at);
+    }
+
+    /** {@code DELIVERING → DELIVERED}: the order reached the customer. Registers exactly one {@link OrderProgressed}. */
+    public void deliver(Instant at) {
+        progress(OrderStatus.DELIVERING, OrderStatus.DELIVERED, at);
+    }
+
+    private void progress(OrderStatus expected, OrderStatus next, Instant at) {
+        Objects.requireNonNull(at, "at");
+        if (status != expected) {
+            throw new IllegalStateException(
+                    "Order " + orderNumber + " cannot become " + next + " — current status is " + status);
+        }
+        status = next;
+        updatedAt = at;
+        registerEvent(new OrderProgressed(orderNumber, at, next, assignedPartner,
+                customer != null ? customer.getId() : null,
+                customer != null ? customer.getFullName() : null,
+                customer != null ? customer.getEmail() : null,
+                lineSnapshot(), totalAmount));
+    }
+
+    private List<OrderPlaced.Line> lineSnapshot() {
+        return items.stream()
+                .map(i -> new OrderPlaced.Line(i.getProduct().getSku(), i.getProduct().getName(),
+                        i.getQuantity(), i.getUnitPrice()))
+                .toList();
     }
 }

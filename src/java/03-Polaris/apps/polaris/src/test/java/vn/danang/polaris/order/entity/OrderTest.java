@@ -13,6 +13,7 @@ import vn.danang.polaris.catalog.entity.Product;
 import vn.danang.polaris.order.event.OrderCancelled;
 import vn.danang.polaris.order.event.OrderConfirmed;
 import vn.danang.polaris.order.event.OrderPlaced;
+import vn.danang.polaris.order.event.OrderProgressed;
 import vn.danang.polaris.order.repository.OrderRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -165,5 +166,45 @@ class OrderTest {
         assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
         assertThat(order.getAssignedPartner()).isNull();
         assertThat(registeredEvents(order)).hasSize(before);
+    }
+
+    @Test
+    @DisplayName("parcel → dispatch → deliver walks CONFIRMED to DELIVERED, one OrderProgressed each with the partner")
+    void progress_registersOneEventPerTransition() {
+        Order order = placed();
+        order.confirm("partner-a", PLACED_AT);
+        ReflectionTestUtils.invokeMethod(order, "clearDomainEvents");
+
+        order.parcel(PLACED_AT.plusSeconds(1));
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PARCELED);
+        order.dispatch(PLACED_AT.plusSeconds(2));
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.DELIVERING);
+        order.deliver(PLACED_AT.plusSeconds(3));
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.DELIVERED);
+
+        assertThat(registeredEvents(order)).hasSize(3).allSatisfy(e -> {
+            OrderProgressed p = (OrderProgressed) e;
+            assertThat(p.partnerId()).isEqualTo("partner-a");
+            assertThat(p.totalAmount()).isEqualByComparingTo("99.70");
+            assertThat(p.lines()).hasSize(2);
+        });
+        assertThat(registeredEvents(order)).extracting(e -> ((OrderProgressed) e).status())
+                .containsExactly(OrderStatus.PARCELED, OrderStatus.DELIVERING, OrderStatus.DELIVERED);
+    }
+
+    @Test
+    @DisplayName("progress from the wrong status throws and changes nothing")
+    void progress_fromWrongStatus_throws() {
+        Order order = placed();
+        order.confirm("partner-a", PLACED_AT);
+        ReflectionTestUtils.invokeMethod(order, "clearDomainEvents");
+
+        assertThatThrownBy(() -> order.dispatch(PLACED_AT)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> order.deliver(PLACED_AT)).isInstanceOf(IllegalStateException.class);
+        order.parcel(PLACED_AT);
+        assertThatThrownBy(() -> order.parcel(PLACED_AT)).isInstanceOf(IllegalStateException.class);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PARCELED);
+        assertThat(registeredEvents(order)).hasSize(1);
     }
 }

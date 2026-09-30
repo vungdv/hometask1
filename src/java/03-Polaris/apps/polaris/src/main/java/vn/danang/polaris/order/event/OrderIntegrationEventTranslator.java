@@ -73,4 +73,24 @@ public class OrderIntegrationEventTranslator {
         log.info("Order event recorded: orderNumber={}, ce_id={}, ce_type={}",
                 confirmed.orderNumber(), ceId, OrderMilestone.CONFIRMED.type());
     }
+
+    @EventListener
+    public void on(OrderProgressed progressed) {
+        OrderMilestone milestone = OrderMilestone.valueOf(progressed.status().name());
+        OrderLifecycleEvent payload = new OrderLifecycleEvent(
+                progressed.orderNumber(),
+                milestone,
+                progressed.occurredAt(),
+                new OrderLifecycleEvent.Customer(progressed.customerId(), progressed.customerName(), progressed.customerEmail()),
+                progressed.lines().stream()
+                        .map(l -> new OrderLifecycleEvent.Item(l.sku(), l.name(), l.quantity(), l.unitPrice()))
+                        .toList(),
+                progressed.totalAmount(),
+                CURRENCY,
+                progressed.partnerId());
+        UUID ceId = publisher.publish(new IntegrationEvent(
+                milestone.type(), OrderEvents.SOURCE, OrderEvents.DESTINATION, progressed.orderNumber(), payload));
+        log.info("Order event recorded: orderNumber={}, ce_id={}, ce_type={}",
+                progressed.orderNumber(), ceId, milestone.type());
+    }
 }
