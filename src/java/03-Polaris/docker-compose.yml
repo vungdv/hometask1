@@ -112,7 +112,7 @@ services:
       keycloak:
         condition: service_healthy
       otel-collector:
-        condition: service_started
+        condition: service_healthy
       polaris-db:
         condition: service_healthy
       redis:
@@ -174,7 +174,7 @@ services:
       redis:
         condition: service_healthy
       otel-collector:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       # readiness now probes Gemini, TypeSafe and the Polaris Core MCP server (up to 2s each,
       # run sequentially), so the timeout allows for that worst case plus the liveness call.
@@ -212,7 +212,7 @@ services:
       polaris:
         condition: service_healthy
       otel-collector:
-        condition: service_started
+        condition: service_healthy
       kafka-1:
         condition: service_healthy
       kafka-2:
@@ -346,7 +346,7 @@ services:
       postgres:
         condition: service_started
       otel-collector:
-        condition: service_started
+        condition: service_healthy
     networks:
       - polaris-net
     healthcheck:
