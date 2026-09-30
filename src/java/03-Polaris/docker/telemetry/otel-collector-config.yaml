@@ -5,6 +5,11 @@
 #     down the queue fills, then data is dropped (never back-pressures the apps for long)
 #   - collector self-metrics on :8888 are scraped by Prometheus
 #   - health_check on :13133 drives the compose healthcheck
+# Redaction and cardinality guardrails (plan O3, OBS-LOG-1 / OBS-MET-1):
+#   - redaction/secrets + transform/redact_* run on ALL pipelines (incl. the edge access log)
+#     after memory_limiter and BEFORE batch/exporter: secrets and PII never reach a backend
+#   - transform/metric_allowlist keeps only allow-listed attribute keys on metric data points
+#     (user_id, order_*, ... are dropped from metrics; traces and logs keep them)
 
 extensions:
   health_check:
@@ -65,6 +70,54 @@ processors:
           - set(log.severity_number, SEVERITY_NUMBER_ERROR) where log.cache["status"] >= 500
           - set(log.severity_number, SEVERITY_NUMBER_INFO) where log.cache["status"] < 500
           - delete_key(log.attributes, "message")
+  # ---- Redaction (plan O3). Regexes are RE2; single-quoted YAML keeps backslashes literal. ----
+  # Attribute KEYS that carry credentials have their value masked; attribute VALUES (any key,
+  # on spans, span events, log records and metric data points) matching a PII/secret shape are
+  # masked. allow_all_keys keeps all other attributes (no allow-list on traces/logs).
+  redaction/secrets:
+    allow_all_keys: true
+    summary: silent
+    blocked_key_patterns:
+      - '(?i).*(authorization|cookie|passw(or)?d|passwd|secret|api[-_.]?key|credential|access[-_.]?token|refresh[-_.]?token|id[-_.]?token|session[-_.]?id).*'
+      - '(?i)(^|.*[._-])token$'
+    blocked_values:
+      - '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'            # email
+      - '\b(?:\d{4}[ -]){3}\d{1,4}\b'                                # card, grouped
+      - '\b[3-6]\d{12,15}\b'                                          # card, contiguous 13-16 digits
+      - '(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}'               # Authorization header values
+      - 'eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*'      # JWT
+  # Free text the redaction processor does not see as attribute values: log bodies (incl. the
+  # edge JSON access line), span names and status messages. Same shapes as above.
+  transform/redact_logs:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - 'replace_pattern(log.body, "(?i)\"?(authorization|proxy-authorization|cookie|set-cookie|password|secret|api[-_]?key|access_token|refresh_token|id_token|token)\"?\\s*[:=]\\s*\"?[^\",;&\\s}]+(\\s+[A-Za-z0-9._~+/=-]{8,})?", "$$1=***") where IsString(log.body)'
+          - 'replace_pattern(log.body, "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "***") where IsString(log.body)'
+          - 'replace_pattern(log.body, "\\b(?:\\d{4}[ -]){3}\\d{1,4}\\b", "***") where IsString(log.body)'
+          - 'replace_pattern(log.body, "\\b[3-6]\\d{12,15}\\b", "***") where IsString(log.body)'
+          - 'replace_pattern(log.body, "(?i)\\b(bearer|basic)\\s+[A-Za-z0-9._~+/=-]{8,}", "***") where IsString(log.body)'
+          - 'replace_pattern(log.body, "eyJ[A-Za-z0-9_-]{5,}\\.[A-Za-z0-9_-]{5,}\\.[A-Za-z0-9_-]*", "***") where IsString(log.body)'
+  transform/redact_traces:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - 'replace_pattern(span.name, "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "***")'
+          - 'replace_pattern(span.status.message, "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "***")'
+          - 'replace_pattern(span.status.message, "(?i)\\b(bearer|basic)\\s+[A-Za-z0-9._~+/=-]{8,}", "***")'
+  # Cardinality guardrail (OBS-MET-1): metric data points keep ONLY these attribute key families
+  # (semantic-convention and Micrometer/JVM/Spring/Kafka/DB keys, all bounded). Anything else
+  # (user_id, order_*, session/request ids, ...) is dropped from metrics. To allow a new metric
+  # attribute, add its key family here after checking it is bounded.
+  transform/metric_allowlist:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - 'delete_matching_keys(datapoint.attributes, "(?i)(authorization|cookie|passw|secret|token|credential|api[-_.]?key|\\.header\\.)")'
+          - 'keep_matching_keys(datapoint.attributes, "^(http|url|server|error|exception|jvm|db|messaging|system|process|kafka|spring|authentication|net|network|rpc|state|area|id|pool|name|gc|cause|action|outcome|status|method|uri|result|level|topic|partition|client|node|type|path|version|vendor|runtime|compiler|main|listener|cache|scope|service|deployment|host|le|quantile)([._].*)?$")'
   batch:
     timeout: 2s
     send_batch_max_size: 8192
@@ -115,21 +168,21 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, transform/nginx_spans, batch]
+      processors: [memory_limiter, transform/nginx_spans, redaction/secrets, transform/redact_traces, batch]
       exporters: [otlp_grpc/tempo]
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, redaction/secrets, transform/metric_allowlist, batch]
       exporters: [prometheus]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, redaction/secrets, transform/redact_logs, batch]
       exporters: [otlp_http/logs]
     logs/nginx:
       receivers: [syslog]
-      processors: [memory_limiter, resource/nginx, transform/nginx_logs, batch]
+      processors: [memory_limiter, resource/nginx, transform/nginx_logs, redaction/secrets, transform/redact_logs, batch]
       exporters: [otlp_http/logs]
     metrics/nginx:
       receivers: [nginx]
-      processors: [memory_limiter, resource/nginx, batch]
+      processors: [memory_limiter, resource/nginx, redaction/secrets, transform/metric_allowlist, batch]
       exporters: [prometheus]

@@ -6,6 +6,7 @@ T=docker/telemetry
 OTEL_IMG=$(grep -o 'otel/opentelemetry-collector-contrib:[0-9.]*' docker-compose.override.yml | head -1)
 PROM_IMG=$(grep -o 'prom/prometheus:v[0-9.]*' docker-compose.override.yml | head -1)
 TEMPO_IMG=$(grep -o 'BASE: grafana/tempo:[0-9.]*' docker-compose.override.yml | head -1 | sed 's/BASE: //')
+LOKI_IMG=$(grep -o 'grafana/loki:[0-9.]*' docker-compose.override.yml | head -1)
 fail=0
 ok() { echo "PASS $1"; }
 bad() { echo "FAIL $1"; fail=1; }
@@ -95,4 +96,35 @@ l = ps.values.find { |p| p["receivers"].include?("syslog") }
 req.(l && l["processors"][0] == "memory_limiter" && l["exporters"] == ["otlp_http/logs"], "syslog pipeline must start with memory_limiter and use the bounded logs exporter")
 req.(ps.values.any? { |p| p["receivers"].include?("nginx") }, "no nginx stub_status metrics pipeline")
 ' "$T/otel-collector-config.yaml" && ok "collector syslog receiver + nginx metrics pipelines (policy applies)" || bad "collector syslog/nginx pipelines"
+# ---- Redaction and cardinality guardrails (plan O3) ----
+docker run --rm -v "$PWD/$T/loki/loki.yml:/c.yml:ro" "$LOKI_IMG" -config.file=/c.yml -verify-config >/dev/null 2>&1 \
+  && ok "loki -verify-config ($LOKI_IMG)" || bad "loki -verify-config"
+ruby -ryaml -e '
+c = YAML.load_file(ARGV[0]); ps = c["service"]["pipelines"]
+def req(cond, msg); abort(msg) unless cond; end
+ps.each do |name, p|
+  pr = p["processors"]
+  req pr.include?("redaction/secrets"), "#{name}: redaction/secrets missing"
+  req pr.index("redaction/secrets") > 0 && pr.index("redaction/secrets") < pr.index("batch"), "#{name}: redaction must run after memory_limiter and before batch/exporters"
+  kind = name.split("/")[0]
+  req pr.include?("transform/redact_logs"), "#{name}: transform/redact_logs missing" if kind == "logs"
+  req pr.include?("transform/redact_traces"), "#{name}: transform/redact_traces missing" if kind == "traces"
+  req pr.include?("transform/metric_allowlist"), "#{name}: metric attribute allow-list missing" if kind == "metrics"
+end
+r = c["processors"]["redaction/secrets"]
+req r["blocked_key_patterns"].join =~ /authorization/ && r["blocked_key_patterns"].join =~ /cookie/, "authorization/cookie key patterns missing"
+req r["blocked_values"].size >= 4, "PII/secret value patterns missing (email, card, bearer, jwt)"
+al = c["processors"]["transform/metric_allowlist"]["metric_statements"][0]["statements"].join
+req al.include?("keep_matching_keys(datapoint.attributes"), "metric allow-list must use keep_matching_keys"
+req !al.match?(/keep_matching_keys[^\n]*\((user|order)\b|\|(user|order)\|/), "user/order must not be allow-listed on metrics"
+' "$T/otel-collector-config.yaml" && ok "collector redaction on every pipeline (before batch/exporter) + metric attribute allow-list" || bad "collector redaction/allow-list policy"
+ruby -ryaml -e '
+l = YAML.load_file(ARGV[0])["limits_config"]
+def req(cond, msg); abort(msg) unless cond; end
+a = l["otlp_config"]["resource_attributes"]
+req a["ignore_defaults"] == true, "loki otlp ignore_defaults must be true"
+req a["attributes_config"].select { |x| x["action"] == "index_label" }.flat_map { |x| x["attributes"] }.sort == %w[deployment.environment service.name service.namespace], "loki index labels must be exactly service.name, service.namespace, deployment.environment"
+req l["max_label_names_per_series"].to_i.between?(1, 15) && l["max_global_streams_per_user"].to_i.positive?, "loki label/stream limits missing"
+' "$T/loki/loki.yml" && ok "loki index labels limited to 3 resource attributes + label/stream limits" || bad "loki label/stream limits"
+[ -x scripts/telemetry/redaction-check.sh ] && ok "live redaction test present (scripts/telemetry/redaction-check.sh)" || bad "redaction-check.sh missing"
 exit $fail
