@@ -50,6 +50,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | 1 | F1 | First-wins claim | `done` | Plan 2 done; Flyway V16 still free | `slice/f1-first-wins-claim` | [#22](https://github.com/vungdv/hometask1/pull/22) | |
 | 2 | F2 | Fulfilment emulator | `done` | — | `slice/f2-fulfilment-emulator` | [#23](https://github.com/vungdv/hometask1/pull/23) | |
 | 3 | F3 | Shipment progress drives the order | `done` | — | `slice/f3-shipment-progress` | [#24](https://github.com/vungdv/hometask1/pull/24) | |
+| 3b | F2b | Emulator starts in its container image | `in-progress` | — | | | Added 2026-09-30 after F4 run found the F2 crash |
 | 4 | F4 | Fulfilment end-to-end | `blocked` | — | `slice/f4-fulfilment-e2e` | [#25](https://github.com/vungdv/hometask1/pull/25) (draft) | F2 defect: emulator container crashes at startup (`L32X64MixRandom` needs `jdk.random`, absent from the JRE image); local Keycloak volume predates F1 |
 
 **Statuses:** `todo` → `in-progress` → `in-review` → `approved` (not merged) → `done` (merged), plus `blocked` (reason in *Notes*) and `dropped`.
@@ -78,6 +79,12 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 - Wrong partner, duplicate or late report, or a report for a cancelled order → no change, no event, counted by reason.
 - The same report delivered twice → one milestone event. Transition table unit-tested exhaustively.
 
+### F2b: Emulator starts in its container image *(Fulfilment)*
+**Covers:** TR-F2, TR-F4 (repairs F2). **Detail design:** not needed.
+- The emulator container starts on the runtime JRE image: the seeded claim-pause generator uses an algorithm available on a plain JRE (e.g. `new Random(seed)` / `SplittableRandom`), keeping deterministic seeded behaviour.
+- A check runs the built image (or the packaged jar on a JRE-only runtime) and proves it reaches healthy, so a JDK-only dependency cannot slip past the JDK-based tests again.
+- Seeded 10-offer test still yields more than one distinct winner.
+
 ### F4: Fulfilment end-to-end
 **Covers:** Scenarios 2, 4–7. **Detail design:** not needed.
 - One-command run (`make` target) against the full stack: a placed order ends `DELIVERED` with an assigned partner and all 5 `order.*.v1` events on Kafka. A batch of 10 orders shows more than one winning partner.
@@ -93,5 +100,6 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | Date | Change | Reason | Slices affected |
 |:--|:--|:--|:--|
+| 2026-09-30 | Added slice F2b (between F3 and F4): emulator container fails at startup because the seeded random generator (`L32X64MixRandom`) needs `jdk.random`, absent from the JRE runtime image | F4 e2e run exposed it; F2 tests ran on a full JDK; user approved | F2b (new), F4 (unblocks) |
 | 2026-09-30 | Claim 409 body reports the current order state as `orderStatus`, keeping the RFC 7807 `status` member as the numeric 409 | Reviewer of PR #22: reusing `status` for the order state breaks RFC 7807 (AGENTS.md Principle 1); user approved | F1 |
 | 2026-09-30 | F1: cancelling a `CONFIRMED` (claimed) order keeps today's behaviour; a separate process will own it. The claim-vs-cancel race criterion applies only to concurrent attempts on a `PLACED` order, and the DB check requires a partner for fulfilled statuses but does not forbid one on `CANCELLED` | User decision: cancel of claimed orders needs its own process | F1 |
