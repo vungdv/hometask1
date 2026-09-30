@@ -1,0 +1,42 @@
+# Plan O5: error ratio per burn-rate window (design section 3). sum_over_time of the 5m base rates,
+# so the long windows are an approximation smoothed by up to 5 minutes. 0/0 (no traffic) yields no sample.
+# History guard: a window's ratio is only produced once at least 80 % of its 30s samples exist
+# (count_over_time >= 0.8 * window / 30s). Without it, a freshly started or restarted stack would compute a
+# "3 day" ratio from a few minutes of data and page on it.
+groups:
+  - name: sli-windows
+    interval: 30s
+    rules:
+      - record: sli:error_ratio:window
+        expr: sli:bad_requests:rate5m / sli:requests:rate5m
+        labels: {window: "5m"}
+      - record: sli:error_ratio:window
+        expr: |
+          (sum by (service, sli, owner) (sum_over_time(sli:bad_requests:rate5m[30m])) / sum by (service, sli, owner) (sum_over_time(sli:requests:rate5m[30m])))
+          and on (service, sli, owner) (count_over_time(sli:requests:rate5m[30m]) >= 48)
+        labels: {window: "30m"}
+      - record: sli:error_ratio:window
+        expr: |
+          (sum by (service, sli, owner) (sum_over_time(sli:bad_requests:rate5m[1h])) / sum by (service, sli, owner) (sum_over_time(sli:requests:rate5m[1h])))
+          and on (service, sli, owner) (count_over_time(sli:requests:rate5m[1h]) >= 96)
+        labels: {window: "1h"}
+      - record: sli:error_ratio:window
+        expr: |
+          (sum by (service, sli, owner) (sum_over_time(sli:bad_requests:rate5m[2h])) / sum by (service, sli, owner) (sum_over_time(sli:requests:rate5m[2h])))
+          and on (service, sli, owner) (count_over_time(sli:requests:rate5m[2h]) >= 192)
+        labels: {window: "2h"}
+      - record: sli:error_ratio:window
+        expr: |
+          (sum by (service, sli, owner) (sum_over_time(sli:bad_requests:rate5m[6h])) / sum by (service, sli, owner) (sum_over_time(sli:requests:rate5m[6h])))
+          and on (service, sli, owner) (count_over_time(sli:requests:rate5m[6h]) >= 576)
+        labels: {window: "6h"}
+      - record: sli:error_ratio:window
+        expr: |
+          (sum by (service, sli, owner) (sum_over_time(sli:bad_requests:rate5m[1d])) / sum by (service, sli, owner) (sum_over_time(sli:requests:rate5m[1d])))
+          and on (service, sli, owner) (count_over_time(sli:requests:rate5m[1d]) >= 2304)
+        labels: {window: "1d"}
+      - record: sli:error_ratio:window
+        expr: |
+          (sum by (service, sli, owner) (sum_over_time(sli:bad_requests:rate5m[3d])) / sum by (service, sli, owner) (sum_over_time(sli:requests:rate5m[3d])))
+          and on (service, sli, owner) (count_over_time(sli:requests:rate5m[3d]) >= 6912)
+        labels: {window: "3d"}

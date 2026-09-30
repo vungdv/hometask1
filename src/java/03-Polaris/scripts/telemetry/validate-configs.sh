@@ -6,20 +6,21 @@ T=docker/telemetry
 OTEL_IMG=$(grep -o 'otel/opentelemetry-collector-contrib:[0-9.]*' docker-compose.override.yml | head -1)
 PROM_IMG=$(grep -o 'prom/prometheus:v[0-9.]*' docker-compose.override.yml | head -1)
 TEMPO_IMG=$(grep -o 'BASE: grafana/tempo:[0-9.]*' docker-compose.override.yml | head -1 | sed 's/BASE: //')
+AM_IMG=$(grep -o 'prom/alertmanager:v[0-9.]*' docker-compose.override.yml | head -1)
 LOKI_IMG=$(grep -o 'grafana/loki:[0-9.]*' docker-compose.override.yml | head -1)
 fail=0
 ok() { echo "PASS $1"; }
 bad() { echo "FAIL $1"; fail=1; }
 
 for f in docker-compose.override.yml; do
-  ! grep -E 'image:.*:latest|image: *[^:]+$' $f | grep -E 'prometheus|loki|tempo|grafana|otel' >/dev/null && ok "no unpinned telemetry image" || bad "unpinned telemetry image"
+  ! grep -E 'image:.*:latest|image: *[^:]+$' $f | grep -E 'prometheus|alertmanager|mailpit|echo|loki|tempo|grafana|otel' >/dev/null && ok "no unpinned telemetry image" || bad "unpinned telemetry image"
 done
 docker compose -f docker-compose.yml -f docker-compose.override.yml config -q && ok "docker compose config" || bad "docker compose config"
 
 docker run --rm -v "$PWD/$T/otel-collector-config.yaml:/c.yaml:ro" "$OTEL_IMG" validate --config=/c.yaml >/dev/null \
   && ok "otelcol validate ($OTEL_IMG)" || bad "otelcol validate"
 
-docker run --rm --entrypoint promtool -v "$PWD/$T/prometheus/prometheus.yml:/p.yml:ro" "$PROM_IMG" check config /p.yml >/dev/null \
+docker run --rm --entrypoint promtool -v "$PWD/$T/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" -v "$PWD/$T/prometheus/rules:/etc/prometheus/rules:ro" -v "$PWD/$T/prometheus/rules-test:/etc/prometheus/rules-test:ro" "$PROM_IMG" check config /etc/prometheus/prometheus.yml >/dev/null \
   && ok "promtool check config ($PROM_IMG)" || bad "promtool check config"
 
 # Tempo: strict parse of the pinned image (unknown keys such as a misspelt processor fail)
@@ -129,4 +130,19 @@ req l["max_label_names_per_series"].to_i.between?(1, 15) && l["max_global_stream
 [ -x scripts/telemetry/redaction-check.sh ] && ok "live redaction test present (scripts/telemetry/redaction-check.sh)" || bad "redaction-check.sh missing"
 # ---- Dashboards as code (plan O4) ----
 scripts/telemetry/validate-dashboards.sh >/dev/null && ok "dashboards: parse, datasources resolve, units, no forbidden labels (scripts/telemetry/validate-dashboards.sh)" || bad "dashboards validation (run scripts/telemetry/validate-dashboards.sh)"
+# ---- SLOs, alerts and runbooks (plan O5) ----
+docker run --rm --entrypoint sh -v "$PWD/$T/prometheus/rules:/r:ro" "$PROM_IMG" -c 'promtool check rules /r/*.yml' >/dev/null \
+  && ok "promtool check rules ($PROM_IMG)" || bad "promtool check rules"
+docker run --rm --entrypoint sh -v "$PWD/$T/prometheus:/p:ro" "$PROM_IMG" -c 'cd /p/tests && promtool test rules *.test.yml' >/tmp/promtool-test.$$ 2>&1 \
+  && ok "promtool test rules: fast burn, slow burn, no-alert, history and traffic guards, normalisation, pipeline alerts ($(grep -c SUCCESS /tmp/promtool-test.$$) suites)" || { cat /tmp/promtool-test.$$; bad "promtool test rules"; }
+rm -f /tmp/promtool-test.$$
+docker run --rm --entrypoint amtool -v "$PWD/$T/alertmanager/alertmanager.yml:/a.yml:ro" "$AM_IMG" check-config /a.yml >/dev/null \
+  && ok "amtool check-config ($AM_IMG)" || bad "amtool check-config"
+route() { docker run --rm --entrypoint amtool -v "$PWD/$T/alertmanager/alertmanager.yml:/a.yml:ro" "$AM_IMG" config routes test --config.file=/a.yml --verify.receivers="$1" "${@:2}" >/dev/null 2>&1; }
+route platform-page severity=page owner=platform && route polaris-page severity=page owner=polaris && route assistant-page severity=page owner=assistant \
+  && route platform-ticket severity=ticket owner=platform && route polaris-ticket severity=ticket owner=polaris && route assistant-ticket severity=ticket owner=assistant \
+  && route catch-all severity=unknown \
+  && ok "amtool routes: severity x owner reach the expected receiver, unknown falls to catch-all" || bad "amtool routes test"
+scripts/telemetry/alerts-validate.sh >/dev/null && ok "alert metadata, runbook files, dashboard uids, dev wiring (scripts/telemetry/alerts-validate.sh)" || bad "alerts validation (run scripts/telemetry/alerts-validate.sh)"
+[ -x scripts/telemetry/alerts-check.sh ] && ok "live failure-injection check present (scripts/telemetry/alerts-check.sh)" || bad "alerts-check.sh missing"
 exit $fail

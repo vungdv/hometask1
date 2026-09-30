@@ -171,3 +171,6 @@ Thumbs.db
 # Local database and certificates
 data/
 *.jks
+
+# O5: generated test-only short-window alert rules
+docker/telemetry/prometheus/rules-test/*.yml

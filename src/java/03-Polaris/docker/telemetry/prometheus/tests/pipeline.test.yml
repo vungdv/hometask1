@@ -1,0 +1,127 @@
+# Plan O5 / OBS-PIPE-1: pipeline alerts fire on collector down, refused, dropped, queue near full,
+# backend down, gateway down and Alertmanager down; and stay silent while the pipeline is healthy.
+rule_files:
+  - ../rules/pipeline.rules.yml
+evaluation_interval: 30s
+tests:
+  - interval: 30s
+    input_series:
+      - series: 'up{job="otel-collector-self",instance="otel-collector:8888"}'
+        values: '1x10 0x30'
+      - series: 'otelcol_receiver_refused_spans{receiver="otlp"}'
+        values: '0+10x40'
+      - series: 'otelcol_exporter_send_failed_log_records{exporter="otlp_http/logs"}'
+        values: '0+10x40'
+      - series: 'otelcol_exporter_queue_size{exporter="otlp_grpc/tempo",data_type="traces"}'
+        values: '900x40'
+      - series: 'otelcol_exporter_queue_capacity{exporter="otlp_grpc/tempo",data_type="traces"}'
+        values: '1000x40'
+      - series: 'up{job="loki",instance="loki:3100"}'
+        values: '1x10 0x30'
+      - series: 'up{job="alertmanager",instance="alertmanager:9093"}'
+        values: '0x40'
+      - series: 'otelcol_scraper_scraped_metric_points{receiver="nginx",scraper="nginx",job="otel-collector-self"}'
+        values: '0+12x10 120x30'
+    alert_rule_test:
+      - {eval_time: 4m, alertname: TelemetryCollectorDown, exp_alerts: []}
+      - eval_time: 10m
+        alertname: TelemetryCollectorDown
+        exp_alerts:
+          - exp_labels: {severity: page, owner: platform, service: otel-collector, job: otel-collector-self, instance: "otel-collector:8888"}
+            exp_annotations:
+              summary: "OpenTelemetry Collector is down: all telemetry is being lost"
+              description: "Prometheus cannot scrape the Collector self-metrics (otel-collector:8888)."
+              service: "otel-collector"
+              severity: "page"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-telemetry-pipeline/telemetry-pipeline"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/telemetry-collector-down.md"
+      - eval_time: 10m
+        alertname: TelemetryCollectorRefusing
+        exp_alerts:
+          - exp_labels: {severity: ticket, owner: platform, service: otel-collector}
+            exp_annotations:
+              summary: "Collector is refusing incoming telemetry (333.3m/s)"
+              description: "The memory_limiter or a receiver is refusing spans, metric points or log records; senders may drop data."
+              service: "otel-collector"
+              severity: "ticket"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-telemetry-pipeline/telemetry-pipeline"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/telemetry-collector-refusing.md"
+      - eval_time: 10m
+        alertname: TelemetryCollectorDropping
+        exp_alerts:
+          - exp_labels: {severity: ticket, owner: platform, service: otel-collector}
+            exp_annotations:
+              summary: "Collector is dropping telemetry (333.3m/s failed to export or enqueue)"
+              description: "Exports to a backend fail after retries, or the bounded sending queue is full."
+              service: "otel-collector"
+              severity: "ticket"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-telemetry-pipeline/telemetry-pipeline"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/telemetry-collector-dropping.md"
+      - eval_time: 10m
+        alertname: TelemetryExporterQueueNearFull
+        exp_alerts:
+          - exp_labels: {severity: ticket, owner: platform, service: otel-collector, exporter: otlp_grpc/tempo, data_type: traces}
+            exp_annotations:
+              summary: "Collector exporter queue otlp_grpc/tempo is 90% full"
+              description: "The backend is slow or down; the queue drops new data when full."
+              service: "otel-collector"
+              severity: "ticket"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-telemetry-pipeline/telemetry-pipeline"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/telemetry-exporter-queue-near-full.md"
+      - eval_time: 10m
+        alertname: TelemetryBackendDown
+        exp_alerts:
+          - exp_labels: {severity: ticket, owner: platform, job: loki, instance: "loki:3100"}
+            exp_annotations:
+              summary: "Telemetry backend loki is down"
+              description: "Prometheus cannot scrape loki (loki:3100)."
+              service: "loki"
+              severity: "ticket"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-telemetry-pipeline/telemetry-pipeline"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/telemetry-backend-down.md"
+      - eval_time: 10m
+        alertname: GatewayDown
+        exp_alerts:
+          - exp_labels: {severity: page, owner: platform, service: nginx-gateway}
+            exp_annotations:
+              summary: "The nginx gateway is down or not reporting: the edge is unavailable"
+              description: "The Collector has not been able to scrape nginx stub_status for 2 minutes. Inhibited while the Collector itself is down."
+              service: "nginx-gateway"
+              severity: "page"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-edge/edge-gateway"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/gateway-down.md"
+      - eval_time: 10m
+        alertname: AlertmanagerDown
+        exp_alerts:
+          - exp_labels: {severity: ticket, owner: platform, service: alertmanager, job: alertmanager, instance: "alertmanager:9093"}
+            exp_annotations:
+              summary: "Alertmanager is down: alerts cannot be delivered"
+              description: "Prometheus cannot scrape alertmanager:9093."
+              service: "alertmanager"
+              severity: "ticket"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-telemetry-pipeline/telemetry-pipeline"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/alertmanager-down.md"
+
+  # Healthy pipeline: nothing fires.
+  - interval: 30s
+    input_series:
+      - series: 'up{job="otel-collector-self"}'
+        values: '1x40'
+      - series: 'up{job="tempo"}'
+        values: '1x40'
+      - series: 'up{job="alertmanager"}'
+        values: '1x40'
+      - series: 'otelcol_exporter_queue_size{exporter="otlp_grpc/tempo"}'
+        values: '10x40'
+      - series: 'otelcol_exporter_queue_capacity{exporter="otlp_grpc/tempo"}'
+        values: '1000x40'
+      - series: 'otelcol_scraper_scraped_metric_points{receiver="nginx",scraper="nginx",job="otel-collector-self"}'
+        values: '0+12x40'
+    alert_rule_test:
+      - {eval_time: 15m, alertname: TelemetryCollectorDown, exp_alerts: []}
+      - {eval_time: 15m, alertname: TelemetryCollectorRefusing, exp_alerts: []}
+      - {eval_time: 15m, alertname: TelemetryCollectorDropping, exp_alerts: []}
+      - {eval_time: 15m, alertname: TelemetryExporterQueueNearFull, exp_alerts: []}
+      - {eval_time: 15m, alertname: TelemetryBackendDown, exp_alerts: []}
+      - {eval_time: 15m, alertname: GatewayDown, exp_alerts: []}
+      - {eval_time: 15m, alertname: AlertmanagerDown, exp_alerts: []}

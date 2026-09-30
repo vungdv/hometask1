@@ -11,6 +11,9 @@ services:
 
     volumes:
       - ./docker/telemetry/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      # Plan O5: SLI recording rules and alerts (rules-test holds only a generated, test-only copy while alerts-check.sh runs)
+      - ./docker/telemetry/prometheus/rules:/etc/prometheus/rules:ro
+      - ./docker/telemetry/prometheus/rules-test:/etc/prometheus/rules-test:ro
       - prometheus-data:/prometheus
 
     command:
@@ -25,6 +28,65 @@ services:
       timeout: 3s
       retries: 6
       start_period: 10s
+
+  # Plan O5 / D2: Prometheus rule files + Alertmanager. UI bound to loopback only; O7 decides exposure.
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks:
+      - polaris-net
+    volumes:
+      - ./docker/telemetry/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=http://localhost:9093"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9093/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+    depends_on:
+      mailpit:
+        condition: service_healthy
+      alert-webhook:
+        condition: service_healthy
+
+  # Plan O5 / D5: dev notification targets. SMTP (1025) and the webhook are internal to polaris-net.
+  mailpit:
+    image: axllent/mailpit:v1.27.8
+    container_name: mailpit
+    ports:
+      - "127.0.0.1:8025:8025"
+    networks:
+      - polaris-net
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+
+  # Logs every request it receives to stdout (docker logs alert-webhook), proving webhook routing.
+  alert-webhook:
+    image: mendhak/http-https-echo:37
+    container_name: alert-webhook
+    environment:
+      - HTTP_PORT=8080
+      - HTTPS_PORT=8443
+      - LOG_IGNORE_PATH=/healthz
+    networks:
+      - polaris-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
 
   loki:
     image: grafana/loki:3.1.0
@@ -207,6 +269,7 @@ services:
 volumes:
 
   prometheus-data:
+  alertmanager-data:
   loki-data:
   tempo-data:
   grafana-data:

@@ -1,0 +1,52 @@
+# Plan O5 / design docs/development/design/operational-observability/O5-slos-alerts-runbooks.md
+# Base SLI series. This is where label names are NORMALISED: span metrics use `service`
+# (Polaris, Polaris-Assistant, nginx-gateway) and app metrics use `exported_job`; every series
+# recorded here carries service = polaris | polaris-assistant | nginx-gateway, plus sli and owner.
+#   sli:requests:rate5m      total events per second
+#   sli:bad_requests:rate5m  bad events per second (5xx, or slower than the latency threshold)
+# Latency thresholds must be span-metrics buckets (le): 1.024 s edge and polaris, 8.192 s assistant.
+groups:
+  - name: sli-base-availability
+    interval: 30s
+    rules:
+      - record: sli:requests:rate5m
+        expr: sum(rate(traces_spanmetrics_calls_total{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false"}[5m]))
+        labels: {service: nginx-gateway, sli: availability, owner: platform}
+      - record: sli:bad_requests:rate5m
+        expr: sum(rate(traces_spanmetrics_calls_total{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false",http_response_status_code=~"5.."}[5m])) or (sum(rate(traces_spanmetrics_calls_total{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false"}[5m])) * 0)
+        labels: {service: nginx-gateway, sli: availability, owner: platform}
+      - record: sli:requests:rate5m
+        expr: sum(rate(http_server_requests_milliseconds_count{exported_job="Polaris"}[5m]))
+        labels: {service: polaris, sli: availability, owner: polaris}
+      - record: sli:bad_requests:rate5m
+        expr: sum(rate(http_server_requests_milliseconds_count{exported_job="Polaris",status=~"5.."}[5m])) or (sum(rate(http_server_requests_milliseconds_count{exported_job="Polaris"}[5m])) * 0)
+        labels: {service: polaris, sli: availability, owner: polaris}
+      - record: sli:requests:rate5m
+        expr: sum(rate(http_server_requests_milliseconds_count{exported_job="Polaris-Assistant"}[5m]))
+        labels: {service: polaris-assistant, sli: availability, owner: assistant}
+      - record: sli:bad_requests:rate5m
+        expr: sum(rate(http_server_requests_milliseconds_count{exported_job="Polaris-Assistant",status=~"5.."}[5m])) or (sum(rate(http_server_requests_milliseconds_count{exported_job="Polaris-Assistant"}[5m])) * 0)
+        labels: {service: polaris-assistant, sli: availability, owner: assistant}
+
+  - name: sli-base-latency
+    interval: 30s
+    rules:
+      - record: sli:requests:rate5m
+        expr: sum(rate(traces_spanmetrics_latency_count{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false"}[5m]))
+        labels: {service: nginx-gateway, sli: latency, owner: platform}
+      - record: sli:bad_requests:rate5m
+        expr: sum(rate(traces_spanmetrics_latency_count{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false"}[5m])) - sum(rate(traces_spanmetrics_latency_bucket{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false",le="1.024"}[5m]))
+        labels: {service: nginx-gateway, sli: latency, owner: platform}
+      # polaris and polaris-assistant latency is measured at the gateway (SSE excluded there); see design section 1
+      - record: sli:requests:rate5m
+        expr: sum(rate(traces_spanmetrics_latency_count{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false",span_name=~"polaris:.*"}[5m]))
+        labels: {service: polaris, sli: latency, owner: polaris}
+      - record: sli:bad_requests:rate5m
+        expr: sum(rate(traces_spanmetrics_latency_count{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false",span_name=~"polaris:.*"}[5m])) - sum(rate(traces_spanmetrics_latency_bucket{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false",span_name=~"polaris:.*",le="1.024"}[5m]))
+        labels: {service: polaris, sli: latency, owner: polaris}
+      - record: sli:requests:rate5m
+        expr: sum(rate(traces_spanmetrics_latency_count{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false",span_name=~"assistant:.*"}[5m]))
+        labels: {service: polaris-assistant, sli: latency, owner: assistant}
+      - record: sli:bad_requests:rate5m
+        expr: sum(rate(traces_spanmetrics_latency_count{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false",span_name=~"assistant:.*"}[5m])) - sum(rate(traces_spanmetrics_latency_bucket{service="nginx-gateway",span_kind="SPAN_KIND_SERVER",polaris_sse="false",span_name=~"assistant:.*",le="8.192"}[5m]))
+        labels: {service: polaris-assistant, sli: latency, owner: assistant}
