@@ -32,9 +32,13 @@ class FulfilmentConfiguration {
         return Clock.systemUTC();
     }
 
+    /**
+     * {@link Random} lives in {@code java.base}. {@code RandomGenerator.getDefault()} is L32X64MixRandom, which is in
+     * {@code jdk.random} and absent from the plain JRE the image runs on.
+     */
     @Bean
     RandomGenerator claimPauseRandom(FulfilmentProperties properties) {
-        return properties.randomSeed() == null ? RandomGenerator.getDefault() : new Random(properties.randomSeed());
+        return properties.randomSeed() == null ? new Random() : new Random(properties.randomSeed());
     }
 
     /** Timer for pauses and step delays; the listener threads never sleep. */
