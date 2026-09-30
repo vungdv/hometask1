@@ -127,4 +127,6 @@ req a["attributes_config"].select { |x| x["action"] == "index_label" }.flat_map 
 req l["max_label_names_per_series"].to_i.between?(1, 15) && l["max_global_streams_per_user"].to_i.positive?, "loki label/stream limits missing"
 ' "$T/loki/loki.yml" && ok "loki index labels limited to 3 resource attributes + label/stream limits" || bad "loki label/stream limits"
 [ -x scripts/telemetry/redaction-check.sh ] && ok "live redaction test present (scripts/telemetry/redaction-check.sh)" || bad "redaction-check.sh missing"
+# ---- Dashboards as code (plan O4) ----
+scripts/telemetry/validate-dashboards.sh >/dev/null && ok "dashboards: parse, datasources resolve, units, no forbidden labels (scripts/telemetry/validate-dashboards.sh)" || bad "dashboards validation (run scripts/telemetry/validate-dashboards.sh)"
 exit $fail
