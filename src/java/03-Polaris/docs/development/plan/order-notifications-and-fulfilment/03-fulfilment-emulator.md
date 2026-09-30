@@ -47,7 +47,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | # | Slice | Title | Status | External | Branch | PR | Notes |
 |:--|:--|:--|:--|:--|:--|:--|:--|
-| 1 | F1 | First-wins claim | `todo` | Plan 2 done; Flyway V16 still free | | | |
+| 1 | F1 | First-wins claim | `in-progress` | Plan 2 done; Flyway V16 still free | | | |
 | 2 | F2 | Fulfilment emulator | `todo` | — | | | |
 | 3 | F3 | Shipment progress drives the order | `todo` | — | | | |
 | 4 | F4 | Fulfilment end-to-end | `todo` | — | | | |
