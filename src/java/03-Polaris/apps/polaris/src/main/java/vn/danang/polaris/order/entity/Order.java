@@ -27,12 +27,13 @@ import lombok.Getter;
 import lombok.Setter;
 import vn.danang.polaris.catalog.entity.Product;
 import vn.danang.polaris.order.event.OrderCancelled;
+import vn.danang.polaris.order.event.OrderConfirmed;
 import vn.danang.polaris.order.event.OrderPlaced;
 
 /**
  * The Order aggregate root.
  *
- * <p>Its status changes only through {@link #place} and {@link #cancel}, which register the matching domain event
+ * <p>Its status changes only through {@link #place}, {@link #confirm} and {@link #cancel}, which register the matching domain event
  * (TR-X7); Spring Data publishes registered events when the order is passed to {@code save}. There is no status
  * setter.
  *
@@ -66,6 +67,13 @@ public class Order extends AbstractAggregateRoot<Order> {
     private Instant placedAt;
     private Instant updatedAt;
     private String idempotencyKey;
+
+    /** Partner that claimed the order (V16, TR-O2); null while {@code PLACED}. */
+    @Setter(AccessLevel.NONE)
+    private String assignedPartner;
+
+    @Setter(AccessLevel.NONE)
+    private Instant claimedAt;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItem> items = new ArrayList<>();
@@ -132,5 +140,32 @@ public class Order extends AbstractAggregateRoot<Order> {
         status = OrderStatus.CANCELLED;
         updatedAt = at;
         registerEvent(new OrderCancelled(orderNumber, at));
+    }
+
+    /**
+     * Claims a {@link OrderStatus#PLACED} order for a partner: status becomes {@link OrderStatus#CONFIRMED}, the
+     * partner and claim time are recorded, and exactly one {@link OrderConfirmed} is registered.
+     *
+     * @throws IllegalStateException if the order is not {@code PLACED}; nothing changes and no event is registered
+     */
+    public void confirm(String partnerId, Instant at) {
+        Objects.requireNonNull(partnerId, "partnerId");
+        Objects.requireNonNull(at, "at");
+        if (status != OrderStatus.PLACED) {
+            throw new IllegalStateException("Order " + orderNumber + " cannot be claimed — current status is " + status);
+        }
+        status = OrderStatus.CONFIRMED;
+        assignedPartner = partnerId;
+        claimedAt = at;
+        updatedAt = at;
+        List<OrderPlaced.Line> lines = items.stream()
+                .map(i -> new OrderPlaced.Line(i.getProduct().getSku(), i.getProduct().getName(),
+                        i.getQuantity(), i.getUnitPrice()))
+                .toList();
+        registerEvent(new OrderConfirmed(orderNumber, at, partnerId,
+                customer != null ? customer.getId() : null,
+                customer != null ? customer.getFullName() : null,
+                customer != null ? customer.getEmail() : null,
+                lines, totalAmount));
     }
 }

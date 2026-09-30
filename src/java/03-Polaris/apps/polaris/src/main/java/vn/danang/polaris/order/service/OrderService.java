@@ -40,6 +40,7 @@ import vn.danang.polaris.catalog.repository.ProductRepository;
 import vn.danang.polaris.config.CacheConfig;
 import vn.danang.polaris.web.exception.IdempotencyKeyReusedException;
 import vn.danang.polaris.web.exception.InsufficientStockException;
+import vn.danang.polaris.web.exception.OrderNotClaimableException;
 import vn.danang.polaris.web.exception.PriceChangedException;
 import vn.danang.polaris.web.exception.ProductInactiveException;
 import vn.danang.polaris.web.exception.ResourceNotFoundException;
@@ -325,6 +326,23 @@ public class OrderService {
         evictProductsAfterCommit(touched);
 
         return orderRepo.save(order);
+    }
+
+    /**
+     * First-wins claim (TR-O2/O3). Same pessimistic row lock as {@link #cancelOrder}, so concurrent claims and a
+     * racing cancel are serialised: the first to lock wins, the others see a non-{@code PLACED} order and are rejected.
+     */
+    @Transactional
+    public Order claimOrder(String orderNumber, String partnerId) {
+        Order order = orderRepo.findByOrderNumberForUpdate(orderNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with order number: " + orderNumber));
+        if (order.getStatus() != OrderStatus.PLACED) {
+            throw new OrderNotClaimableException(orderNumber, order.getStatus());
+        }
+        order.confirm(partnerId, Instant.now());
+        Order saved = orderRepo.save(order);
+        initialize(saved);
+        return saved;
     }
 
     @Transactional(readOnly = true)

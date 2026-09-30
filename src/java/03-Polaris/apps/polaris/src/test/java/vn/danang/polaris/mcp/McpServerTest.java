@@ -427,6 +427,7 @@ class McpServerTest {
             assertThat(text).contains("Order Status for ORD-1002:");
             assertThat(text).contains("- Status: CONFIRMED");
             assertThat(text).contains("- Customer: Alice Tran");
+            assertThat(text).contains("- Assigned Partner: legacy");
             assertThat(text).contains("- Total Amount: $89.90");
         }
 

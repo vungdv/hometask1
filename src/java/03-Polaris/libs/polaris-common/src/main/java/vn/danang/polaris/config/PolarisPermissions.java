@@ -31,6 +31,11 @@ public final class PolarisPermissions {
     public static final String ORDER_WRITE = "order.write";
 
     /**
+     * Fulfilment access to orders — claim a placed order on behalf of a fulfilment partner.
+     */
+    public static final String ORDER_FULFIL = "order.fulfil";
+
+    /**
      * Read access to customer profiles and account information.
      */
     public static final String CUSTOMER_READ = "customer.read";

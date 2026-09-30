@@ -701,6 +701,9 @@ public class OrderMcpTools {
         lines.add("Order Status for " + order.getOrderNumber() + ":");
         lines.add("- Status: " + order.getStatus());
         lines.add("- Customer: " + customerName);
+        if (order.getAssignedPartner() != null) {
+            lines.add("- Assigned Partner: " + order.getAssignedPartner());
+        }
         lines.add("- Placed At: " + order.getPlacedAt());
         lines.add("- Total Amount: $" + order.getTotalAmount());
 

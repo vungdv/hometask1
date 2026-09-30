@@ -288,6 +288,7 @@ services:
       KC_DB_PASSWORD: keycloak
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
+      POLARIS_FULFILMENT_EMULATOR_SECRET: ${POLARIS_FULFILMENT_EMULATOR_SECRET:-fulfilment-emulator-dev-secret}
       KC_PROXY_HEADERS: xforwarded
       KC_HOSTNAME: https://id.${POLARIS_DOMAIN}
       KC_TRACING_ENABLED: "true"

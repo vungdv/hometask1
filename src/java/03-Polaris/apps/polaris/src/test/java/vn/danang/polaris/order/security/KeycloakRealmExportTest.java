@@ -61,4 +61,25 @@ class KeycloakRealmExportTest {
             assertThat(migration).contains("auth_subject = '" + idsByEmail.get(email) + "' WHERE email = '" + email + "'");
         }
     }
+
+    @Test
+    @DisplayName("order.fulfil is a polaris-api client role held by the fulfilment emulator's confidential service-account client")
+    void fulfilmentEmulator_hasOrderFulfil() throws Exception {
+        JsonNode realm = realm();
+        List<String> roles = StreamSupport.stream(realm.get("roles").get("client").get("polaris-api").spliterator(), false)
+                .map(r -> r.get("name").asText()).toList();
+        assertThat(roles).contains("order.fulfil");
+
+        JsonNode client = StreamSupport.stream(realm.get("clients").spliterator(), false)
+                .filter(c -> "polaris-fulfilment-emulator".equals(c.get("clientId").asText()))
+                .findFirst().orElseThrow();
+        assertThat(client.get("publicClient").asBoolean()).isFalse();
+        assertThat(client.get("serviceAccountsEnabled").asBoolean()).isTrue();
+        assertThat(client.get("secret").asText()).startsWith("${").endsWith("}");
+
+        JsonNode serviceUser = StreamSupport.stream(realm.get("users").spliterator(), false)
+                .filter(u -> "polaris-fulfilment-emulator".equals(u.path("serviceAccountClientId").asText()))
+                .findFirst().orElseThrow();
+        assertThat(serviceUser.get("clientRoles").get("polaris-api").toString()).contains("order.fulfil");
+    }
 }
