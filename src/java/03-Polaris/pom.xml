@@ -22,6 +22,7 @@
 		<module>libs/polaris-outbox</module>
 		<module>apps/polaris</module>
 		<module>apps/polaris-assistant</module>
+		<module>apps/polaris-fulfilment-emulator</module>
 	</modules>
 
 	<properties>
@@ -65,6 +66,11 @@
 			<dependency>
 				<groupId>vn.danang</groupId>
 				<artifactId>polaris-assistant</artifactId>
+				<version>${polaris.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>vn.danang</groupId>
+				<artifactId>polaris-fulfilment-emulator</artifactId>
 				<version>${polaris.version}</version>
 			</dependency>
 

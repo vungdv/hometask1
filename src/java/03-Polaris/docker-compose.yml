@@ -185,6 +185,48 @@ services:
       start_period: 30s
     networks:
       - polaris-net
+  polaris-fulfilment-emulator:
+    build:
+      context: .
+      dockerfile: apps/polaris-fulfilment-emulator/Dockerfile
+    container_name: polaris-fulfilment-emulator
+    user: root
+    # Stateless: no database and no API beyond actuator (TR-F4); reachable only inside polaris-net.
+    environment:
+      SERVER_PORT: "8082"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      POLARIS_CORE_API_BASE_URL: http://polaris:8080
+      # Token endpoint through the canonical public issuer URL (id.polaris.local resolves to nginx on polaris-net).
+      POLARIS_FULFILMENT_TOKEN_URI: https://id.${POLARIS_DOMAIN}/realms/polaris/protocol/openid-connect/token
+      POLARIS_FULFILMENT_EMULATOR_SECRET: ${POLARIS_FULFILMENT_EMULATOR_SECRET:-fulfilment-emulator-dev-secret}
+      JAVA_TOOL_OPTIONS: "-Djavax.net.ssl.trustStore=/certs/truststore.jks"
+      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://otel-collector:4318/v1/logs
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+    volumes:
+      - ./docker/nginx/truststore.jks:/certs/truststore.jks:ro
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      polaris:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8082/actuator/health/liveness && curl -f http://localhost:8082/actuator/health/readiness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - polaris-net
   redis:
     image: redis:7-alpine
     container_name: redis

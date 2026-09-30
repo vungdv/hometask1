@@ -12,13 +12,11 @@ COPY apps/polaris/pom.xml apps/polaris/
 COPY apps/polaris-assistant/pom.xml apps/polaris-assistant/
 COPY apps/polaris-fulfilment-emulator/pom.xml apps/polaris-fulfilment-emulator/
 
-# Copy source trees
+# Copy source trees (the emulator needs only the published event contracts)
 COPY libs ./libs
-COPY apps/polaris ./apps/polaris
-COPY apps/polaris-assistant ./apps/polaris-assistant
 COPY apps/polaris-fulfilment-emulator ./apps/polaris-fulfilment-emulator
 
-RUN mvn clean package -pl apps/polaris-assistant -am -DskipTests -B
+RUN mvn clean package -pl apps/polaris-fulfilment-emulator -am -DskipTests -B
 
 # ---------- Runtime stage ----------
 FROM eclipse-temurin:21-jre-jammy
@@ -28,10 +26,8 @@ WORKDIR /app
 RUN addgroup --system spring && adduser --system --ingroup spring spring
 USER spring:spring
 
-COPY --from=build /app/apps/polaris-assistant/target/*.jar app.jar
+COPY --from=build /app/apps/polaris-fulfilment-emulator/target/*.jar app.jar
 
-VOLUME /app/data
-
-EXPOSE 8081
+EXPOSE 8082
 
 ENTRYPOINT ["java", "-jar", "app.jar"]

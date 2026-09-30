@@ -8,7 +8,7 @@
 
 ## 1. Scope
 
-In: a new stateless Spring Boot app `apps/polaris-fulfilment-emulator` (Fulfilment context) that consumes `order.placed.v1` as an offer for every configured partner, claims through the Order REST API after a random pause, and lets the winner report packed, dispatched and delivered on `polaris.fulfilment.shipments`. Also the reactor, Dockerfile and compose wiring.
+In: a new stateless Spring Boot app `apps/polaris-fulfilment-emulator` (Fulfilment context) that consumes `order.placed.v1` as an offer for every configured partner, claims through the Order REST API after a random pause, and lets the winner report packed, dispatched and delivered on `polaris.fulfilment.shipments`. Also the reactor, Dockerfile, compose and Makefile wiring (the existing app Dockerfiles gain the new module's `pom.xml`, which the reactor needs).
 
 Out: Order's consumption of shipment events (F3), the end-to-end run and docs (F4), authenticated per-partner producers (programme §7). The shipment event contract already exists in `libs/polaris-events`, so no other context changes.
 
@@ -54,19 +54,17 @@ Poison offers follow ADR-0019 §4.1.4: `DefaultErrorHandler` with a short `Fixed
 ## 5. Token acquisition and refresh
 
 ```yaml
-spring.security.oauth2.client:
-  registration.polaris-fulfilment-emulator:
-    provider: polaris
-    client-id: polaris-fulfilment-emulator
-    client-secret: ${POLARIS_FULFILMENT_EMULATOR_SECRET}     # env only, no default
-    authorization-grant-type: client_credentials
-  provider.polaris:
-    token-uri: ${POLARIS_TOKEN_URI:https://id.polaris.local/realms/polaris/protocol/openid-connect/token}
+polaris.fulfilment.auth:
+  token-uri: ${POLARIS_FULFILMENT_TOKEN_URI:https://id.polaris.local/realms/polaris/protocol/openid-connect/token}
+  client-id: polaris-fulfilment-emulator
+  client-secret: ${POLARIS_FULFILMENT_EMULATOR_SECRET:}    # env only, no default
 ```
+
+The app depends on the `spring-security-oauth2-client` library only, not the Boot security starter, so the registration is built in code from these properties and actuator stays unsecured.
 
 - `token-uri` is set explicitly instead of `issuer-uri`, so the app starts without Keycloak reachable (no discovery call at startup). The token is fetched on the first claim.
 - `AuthorizedClientServiceOAuth2AuthorizedClientManager` with the `client_credentials` provider. It reuses the cached token and requests a new one when the current one is within the default 60 s clock skew of expiry. There is no refresh token in this grant; refresh means requesting a new token. No hand-written scheduling or expiry logic.
-- The `RestClient` uses `OAuth2ClientHttpRequestInterceptor` for the registration. A token fetch failure fails that claim with an `ERROR` log and the `FAILED` outcome. The claim is not retried (D4); the next offer tries again.
+- The `RestClient` uses `OAuth2ClientHttpRequestInterceptor` for the registration. Claims are serialized through the manager so a cold or expired token is fetched once, not once per partner. A token fetch failure fails that claim with an `ERROR` log and the `FAILED` outcome. The claim is not retried (D4); the next offer tries again.
 - The secret comes from `POLARIS_FULFILMENT_EMULATOR_SECRET` (the same variable as the realm import; compose supplies the dev default). The service account holds `order.fulfil` in the realm export.
 
 ## 6. Starting-offset policy (TR-F5, TR-B6)
@@ -86,7 +84,7 @@ Trade-offs accepted: the first start on a long-lived environment makes up to `pa
 
 ## 7. Observability (TR-X2)
 
-- **Logs:** structured console logs from Spring Boot (`logging.structured.format.console=logstash`) with `traceId`/`spanId` from the tracing MDC, plus the OpenTelemetry appender for OTLP export as in the other apps. Every line about an offer includes `orderNumber`, `partnerId`, `ce_id`, `ce_type` where known.
+- **Logs:** key=value log lines through the same logback setup as the other apps (Boot console pattern with the trace/span correlation, plus the OpenTelemetry appender for OTLP export with `trace_id` and `span_id`). Every line about an offer includes `orderNumber`, `partnerId`, `ce_id`, `ce_type` where known.
 - **Metrics (OTLP, Micrometer):** `polaris.fulfilment.offers` (tags `partner`, `outcome=received|ignored`), `polaris.fulfilment.claims` (`partner`, `outcome=won|lost|failed`), `polaris.fulfilment.claim.duration` timer, `polaris.fulfilment.shipments` (`partner`, `step`, `outcome=sent|failed`).
 - **Traces:** offer consumer span, claim HTTP client span, shipment producer spans, all in the order's trace (§4). Actuator exposes `health` and `info` only.
 
@@ -98,7 +96,7 @@ The claim endpoint and the token endpoint are stubbed with WireMock (the externa
 |:--|:--|
 | One offer → one claim per partner with distinct `partnerId` | Publish one `order.placed.v1`; WireMock receives exactly one claim per configured partner, ids all different |
 | Winner → exactly three shipment events in order with its `partnerId`; loser → none | Stub `200` for one partner and `409` for the rest; consume `polaris.fulfilment.shipments`: `packed`, `dispatched`, `delivered`, all with the winner's id, none from the others |
-| Seeded delays over 10 offers → more than one distinct winner | Unit test of `PartnerAgent` with a seeded generator and a manual scheduler and a stub that lets the earliest claim win: 10 offers, at least two winners |
+| Seeded delays over 10 offers → more than one distinct winner | Unit test of `PartnerAgent` with a seeded generator, a manual scheduler and a stub where the first claim per order wins: 10 offers, at least two winners |
 | Starts without a datasource | The Spring context test runs with no `DataSource` bean and no datasource class on the classpath |
 | Claim calls carry a service-account token | WireMock token endpoint issues a token; the claim stub only matches `Authorization: Bearer <token>`; the token request used `client_credentials` and the env secret |
 | One trace: offer → claim → shipment events | The offer is published with a known `traceparent`; claim requests and every shipment record carry that `trace-id`, and the captured spans share it |

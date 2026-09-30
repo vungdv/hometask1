@@ -10,11 +10,13 @@ COPY libs/polaris-events/pom.xml libs/polaris-events/
 COPY libs/polaris-outbox/pom.xml libs/polaris-outbox/
 COPY apps/polaris/pom.xml apps/polaris/
 COPY apps/polaris-assistant/pom.xml apps/polaris-assistant/
+COPY apps/polaris-fulfilment-emulator/pom.xml apps/polaris-fulfilment-emulator/
 
 # Copy source trees
 COPY libs ./libs
 COPY apps/polaris ./apps/polaris
 COPY apps/polaris-assistant ./apps/polaris-assistant
+COPY apps/polaris-fulfilment-emulator ./apps/polaris-fulfilment-emulator
 
 RUN mvn clean package -pl apps/polaris -am -DskipTests -B
 
