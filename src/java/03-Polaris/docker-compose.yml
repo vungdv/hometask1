@@ -47,10 +47,10 @@ services:
         condition: service_started
       swagger-ui:
         condition: service_started
-      # nginx resolves the syslog/OTLP target at startup, so the collector must exist first.
-      # It is not needed afterwards: stopping it later leaves nginx serving (OBS-RES-1).
-      otel-collector:
-        condition: service_healthy
+    # The Collector has a fixed address on polaris-net (see override) and nginx maps its name to
+    # it, so nginx starts and restarts with NO dependency on the Collector (OBS-RES-1).
+    extra_hosts:
+      - "otel-collector:172.29.250.10"
     healthcheck:
       # internal-only stub_status listener (8088, not published)
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8088/stub_status"]

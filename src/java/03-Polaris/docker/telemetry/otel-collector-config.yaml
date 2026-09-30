@@ -37,6 +37,18 @@ processors:
   resource/nginx:
     attributes:
       - {key: service.name, value: nginx-gateway, action: upsert}
+  # ngx_otel_module always records http.target WITH the raw query string (OAuth code/state) and
+  # otel_span_attr cannot replace it (it appends a duplicate). Remove every copy on gateway
+  # spans; the query-free path is carried by url.path (set in nginx.conf).
+  transform/nginx_spans:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        conditions:
+          - resource.attributes["service.name"] == "nginx-gateway"
+        statements:
+          - delete_matching_keys(span.attributes, "^http\\.target$")
+          - delete_matching_keys(span.attributes, "^url\\.query$")
   # Parse the JSON access log: promote trace_id/span_id to the log record (Loki structured
   # metadata, same correlation as app logs), keep the JSON as body, map 5xx to ERROR.
   transform/nginx_logs:
@@ -103,7 +115,7 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, transform/nginx_spans, batch]
       exporters: [otlp_grpc/tempo]
     metrics:
       receivers: [otlp]

@@ -80,7 +80,10 @@ LF=$(sed -n '/log_format edge_json/,/;$/p' $N)
 echo "$LF" | grep -q '\$otel_trace_id' && echo "$LF" | grep -q '\$otel_span_id' && echo "$LF" | grep -q '\$upstream_status' \
   && ! echo "$LF" | grep -qE '\$(args|query_string|request|request_uri|http_[a-z_]+|cookie_[a-z_]+|arg_[a-z_]+)\b' \
   && ok "log_format has trace ids and no query/header/cookie variables" || bad "log_format content"
-grep -q 'otel_span_attr http.target "\$uri"' $N && ok "span http.target overridden without query string" || bad "span http.target may leak query"
+grep -qF 'delete_matching_keys(span.attributes, "^http' $T/otel-collector-config.yaml && grep -q 'transform/nginx_spans' $T/otel-collector-config.yaml \
+  && ok "collector strips the module's http.target (query string) from gateway spans" || bad "http.target not stripped in collector"
+grep -q 'otel-collector:172.29.250.10' docker-compose.yml && grep -q 'ipv4_address: 172.29.250.10' docker-compose.override.yml \
+  && ok "nginx maps otel-collector to its fixed address (no startup DNS dependency)" || bad "fixed collector address / extra_hosts"
 [ "$(grep -c 'set \$sse "true"' $N)" -eq 2 ] && ok "SSE locations labelled (/mcp/, /api/v1/assistant)" || bad "SSE labels"
 grep -q 'stub_status' $N && grep -q 'listen 8088' $N && ! grep -qE '"[0-9]*:?8088' docker-compose.yml docker-compose.override.yml \
   && ok "stub_status internal listener not published" || bad "stub_status listener / published"

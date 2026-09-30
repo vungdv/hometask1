@@ -111,7 +111,10 @@ services:
       - "4318:4318" # HTTP OTLP receiver
       - "8889:8889" # Prometheus metrics endpoint
     networks:
-      - polaris-net
+      polaris-net:
+        # Fixed address: nginx (extra_hosts) resolves the Collector without DNS, so the
+        # gateway can start while the Collector is down (plan O2a, OBS-RES-1).
+        ipv4_address: 172.29.250.10
 
     healthcheck:
       test: ["CMD", "/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:13133/"]
@@ -212,3 +215,8 @@ volumes:
 
 networks:
   polaris-net:
+    ipam:
+      config:
+        - subnet: 172.29.250.0/24
+          # dynamic addresses come from the upper half; the lower half is for fixed addresses
+          ip_range: 172.29.250.128/25

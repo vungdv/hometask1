@@ -60,10 +60,14 @@ assert len(edge)==1, "expected exactly one nginx-gateway span"
 s=edge[0][0]; at={a["key"]:list(a["value"].values())[0] for a in s["attributes"]}
 assert hx(s.get("spanId"))==sid and not s.get("parentSpanId"), "nginx span is not the root / span_id mismatch"
 assert s["name"]=="polaris:/" and at.get("http.route")=="polaris:/", "span name is not the route"
-assert "?" not in at.get("http.target",""), "query string in span"
 assert any(hx(x[0].get("parentSpanId"))==sid for x in app), "no polaris child of the nginx span"'
 }
-poll "one trace rooted at the nginx-gateway span (route-named, no query) with a polaris child" trace_ok
+poll "one trace rooted at the nginx-gateway span (route-named) with a polaris child" trace_ok
+# every attribute of every span of the trace (nginx AND polaris, duplicates included) is scanned raw
+no_leak() { curl -sf -m 15 "$TEMPO/api/traces/$TID" > /tmp/edge-trace.$$ && ! grep -qE "$SECRET|code=|state=" /tmp/edge-trace.$$; }
+no_leak && ok "no query string, code/state, Authorization or cookie value in ANY span attribute (raw trace scan)" || bad "secret/query string found in trace $TID"
+grep -q '"http.target"' /tmp/edge-trace.$$ && bad "gateway http.target attribute still present" || ok "module's http.target removed by the Collector"
+rm -f /tmp/edge-trace.$$
 
 # 4. stub_status: reachable inside, not published to the host
 docker exec nginx curl -fsS -o /dev/null http://127.0.0.1:8088/stub_status && ok "stub_status answers on the internal listener" || bad "stub_status internal"
@@ -77,7 +81,7 @@ poll "nginx connection metrics scraped (stub_status)" series 'nginx_connections_
 
 # 6. Failure modes
 if [ "${RUN_FAILURE:-0}" = 1 ]; then
-  restore() { docker compose start polaris otel-collector >/dev/null 2>&1; }
+  restore() { docker compose start polaris otel-collector nginx >/dev/null 2>&1; }
   trap restore EXIT
   docker compose stop polaris >/dev/null 2>&1
   for i in 1 2 3; do gw -o /dev/null "https://polaris.local/actuator/health"; done
@@ -94,6 +98,11 @@ if [ "${RUN_FAILURE:-0}" = 1 ]; then
   docker compose stop otel-collector >/dev/null 2>&1
   bad_n=0; for i in $(seq 1 20); do c=$(gw -o /dev/null -w '%{http_code}' "https://id.polaris.local/realms/master/.well-known/openid-configuration"); [ "$c" = 200 ] || bad_n=$((bad_n+1)); done
   [ $bad_n -eq 0 ] && ok "collector stopped: nginx served 20/20 requests normally" || bad "collector stopped: $bad_n/20 requests failed"
+  # OBS-RES-1: the gateway must also (re)start while the Collector is down
+  docker compose restart nginx >/dev/null 2>&1
+  for i in $(seq 1 30); do [ "$(gw -o /dev/null -w '%{http_code}' https://id.polaris.local/realms/master/.well-known/openid-configuration)" = 200 ] && break; sleep 2; done
+  c=$(gw -o /dev/null -w '%{http_code}' "https://id.polaris.local/realms/master/.well-known/openid-configuration")
+  [ "$c" = 200 ] && ok "nginx restarted with the collector down and serves HTTP 200" || bad "nginx restart with collector down: got $c"
   docker compose start otel-collector >/dev/null 2>&1
 fi
 
