@@ -1,0 +1,19 @@
+apiVersion: 1
+
+# Plan O4: dashboards as code. JSON under ./json is versioned in git; the sub-directory
+# name is the Grafana folder (one per audience):
+#   operations/   on-call: edge, service RED, traces and logs explorer
+#   engineering/  app owners: JVM and runtime, dependencies
+#   platform/     telemetry pipeline health
+# The whole ./provisioning directory is already mounted into Grafana by docker-compose.override.yml.
+# Provisioned dashboards are read-only in the UI (allowUiUpdates: false); change the JSON and re-deploy.
+providers:
+  - name: polaris
+    orgId: 1
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards/json
+      foldersFromFilesStructure: true
