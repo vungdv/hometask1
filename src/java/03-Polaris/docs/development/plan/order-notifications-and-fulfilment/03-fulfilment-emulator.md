@@ -93,3 +93,4 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | Date | Change | Reason | Slices affected |
 |:--|:--|:--|:--|
+| 2026-09-30 | F1: cancelling a `CONFIRMED` (claimed) order keeps today's behaviour; a separate process will own it. The claim-vs-cancel race criterion applies only to concurrent attempts on a `PLACED` order, and the DB check requires a partner for fulfilled statuses but does not forbid one on `CANCELLED` | User decision: cancel of claimed orders needs its own process | F1 |
