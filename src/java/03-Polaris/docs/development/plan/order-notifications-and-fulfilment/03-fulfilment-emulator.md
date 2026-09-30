@@ -51,7 +51,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | 2 | F2 | Fulfilment emulator | `done` | — | `slice/f2-fulfilment-emulator` | [#23](https://github.com/vungdv/hometask1/pull/23) | |
 | 3 | F3 | Shipment progress drives the order | `done` | — | `slice/f3-shipment-progress` | [#24](https://github.com/vungdv/hometask1/pull/24) | |
 | 3b | F2b | Emulator starts in its container image | `done` | — | `slice/f2b-emulator-container-start` | [#26](https://github.com/vungdv/hometask1/pull/26) | Added 2026-09-30 after F4 run found the F2 crash |
-| 4 | F4 | Fulfilment end-to-end | `blocked` | — | `slice/f4-fulfilment-e2e` | [#25](https://github.com/vungdv/hometask1/pull/25) (draft) | F2 defect: emulator container crashes at startup (`L32X64MixRandom` needs `jdk.random`, absent from the JRE image); local Keycloak volume predates F1 |
+| 4 | F4 | Fulfilment end-to-end | `in-review` | — | `slice/f4-fulfilment-e2e` | [#25](https://github.com/vungdv/hometask1/pull/25) | Unblocked by F2b + Keycloak volume reset; `make e2e-fulfilment` passed twice on the full stack |
 
 **Statuses:** `todo` → `in-progress` → `in-review` → `approved` (not merged) → `done` (merged), plus `blocked` (reason in *Notes*) and `dropped`.
 
