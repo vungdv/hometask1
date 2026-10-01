@@ -1,4 +1,4 @@
-.PHONY: pull build up up-json e2e-fulfilment-json down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders schema-register schema-check schema-subjects
+.PHONY: pull build up up-dev-ports init-env down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders up-json e2e-fulfilment-json schema-register schema-check schema-subjects
 
 run:
 	mvn spring-boot:run -pl apps/polaris
@@ -16,12 +16,17 @@ pull:
 	docker compose pull
 build:
 	docker compose build
-up:
+init-env:
+	./scripts/init-env.sh
+up: init-env
 	docker compose up -d --build
 # Events are Avro by default (CloudEvents envelope + Schema Registry payload, ADR-0021); this brings the stack up writing JSON
 up-json: export POLARIS_EVENTS_FORMAT=json
-up-json:
+up-json: init-env
 	docker compose up -d --build
+# Opt-in loopback publish of telemetry backends for host-side tooling (docs/operations/exposure.md)
+up-dev-ports: init-env
+	docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.dev-ports.yml up -d --build
 down: 
 	docker compose down
 clean:

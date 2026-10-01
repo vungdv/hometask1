@@ -7,10 +7,10 @@
 # RUN_FAILURE=1 also stops polaris (expect edge 502s in logs + span metrics) and the collector
 # (nginx must keep serving), then restores both.
 # Usage: scripts/telemetry/edge-check.sh
-# Env:   TEMPO (http://localhost:3200) LOKI (http://localhost:3100) PROM (http://localhost:9090) WAIT_SECS (60)
+# Env:   TEMPO LOKI PROM (internal addresses via scripts/telemetry/lib/net.sh) WAIT_SECS (60)
 set -uo pipefail
 cd "$(dirname "$0")/../.."
-TEMPO=${TEMPO:-http://localhost:3200}; LOKI=${LOKI:-http://localhost:3100}; PROM=${PROM:-http://localhost:9090}
+. scripts/telemetry/lib/net.sh
 WAIT=${WAIT_SECS:-60}
 fail=0
 ok()  { echo "PASS $1"; }
@@ -38,7 +38,7 @@ sys.exit(1 if [k for k in need if k not in d] or '?' in d['uri'] else 0)" && ok 
 edge_lines | grep -qE "$SECRET|Bearer|SESSION" && bad "secret found in edge stdout log" || ok "no Authorization/cookie/code/state in edge stdout log"
 
 # 2. Same trace_id in Loki (via syslog -> collector), and no secrets there
-loki_line() { curl -s -m 10 -G "$LOKI/loki/api/v1/query_range" --data-urlencode "query={service_name=\"nginx-gateway\"} | trace_id=\"$TID\"" \
+loki_line() { icurl -s -m 10 -G "$LOKI/loki/api/v1/query_range" --data-urlencode "query={service_name=\"nginx-gateway\"} | trace_id=\"$TID\"" \
   --data-urlencode "start=$(( $(date +%s) - 600 ))000000000" | tee /tmp/edge-loki.$$ | grep -q '"values"'; }
 poll "loki has the edge log for trace_id $TID (service nginx-gateway, over syslog)" loki_line
 grep -qE "$SECRET|Bearer|SESSION" /tmp/edge-loki.$$ && bad "secret found in Loki edge log" || ok "no secrets in Loki edge log"
@@ -46,7 +46,7 @@ rm -f /tmp/edge-loki.$$
 
 # 3. One trace: nginx-gateway root, route-named, polaris descendant of the nginx span
 trace_ok() {
-  curl -sf -m 15 "$TEMPO/api/traces/$TID" | SID=$SID python3 -c '
+  icurl -sf -m 15 "$TEMPO/api/traces/$TID" | SID=$SID python3 -c '
 import sys,json,os,base64
 d=json.load(sys.stdin); sid=os.environ["SID"]
 hx=lambda b: base64.b64decode(b).hex() if b else ""
@@ -64,7 +64,7 @@ assert any(hx(x[0].get("parentSpanId"))==sid for x in app), "no polaris child of
 }
 poll "one trace rooted at the nginx-gateway span (route-named) with a polaris child" trace_ok
 # every attribute of every span of the trace (nginx AND polaris, duplicates included) is scanned raw
-no_leak() { curl -sf -m 15 "$TEMPO/api/traces/$TID" > /tmp/edge-trace.$$ && ! grep -qE "$SECRET|code=|state=" /tmp/edge-trace.$$; }
+no_leak() { icurl -sf -m 15 "$TEMPO/api/traces/$TID" > /tmp/edge-trace.$$ && ! grep -qE "$SECRET|code=|state=" /tmp/edge-trace.$$; }
 no_leak && ok "no query string, code/state, Authorization or cookie value in ANY span attribute (raw trace scan)" || bad "secret/query string found in trace $TID"
 grep -q '"http.target"' /tmp/edge-trace.$$ && bad "gateway http.target attribute still present" || ok "module's http.target removed by the Collector"
 rm -f /tmp/edge-trace.$$
@@ -75,7 +75,7 @@ curl -s -m 3 -o /dev/null http://localhost:8088/stub_status && bad "stub_status 
 [ "$(docker inspect -f '{{.State.Health.Status}}' nginx)" = healthy ] && ok "nginx compose healthcheck healthy" || bad "nginx healthcheck"
 
 # 5. Span metrics and connection metrics
-series() { curl -s -m 10 "$PROM/api/v1/query" --data-urlencode "query=count($1)" | grep -q '"value"'; }
+series() { icurl -s -m 10 "$PROM/api/v1/query" --data-urlencode "query=count($1)" | grep -q '"value"'; }
 poll "span metrics exist for service nginx-gateway" series 'traces_spanmetrics_calls_total{service="nginx-gateway"}'
 poll "nginx connection metrics scraped (stub_status)" series 'nginx_connections_current'
 
@@ -88,10 +88,10 @@ if [ "${RUN_FAILURE:-0}" = 1 ]; then
   c=$(gw -o /dev/null -w '%{http_code}' "https://polaris.local/actuator/health")
   [ "$c" = 502 ] || [ "$c" = 504 ] && ok "polaris stopped: edge returns $c" || bad "expected 502/504 with polaris stopped, got $c"
   edge_lines | grep '"host":"polaris.local"' | tail -1 | grep -qE '"status":50[234]' && ok "edge stdout log records the 5xx" || bad "no 5xx in edge log"
-  err_in_loki() { curl -s -m 10 -G "$LOKI/loki/api/v1/query_range" --data-urlencode 'query={service_name="nginx-gateway"} | json | status>=500' \
+  err_in_loki() { icurl -s -m 10 -G "$LOKI/loki/api/v1/query_range" --data-urlencode 'query={service_name="nginx-gateway"} | json | status>=500' \
     --data-urlencode "start=$(( $(date +%s) - 300 ))000000000" | grep -q '"values"'; }
   poll "edge 5xx visible in Loki" err_in_loki
-  m5xx() { curl -s -m 10 "$PROM/api/v1/query" --data-urlencode 'query=sum(traces_spanmetrics_calls_total{service="nginx-gateway",http_response_status_code=~"50[234]"})' | grep -q '"value"'; }
+  m5xx() { icurl -s -m 10 "$PROM/api/v1/query" --data-urlencode 'query=sum(traces_spanmetrics_calls_total{service="nginx-gateway",http_response_status_code=~"50[234]"})' | grep -q '"value"'; }
   poll "edge 5xx visible in span metrics" m5xx
   docker compose start polaris >/dev/null 2>&1
 
