@@ -4,14 +4,14 @@
 # assert telemetry resumes WITHOUT restarting the collector/apps.
 # Usage: scripts/telemetry/resilience-check.sh [tempo|loki|otel-collector ...]
 # Env:   URL (default http://localhost:8080/actuator/health), PHASE_SECS (20),
-#        MAX_P95_FACTOR (3), MAX_P95_FLOOR_MS (100), PROM (http://localhost:9090)
+#        MAX_P95_FACTOR (3), MAX_P95_FLOOR_MS (100), PROM LOKI OTLP (internal addresses via scripts/telemetry/lib/net.sh)
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 URL=${URL:-http://localhost:8080/actuator/health}
 PHASE=${PHASE_SECS:-20}
 FACTOR=${MAX_P95_FACTOR:-3}
 FLOOR=${MAX_P95_FLOOR_MS:-100}
-PROM=${PROM:-http://localhost:9090}
+. scripts/telemetry/lib/net.sh
 TARGETS=("$@"); [ ${#TARGETS[@]} -eq 0 ] && TARGETS=(tempo loki otel-collector)
 fail=0
 
@@ -28,7 +28,7 @@ stats() { # file -> "n non200 p95"
     || sort -k2 -n "$1" | awk '{n++; if($1!=200)e++; l[n]=$2} END{i=int(n*0.95); if(i<1)i=1; printf "%d %d %d", n, e+0, l[i]}'
 }
 counter() { # metric name (no _total) -> summed value from Prometheus, 0 if absent
-  curl -s "$PROM/api/v1/query" --data-urlencode "query=sum($1)" | sed -n 's/.*"value":\[[^,]*,"\([^"]*\)"\].*/\1/p' | head -1 | grep . || echo 0
+  icurl -s "$PROM/api/v1/query" --data-urlencode "query=sum($1)" | sed -n 's/.*"value":\[[^,]*,"\([^"]*\)"\].*/\1/p' | head -1 | grep . || echo 0
 }
 metric_for() { case $1 in tempo) echo otelcol_exporter_sent_spans;; loki) echo otelcol_exporter_sent_log_records;; otel-collector) echo otelcol_receiver_accepted_spans;; esac; }
 
@@ -59,11 +59,11 @@ for t in "${TARGETS[@]}"; do
     # Business requests emit few log lines, so prove log resume with a marker record sent
     # over OTLP/HTTP through the collector and read back from Loki.
     marker="res-$$-$(date +%s)"
-    curl -s -m 5 -o /dev/null -H 'Content-Type: application/json' "${OTLP:-http://localhost:4318}/v1/logs" -d \
+    icurl -s -m 5 -o /dev/null -H 'Content-Type: application/json' "$OTLP/v1/logs" -d \
       "{\"resourceLogs\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"resilience-check\"}}]},\"scopeLogs\":[{\"logRecords\":[{\"timeUnixNano\":\"$(date +%s)000000000\",\"severityText\":\"INFO\",\"body\":{\"stringValue\":\"$marker\"}}]}]}]}"
     found=0
     for i in $(seq 1 15); do
-      curl -s -G "${LOKI:-http://localhost:3100}/loki/api/v1/query_range" --data-urlencode "query={service_name=\"resilience-check\"} |= \"$marker\"" \
+      icurl -s -G "$LOKI/loki/api/v1/query_range" --data-urlencode "query={service_name=\"resilience-check\"} |= \"$marker\"" \
         --data-urlencode "start=$(( $(date +%s) - 300 ))000000000" | grep -q "$marker" && { found=1; break; }
       sleep 2
     done

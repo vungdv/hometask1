@@ -2,14 +2,16 @@
 # Validates the provisioned Grafana dashboards (plan O4). Needs only ruby (as validate-configs.sh).
 #   scripts/telemetry/validate-dashboards.sh                 static checks (CI)
 #   scripts/telemetry/validate-dashboards.sh --live [URL]    also run every Prometheus query against
-#                                                            a live Prometheus (default http://localhost:9090)
+#                                                            a live Prometheus. Default: inside polaris-net via the
+#                                                            grafana container (no host port, plan O7); with a URL
+#                                                            argument (e.g. the dev-ports http://127.0.0.1:9090): host HTTP
 # Static checks: provider config, JSON parses, unique uids, every datasource reference resolves to a UID
 # in provisioning/datasources, no query uses a forbidden label (O3), recorded units on value panels,
 # `service` and `env` template variables present (except the pipeline dashboard).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-LIVE=""; PROM_URL="http://localhost:9090"
-if [ "${1:-}" = "--live" ]; then LIVE=1; PROM_URL="${2:-$PROM_URL}"; fi
+LIVE=""; PROM_URL=""
+if [ "${1:-}" = "--live" ]; then LIVE=1; PROM_URL="${2:-}"; fi
 export LIVE PROM_URL
 exec ruby -rjson -ryaml -rnet/http -ruri -e '
 G = "docker/telemetry/grafana/provisioning"
@@ -92,9 +94,16 @@ end
 
 if ENV["LIVE"] == "1"
   base = ENV["PROM_URL"]; empty = 0
+  query = lambda do |e|
+    if base.empty?  # no published host port: run curl inside the grafana container on polaris-net
+      JSON.parse(IO.popen(["docker", "exec", "grafana", "curl", "-s", "-m", "30", "--data-urlencode", "query=#{e}", "http://prometheus:9090/api/v1/query"], &:read))
+    else
+      JSON.parse(Net::HTTP.post_form(URI("#{base}/api/v1/query"), "query" => e).body)
+    end
+  end
   queries.each do |(dash, title, q, _)|
     e = q.gsub("$__rate_interval", "5m").gsub(/\$service\b/, ".+").gsub(/\$env\b/, ".*").gsub(/\$(event_type|group)\b/, ".+")
-    r = JSON.parse(Net::HTTP.post_form(URI("#{base}/api/v1/query"), "query" => e).body)
+    r = query.call(e)
     if r["status"] != "success" then bad("live #{dash} / #{title}: #{r["error"]}")
     elsif r["data"]["result"].empty? then empty += 1; puts "WARN live #{dash} / #{title}: no data"
     else ok("live #{dash} / #{title}: #{r["data"]["result"].size} series")

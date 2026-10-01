@@ -1,4 +1,4 @@
-.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders
+.PHONY: pull build up up-dev-ports init-env down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders
 
 run:
 	mvn spring-boot:run -pl apps/polaris
@@ -16,8 +16,13 @@ pull:
 	docker compose pull
 build:
 	docker compose build
-up:
+init-env:
+	./scripts/init-env.sh
+up: init-env
 	docker compose up -d --build
+# Opt-in loopback publish of telemetry backends for host-side tooling (docs/operations/exposure.md)
+up-dev-ports: init-env
+	docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.dev-ports.yml up -d --build
 down: 
 	docker compose down
 clean:

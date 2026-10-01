@@ -10,11 +10,11 @@
 #   -> metrics continuity (O6c): for CONTINUITY_SECS more of the outage, polaris keeps exporting (its JVM uptime series changes at
 #      least every 150 s, OTLP step is 60 s) and the pending count/age series are present at every sample, the age rising
 #   -> start Kafka -> outbox drains to 0, the alert resolves, consumers recover.
-# Env: PROM AM MAILPIT (localhost defaults), WAIT_SECS (per wait, default 240), BROKERS (default "kafka-1 kafka-2 kafka-3"),
+# Env: PROM AM MAILPIT (internal addresses via scripts/telemetry/lib/net.sh), WAIT_SECS (per wait, default 240), BROKERS (default "kafka-1 kafka-2 kafka-3"),
 #      CONTINUITY_SECS (default 180; 0 skips the continuity window), DRAIN_WAIT_SECS (default 420, relay backoff caps at 5 min)
 set -uo pipefail
 cd "$(dirname "$0")/../.."
-PROM=${PROM:-http://localhost:9090}; AM=${AM:-http://localhost:9093}; MAILPIT=${MAILPIT:-http://localhost:8025}
+. scripts/telemetry/lib/net.sh
 WAIT=${WAIT_SECS:-240}; CONTINUITY=${CONTINUITY_SECS:-180}; BROKERS=${BROKERS:-"kafka-1 kafka-2 kafka-3"}
 TESTRULES=docker/telemetry/prometheus/rules-test/test-async-short.yml
 fail=0
@@ -23,17 +23,17 @@ bad() { echo "FAIL $1"; fail=1; }
 cleanup() { rm -f "$TESTRULES"; docker kill -s HUP prometheus >/dev/null 2>&1; for b in $BROKERS; do docker start "$b" >/dev/null 2>&1; done; }
 trap cleanup EXIT
 
-qval() { curl -s -m 10 "$PROM/api/v1/query" --data-urlencode "query=$1" | python3 -c '
+qval() { icurl -s -m 10 "$PROM/api/v1/query" --data-urlencode "query=$1" | python3 -c '
 import sys,json
 r=json.load(sys.stdin)["data"]["result"]; print(max([float(x["value"][1]) for x in r]) if r else "none")'; }
 gt() { # gt <promql> <min>: value exists and is >= min
   v=$(qval "$1"); [ "$v" != none ] && python3 -c "import sys; sys.exit(0 if float('$v')>=float('$2') else 1)"; }
 zero() { v=$(qval "$1"); [ "$v" = 0.0 ] || [ "$v" = 0 ]; }
-firing() { curl -s "$AM/api/v2/alerts?active=true&silenced=false&inhibited=false" | ALERT=$1 python3 -c '
+firing() { icurl -s "$AM/api/v2/alerts?active=true&silenced=false&inhibited=false" | ALERT=$1 python3 -c '
 import sys,json,os
 sys.exit(0 if any(x["labels"]["alertname"]==os.environ["ALERT"] for x in json.load(sys.stdin)) else 1)'; }
 notfiring() { ! firing "$1"; }
-mail() { curl -s "$MAILPIT/api/v1/messages?limit=200" | ALERT=$1 python3 -c '
+mail() { icurl -s "$MAILPIT/api/v1/messages?limit=200" | ALERT=$1 python3 -c '
 import sys,json,os
 sys.exit(0 if any(os.environ["ALERT"] in m["Subject"] for m in json.load(sys.stdin)["messages"]) else 1)'; }
 wait_for() { local d=$1; shift; local end=$((SECONDS + WAIT))
@@ -76,12 +76,12 @@ healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$1" 2>/dev/null)"
 
 # ---- preconditions
 for b in $BROKERS; do docker start "$b" >/dev/null 2>&1; done
-curl -sf "$PROM/-/ready" >/dev/null && curl -sf "$AM/-/ready" >/dev/null && curl -sf "$MAILPIT/api/v1/info" >/dev/null \
+icurl -sf "$PROM/-/ready" >/dev/null && icurl -sf "$AM/-/ready" >/dev/null && icurl -sf "$MAILPIT/api/v1/info" >/dev/null \
   && ok "prometheus, alertmanager, mailpit ready" || { bad "stack not ready"; exit 1; }
 wait_for "outbox drained and reported (baseline)" zero 'polaris_outbox_backlog_events{exported_job="Polaris"}' || exit 1
 NET=$(docker network ls --filter label=com.docker.compose.network=polaris-net --format '{{.Name}}' | head -1)
 [ -n "$NET" ] && ok "polaris-net found" || { bad "polaris-net not found"; exit 1; }
-curl -s -X DELETE "$MAILPIT/api/v1/messages" >/dev/null
+icurl -s -X DELETE "$MAILPIT/api/v1/messages" >/dev/null
 
 # ---- test-only short-window copy of OutboxStuck
 cat > "$TESTRULES" <<'YAML'

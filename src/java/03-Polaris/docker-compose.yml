@@ -347,6 +347,8 @@ services:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
       POLARIS_FULFILMENT_EMULATOR_SECRET: ${POLARIS_FULFILMENT_EMULATOR_SECRET:-fulfilment-emulator-dev-secret}
+      # Substituted into the realm import (${GRAFANA_OAUTH_CLIENT_SECRET} in realm-export.json); same value Grafana uses (plan O7).
+      GRAFANA_OAUTH_CLIENT_SECRET: ${GRAFANA_OAUTH_CLIENT_SECRET:?run scripts/init-env.sh (see docs/operations/access.md)}
       KC_PROXY_HEADERS: xforwarded
       KC_HOSTNAME: https://id.${POLARIS_DOMAIN}
       KC_TRACING_ENABLED: "true"
