@@ -101,16 +101,12 @@
       "name": "Grafana Observability",
       "enabled": true,
       "publicClient": false,
-      "secret": "grafana-client-secret",
+      "secret": "${GRAFANA_OAUTH_CLIENT_SECRET}",
       "redirectUris": [
-        "https://grafana.polaris.local/login/generic_oauth",
-        "http://localhost:3000/login/generic_oauth",
-        "http://127.0.0.1:3000/login/generic_oauth"
+        "https://grafana.polaris.local/login/generic_oauth"
       ],
       "webOrigins": [
-        "https://grafana.polaris.local",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000"
+        "https://grafana.polaris.local"
       ],
       "directAccessGrantsEnabled": false,
       "standardFlowEnabled": true,

@@ -89,8 +89,8 @@ Get the entire environment—including local HTTPS, identity provider, core back
 
 ### 2. Quick Start
 ```bash
-# 1. Initialize environment file
-cp .env.template .env
+# 1. Initialize environment file (`make up` also does this and generates the Grafana secrets; see docs/operations/access.md)
+cp .env.template .env && ./scripts/init-env.sh
 
 # 2. Configure local TLS certificates and hostnames (one-time setup)
 ./scripts/setup-local-https-mac-m1.sh
@@ -107,7 +107,7 @@ make up
 | **Assistant Chat API** | `POST https://polaris.local/api/v1/assistant/chat` | AI Assistant chat conversation endpoint (Requires OAuth2 Bearer token) |
 | **Polaris MCP Endpoint** | `POST https://polaris.local/mcp`<br/>[https://polaris.local/mcp/sse](https://polaris.local/mcp/sse) | MCP JSON-RPC stateless HTTP & SSE endpoints (Requires OAuth2 Bearer token) |
 | **Keycloak Admin** | [https://id.polaris.local](https://id.polaris.local) | Username: `admin` \| Password: `admin` |
-| **Grafana Telemetry** | [https://grafana.polaris.local](https://grafana.polaris.local) | Username: `admin` \| Password: `admin` (or Keycloak SSO) |
+| **Grafana Telemetry** | [https://grafana.polaris.local](https://grafana.polaris.local) | Keycloak SSO (realm role `viewer`, `editor` or `admin`; `testuser` is Admin) or the local `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from `.env` (generated, never committed). Grafana is the only telemetry UI behind the gateway; Prometheus, Loki, Tempo, the Collector, Alertmanager and Mailpit publish no host port ([exposure](docs/operations/exposure.md)). For host-side tooling (`make run` apps, Mailpit/Alertmanager UI) use `make up-dev-ports` (loopback only) |
 | **Polaris Database** | Internal `polaris-db:5432` | `make polaris-sql` opens psql into PostgreSQL 16 database |
 | **Kafka** | Internal `kafka-{1,2,3}:9092` · host `localhost:9094-9096` | Three-node KRaft cluster (every node broker + controller), no auto-created topics: each owner provisions its own (Order: `polaris.order.lifecycle`, 3 partitions × 3 replicas, min ISR 2, [ADR-0019](docs/technical/decisions/0019-kafka-and-cloudevents-binding.md)). `make run` bootstraps from `localhost:9094-9096`. See [Kafka cluster experiments](#kafka-cluster-experiments) |
 

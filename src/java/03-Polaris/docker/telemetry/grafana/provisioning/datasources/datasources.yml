@@ -16,6 +16,8 @@ datasources:
 
   - name: Prometheus
     uid: prometheus
+    # Plan O7: provisioned and read-only; nobody edits or deletes it in the UI or API (changes go through this file).
+    editable: false
     type: prometheus
     access: proxy
     url: http://prometheus:9090
@@ -32,6 +34,8 @@ datasources:
 
   - name: Loki
     uid: loki
+    # Plan O7: provisioned and read-only; nobody edits or deletes it in the UI or API (changes go through this file).
+    editable: false
     type: loki
     access: proxy
     url: http://loki:3100
@@ -47,6 +51,8 @@ datasources:
 
   - name: Tempo
     uid: tempo
+    # Plan O7: provisioned and read-only; nobody edits or deletes it in the UI or API (changes go through this file).
+    editable: false
     type: tempo
     access: proxy
     url: http://tempo:3200

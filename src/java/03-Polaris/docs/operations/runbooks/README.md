@@ -22,11 +22,11 @@ One runbook per Prometheus alert (plan O5). Every alert carries a `runbook_url` 
 
 ## Click-path: alert to metric, exemplar trace and logs
 
-From an alert email (or Alertmanager, `http://localhost:9093` in dev) to the evidence, in **4 steps** (OBS-DIA-1):
+From an alert email (or Alertmanager, `http://localhost:9093` in dev with `make up-dev-ports`) to the evidence, in **4 steps** (OBS-DIA-1):
 
 1. **Metric panel.** Open the `dashboard_url` annotation: Edge (gateway) (`polaris-edge`), Service RED (`polaris-service-red`, service preselected), Async: outbox and Kafka (`polaris-async`) or Telemetry pipeline (`polaris-telemetry-pipeline`). The failing series is visible on the request-rate, 5xx or p95 panels.
 2. **Exemplar trace.** On the request/latency panel, click an exemplar dot on the offending series; Grafana opens the trace in Tempo (Prometheus exemplar to Tempo, provisioned in O2). Or use Explore, Tempo, `{ resource.service.name = "nginx-gateway" && status = error }`.
 3. **Correlated logs.** In the trace view choose **Logs for this span** (Tempo to Loki by `trace_id`, provisioned in O2). Loki opens filtered to that trace.
 4. **Business transaction.** In the log lines read the error and the `orderNumber` (present in traces and logs, never in metrics) to identify the order or operation affected.
 
-Dev notification targets (Q2, the production target, is unanswered): Mailpit `http://localhost:8025`, Alertmanager `http://localhost:9093`, webhook receiver `docker logs alert-webhook`.
+Dev notification targets (Q2, the production target, is unanswered): Mailpit `http://localhost:8025`, Alertmanager `http://localhost:9093` (both published on loopback only by `make up-dev-ports`, see [exposure](../exposure.md)), webhook receiver `docker logs alert-webhook`.

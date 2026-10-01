@@ -5,12 +5,10 @@
 # asserts: secrets/PII are ABSENT from Loki, Tempo and Prometheus; user_id/order_id are absent
 # from metric labels but kept on traces and logs; only allow-listed labels index Loki streams.
 # Usage: scripts/telemetry/redaction-check.sh
-# Env:   OTLP (http://localhost:4318) PROM (http://localhost:9090) TEMPO (http://localhost:3200)
-#        LOKI (http://localhost:3100) WAIT_SECS (60)
+# Env:   OTLP PROM TEMPO LOKI (internal addresses via scripts/telemetry/lib/net.sh) WAIT_SECS (60)
 set -uo pipefail
 cd "$(dirname "$0")/../.."
-OTLP=${OTLP:-http://localhost:4318}; PROM=${PROM:-http://localhost:9090}
-TEMPO=${TEMPO:-http://localhost:3200}; LOKI=${LOKI:-http://localhost:3100}
+. scripts/telemetry/lib/net.sh
 WAIT=${WAIT_SECS:-60}
 fail=0
 ok()  { echo "PASS $1"; }
@@ -58,7 +56,7 @@ d = e["OUT"]
 for n, v in (("traces", trace), ("logs", logs), ("metrics", metrics)):
     json.dump(v, open(f"{d}/rc-{n}.json", "w"))
 PY
-send() { curl -s -o /dev/null -w '%{http_code}' -m 10 -H 'Content-Type: application/json' --data-binary "@$OUT/rc-$1.json" "$OTLP/v1/$1"; }
+send() { icurl_in -s -o /dev/null -w '%{http_code}' -m 10 -H 'Content-Type: application/json' --data-binary @- "$OTLP/v1/$1" < "$OUT/rc-$1.json"; }
 for s in traces logs metrics; do
   [ "$(send $s)" = 200 ] && ok "OTLP $s accepted by collector" || bad "OTLP $s rejected"
 done
@@ -71,7 +69,7 @@ docker exec nginx sh -c "printf '<190>%s nginx: %s' \"\$(date '+%b %e %H:%M:%S')
   && ok "edge syslog line injected" || bad "could not inject edge syslog line (needs the nginx container)"
 
 # ---- Loki ----
-lq() { curl -s -m 15 -G "$LOKI/loki/api/v1/query_range" --data-urlencode "query=$1" --data-urlencode "limit=100" \
+lq() { icurl -s -m 15 -G "$LOKI/loki/api/v1/query_range" --data-urlencode "query=$1" --data-urlencode "limit=100" \
         --data-urlencode "start=$(( $(date +%s) - 900 ))000000000"; }
 found_app() { lq "{service_name=\"$SVC\"}" | grep -q '"values"'; }
 poll "loki has the probe log (positive control)" found_app
@@ -86,7 +84,7 @@ done
 [ $leak = 0 ] && ok "no secret/PII value in Loki (app + edge logs)"
 echo "$ALLLOKI" | grep -qF "$UID_" && ok "logs keep user_id (structured metadata)" || bad "logs lost user_id"
 echo "$ALLLOKI" | grep -q '\*\*\*' && ok "loki shows masked placeholders" || bad "no masked placeholder in loki"
-labels=$(curl -s -m 10 "$LOKI/loki/api/v1/labels" --data-urlencode "start=$(( $(date +%s) - 3600 ))000000000" -G)
+labels=$(icurl -s -m 10 "$LOKI/loki/api/v1/labels" --data-urlencode "start=$(( $(date +%s) - 3600 ))000000000" -G)
 python3 - "$labels" <<'PY' && ok "loki index labels limited to service_name/service_namespace/deployment_environment" || bad "unexpected loki index labels"
 import sys, json
 l = set(json.loads(sys.argv[1])["data"]) - {"__stream_shard__"}
@@ -94,7 +92,7 @@ sys.exit(0 if l <= {"service_name", "service_namespace", "deployment_environment
 PY
 
 # ---- Tempo ----
-tempo_trace() { curl -sf -m 10 "$TEMPO/api/traces/$TID" -o $OUT/rc-tempo.json; }
+tempo_trace() { icurl -sf -m 10 "$TEMPO/api/traces/$TID" > $OUT/rc-tempo.json; }
 poll "tempo has the probe trace (positive control)" tempo_trace
 leak=0
 for s in "${SECRETS[@]}"; do grep -qF "$s" $OUT/rc-tempo.json && { bad "tempo leaks: $s"; leak=1; }; done
@@ -102,7 +100,7 @@ for s in "${SECRETS[@]}"; do grep -qF "$s" $OUT/rc-tempo.json && { bad "tempo le
 grep -qF "$UID_" $OUT/rc-tempo.json && grep -qF "$OID" $OUT/rc-tempo.json && ok "traces keep user_id and order_id" || bad "traces lost user_id/order_id"
 
 # ---- Prometheus ----
-series() { curl -s -m 10 -G "$PROM/api/v1/series" --data-urlencode 'match[]={__name__="redaction_check_requests_total",exported_job="'"$SVC"'"}'; }
+series() { icurl -s -m 10 -G "$PROM/api/v1/series" --data-urlencode 'match[]={__name__="redaction_check_requests_total",exported_job="'"$SVC"'"}'; }
 prom_has() { series | grep -q "$SVC"; }
 poll "prometheus has the probe metric (positive control)" prom_has
 S=$(series)

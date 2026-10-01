@@ -13,10 +13,10 @@
 #   gateway    stop nginx     -> GatewayDown
 #   collector  stop collector -> TelemetryCollectorDown (and GatewayDown must be inhibited)
 # Each scenario asserts: alert firing in Alertmanager, email in Mailpit, and (page severity) a webhook request.
-# Env: PROM AM MAILPIT (localhost defaults), WAIT_SECS (per alert, default 420)
+# Env: PROM AM MAILPIT (internal addresses via scripts/telemetry/lib/net.sh), WAIT_SECS (per alert, default 420)
 set -uo pipefail
 cd "$(dirname "$0")/../.."
-PROM=${PROM:-http://localhost:9090}; AM=${AM:-http://localhost:9093}; MAILPIT=${MAILPIT:-http://localhost:8025}
+. scripts/telemetry/lib/net.sh
 WAIT=${WAIT_SECS:-420}; SCENARIOS=${SCENARIOS:-"burn backend gateway collector"}
 TESTRULES=docker/telemetry/prometheus/rules-test/test-short-windows.yml
 fail=0; LOAD_PID=""
@@ -34,14 +34,14 @@ trap cleanup EXIT
 start_load() { ( while true; do gw -o /dev/null https://polaris.local/actuator/health; sleep 0.3; done ) & LOAD_PID=$!; }
 stop_load()  { [ -n "$LOAD_PID" ] && kill "$LOAD_PID" 2>/dev/null; LOAD_PID=""; }
 firing() { # firing <alertname> [service]
-  curl -s "$AM/api/v2/alerts?active=true&silenced=false&inhibited=false" | ALERT=$1 SVC=${2:-} python3 -c '
+  icurl -s "$AM/api/v2/alerts?active=true&silenced=false&inhibited=false" | ALERT=$1 SVC=${2:-} python3 -c '
 import sys,json,os
 a=[x for x in json.load(sys.stdin) if x["labels"]["alertname"]==os.environ["ALERT"] and (not os.environ["SVC"] or x["labels"].get("service")==os.environ["SVC"])]
 sys.exit(0 if a else 1)'; }
-inhibited() { curl -s "$AM/api/v2/alerts?active=true&inhibited=true" | ALERT=$1 python3 -c '
+inhibited() { icurl -s "$AM/api/v2/alerts?active=true&inhibited=true" | ALERT=$1 python3 -c '
 import sys,json,os
 sys.exit(0 if any(x["labels"]["alertname"]==os.environ["ALERT"] and x["status"]["inhibitedBy"] for x in json.load(sys.stdin)) else 1)'; }
-mail() { curl -s "$MAILPIT/api/v1/messages?limit=200" | ALERT=$1 python3 -c '
+mail() { icurl -s "$MAILPIT/api/v1/messages?limit=200" | ALERT=$1 python3 -c '
 import sys,json,os
 sys.exit(0 if any(os.environ["ALERT"] in m["Subject"] for m in json.load(sys.stdin)["messages"]) else 1)'; }
 webhook() { [ "$(docker logs alert-webhook 2>&1 | grep -c "alertname[^,]*$1")" -gt 0 ]; }  # not grep -q: SIGPIPE + pipefail
@@ -58,19 +58,19 @@ healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$1" 2>/dev/null)"
 # ---- preconditions
 for c in polaris loki nginx otel-collector; do docker start "$c" >/dev/null 2>&1; done
 [ "$(gw -o /dev/null -w '%{http_code}' https://polaris.local/actuator/health)" != 000 ] && ok "gateway reachable" || { bad "gateway https://polaris.local not reachable"; exit 1; }
-curl -sf "$PROM/-/ready" >/dev/null && curl -sf "$AM/-/ready" >/dev/null && curl -sf "$MAILPIT/api/v1/info" >/dev/null \
+icurl -sf "$PROM/-/ready" >/dev/null && icurl -sf "$AM/-/ready" >/dev/null && icurl -sf "$MAILPIT/api/v1/info" >/dev/null \
   && ok "prometheus, alertmanager, mailpit ready" || { bad "stack not ready"; exit 1; }
-curl -s "$PROM/api/v1/rules" | python3 -c '
+icurl -s "$PROM/api/v1/rules" | python3 -c '
 import sys,json
 g=json.load(sys.stdin)["data"]["groups"]; r=[x for grp in g for x in grp["rules"]]
 assert r and all(x["health"]=="ok" for x in r); print(len(r),"rules loaded, all healthy")' && ok "rules loaded and healthy" || bad "rules not loaded/healthy"
-curl -s "$PROM/api/v1/alertmanagers" | grep -q 'alertmanager:9093' && ok "prometheus is wired to alertmanager" || bad "prometheus not wired to alertmanager"
+icurl -s "$PROM/api/v1/alertmanagers" | grep -q 'alertmanager:9093' && ok "prometheus is wired to alertmanager" || bad "prometheus not wired to alertmanager"
 # alerts from an earlier run linger in Alertmanager until they expire; wait so results are not stale
-no_test_alerts() { curl -s "$AM/api/v2/alerts?active=true" | python3 -c '
+no_test_alerts() { icurl -s "$AM/api/v2/alerts?active=true" | python3 -c '
 import sys,json
 sys.exit(1 if any(x["labels"].get("test")=="true" for x in json.load(sys.stdin)) else 0)'; }
 wait_for "no lingering test alerts from an earlier run" no_test_alerts
-curl -s -X DELETE "$MAILPIT/api/v1/messages" >/dev/null
+icurl -s -X DELETE "$MAILPIT/api/v1/messages" >/dev/null
 
 # ---- test-only short-window copy of the burn rules
 ruby -ryaml -e '
@@ -97,7 +97,7 @@ for s in $SCENARIOS; do
       firing TestSloBurnFast_ShortWindow && bad "burn alert firing before the failure" || ok "no burn alert on healthy traffic"
       docker stop polaris >/dev/null; T0=$SECONDS
       verify_delivery TestSloBurnFast_ShortWindow yes nginx-gateway
-      firing TestSloBurnFast_ShortWindow nginx-gateway && curl -s "$AM/api/v2/alerts?active=true" | grep -q '"sli":"latency"' \
+      firing TestSloBurnFast_ShortWindow nginx-gateway && icurl -s "$AM/api/v2/alerts?active=true" | grep -q '"sli":"latency"' \
         && ok "latency SLI burn also visible (edge 504 after the 3s connect timeout is slower than 1.024s)" || echo "INFO latency burn alert not (yet) seen"
       docker start polaris >/dev/null; stop_load; wait_for "polaris healthy again" healthy polaris ;;
     backend)

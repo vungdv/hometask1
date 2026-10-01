@@ -57,8 +57,10 @@ c = File.read("docker-compose.override.yml"); y = YAML.load_file("docker-compose
   (sv && sv["image"] =~ /:v?\d+[\d.]*\z/ && sv["healthcheck"]) ? ok("#{s}: pinned image and healthcheck") : bad("#{s}: image not pinned or no healthcheck")
 end
 pub = %w[alertmanager mailpit alert-webhook].flat_map { |s| (y[s]["ports"] || []).map { |p| [s, p] } }
-pub.all? { |_, p| p.start_with?("127.0.0.1:") } && !y["mailpit"]["ports"].join.include?("1025") && y["alert-webhook"]["ports"].nil? \
-  ? ok("alertmanager/mailpit UI ports are loopback-only; SMTP and webhook are not published") : bad("dev ports exposed beyond loopback or SMTP/webhook published")
+dp = YAML.load_file("docker-compose.dev-ports.yml")["services"]
+dpp = %w[alertmanager mailpit].flat_map { |s| (dp[s]["ports"] || []) }
+pub.empty? && dpp.all? { |p| p.start_with?("127.0.0.1:") } && !dpp.join.include?("1025") && dp["alert-webhook"].nil? \
+  ? ok("alertmanager/mailpit/webhook publish no port in the base stack; UIs only on loopback in docker-compose.dev-ports.yml; SMTP and webhook never published") : bad("dev ports exposed beyond loopback or SMTP/webhook published")
 pv = y["prometheus"]["volumes"].join(" ")
 pv.include?("/prometheus/rules:/etc/prometheus/rules") ? ok("prometheus mounts the rules directory") : bad("prometheus does not mount rules")
 p = YAML.load_file("docker/telemetry/prometheus/prometheus.yml")

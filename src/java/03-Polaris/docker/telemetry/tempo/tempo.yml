@@ -13,6 +13,20 @@ distributor:
         http:
           endpoint: 0.0.0.0:4318
 
+# Retention (plan O7, OBS-SEC-1): traces 3 days. In Tempo 3.x retention is enforced by the backend scheduler (which decides) and
+# the backend worker (which deletes); both carry block_retention. Tempo has no size cap, so the overrides below bound ingest
+# instead. Dev/reference stack (Q1); see docs/operations/retention.md.
+backend_scheduler:
+  provider:
+    retention:
+      interval: 1h
+    compaction:
+      compaction:
+        block_retention: 72h
+backend_worker:
+  compaction:
+    block_retention: 72h
+
 storage:
   trace:
     backend: local
@@ -40,5 +54,10 @@ metrics_generator:
 
 overrides:
   defaults:
+    ingestion:
+      rate_limit_bytes: 15000000
+      burst_size_bytes: 20000000
+    global:
+      max_bytes_per_trace: 5000000
     metrics_generator:
       processors: [service-graphs, span-metrics]
