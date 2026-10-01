@@ -97,7 +97,46 @@ The table is checkable with `SchemaCompatibility` in a unit test with no broker 
 * **Tooling friction [measured]:** decimals need `enableDecimalLogicalType`; Avro 1.12 needs the generated package trusted (`SERIALIZABLE_PACKAGES` or `ClassSecurityValidator`) or decoding throws at runtime; Confluent artifacts need `packages.confluent.io`; stale generated sources survive incremental builds.
 * **Debuggability.** `kafka-tail`, `verify-kafka-events.sh` and k6 read `data` as JSON; they need an Avro-aware consumer. Headers stay readable.
 
-## 4. Evidence
+## 4. Local schema CI (docker compose)
+
+The registry is a compose service and `schema-init` is the local stand-in for a CI job: it registers nothing that breaks the subject's compatibility rule.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant M as make up
+    participant K as kafka-1..3
+    participant R as schema-registry
+    participant I as schema-init (one-shot)
+
+    M->>K: start, wait healthy
+    M->>R: start (_schemas topic on the cluster)
+    R-->>M: healthy
+    M->>I: run register-schemas.sh
+    loop each subject (topic-value = payload .avsc)
+        I->>R: PUT /config/subject = BACKWARD_TRANSITIVE
+        I->>R: POST /compatibility/subjects/s/versions/latest
+        alt incompatible
+            R-->>I: is_compatible=false
+            I-->>M: exit 1 (schema not registered)
+        else compatible or new subject
+            I->>R: POST /subjects/s/versions
+        end
+    end
+```
+
+| Command | What it does |
+|:--|:--|
+| `make up` | starts the registry and runs `schema-init` (idempotent: re-registering an identical schema returns the same id) |
+| `make schema-register` | re-runs the gate after editing `libs/polaris-events-avro/src/main/avro/*.avsc` |
+| `make schema-check SUBJECT=polaris.order.lifecycle-value FILE=x.avsc` | checks a candidate, registers nothing, exits 1 when rejected |
+| `make schema-subjects` | lists subjects and the compatibility mode (registry also on `localhost:8085`) |
+
+Verified locally: first run registers ids 1 and 2; a re-run is idempotent; `order-lifecycle-v2-additive.avsc` passes; `order-lifecycle-bad-required-field.avsc` is rejected with `READER_FIELD_MISSING_DEFAULT_VALUE` and `make` exits 1. Files: `docker-compose.yml`, `docker/schema-registry/register-schemas.sh`, `Makefile`.
+
+Producers should then run with `auto.register.schemas=false` so only this gate registers schemas.
+
+## 5. Evidence
 
 Run: `mvn -pl libs/polaris-events-avro test` (Docker; real `apache/kafka:3.9.1` and `cp-schema-registry:8.0.0`). 21 tests pass.
 
@@ -106,6 +145,6 @@ Run: `mvn -pl libs/polaris-events-avro test` (Docker; real `apache/kafka:3.9.1` 
 * `AvroSchemaEvolutionTest`, `PayloadMappersTest`: the matrix above and the mapping rules.
 * The existing `CloudEventsKafkaBindingTest` and `KafkaEventTransportIntegrationTest` are untouched.
 
-## 5. Not covered
+## 6. Not covered
 
 Outbox storing Avro instead of JSON text, auto-configuration and app wiring, consumer migration and dual-format rollout, registry HA/ACLs/performance, Protobuf or JSON Schema as alternatives.

@@ -306,6 +306,55 @@ services:
       <<: *kafka-healthcheck
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka-3:9092 > /dev/null 2>&1"]
 
+  # Confluent Schema Registry for the Avro experiment (ADR-0021). Its _schemas topic lives on the Kafka cluster
+  # above (3 replicas). Host port 8085 because 8081 is polaris-assistant.
+  schema-registry:
+    image: confluentinc/cp-schema-registry:8.0.0
+    container_name: schema-registry
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: "3"
+      # Default for subjects nobody configured; schema-init sets each subject explicitly
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD_TRANSITIVE
+    ports:
+      - "127.0.0.1:8085:8081"
+    networks:
+      - polaris-net
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/subjects > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # Local schema "CI" (one-shot, exits when done): sets each subject's compatibility mode, rejects a schema that
+  # breaks it (exit 1), registers the rest. Runs on every `make up`; `make schema-register` re-runs it.
+  schema-init:
+    image: confluentinc/cp-schema-registry:8.0.0
+    container_name: schema-init
+    restart: "no"
+    entrypoint: ["/bin/sh", "/register-schemas.sh"]
+    command: ["register"]
+    environment:
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    volumes:
+      - ./docker/schema-registry/register-schemas.sh:/register-schemas.sh:ro
+      - ./libs/polaris-events-avro/src/main/avro:/schemas:ro
+    networks:
+      - polaris-net
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+
   polaris-db:
     image: postgres:16
     container_name: polaris-postgres

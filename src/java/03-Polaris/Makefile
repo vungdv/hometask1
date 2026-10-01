@@ -1,4 +1,4 @@
-.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders
+.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders schema-register schema-check schema-subjects
 
 run:
 	mvn spring-boot:run -pl apps/polaris
@@ -76,6 +76,16 @@ kafka-stop-%:
 	docker compose stop kafka-$*
 kafka-start-%:
 	docker compose start kafka-$*
+# Schema Registry (ADR-0021). schema-init already runs on `make up`; these re-run the gate by hand.
+schema-register:
+	docker compose run --rm schema-init register
+# make schema-check SUBJECT=polaris.order.lifecycle-value FILE=path/to/candidate.avsc  (registers nothing)
+schema-check:
+	@test -n "$(SUBJECT)" -a -f "$(FILE)" || { echo "usage: make schema-check SUBJECT=<topic>-value FILE=<schema.avsc>"; exit 1; }
+	docker compose run --rm -v "$(abspath $(FILE)):/candidate.avsc:ro" schema-init check $(SUBJECT) /candidate.avsc
+schema-subjects:
+	@curl -s http://localhost:8085/subjects; echo
+	@curl -s http://localhost:8085/config/polaris.order.lifecycle-value; echo
 playwright-ui:
 	playwright-cli open https://polaris.local/swagger-ui/index.html
 playwright-close:
