@@ -16,7 +16,7 @@ import vn.danang.polaris.outbox.trace.W3cTraceContext;
 
 /**
  * Records integration events in the transactional outbox (ADR-0018): same transaction as the business
- * change, a {@code event-id} assigned now, and the raising request's trace context.
+ * change, a {@code ce_id} assigned now, and the raising request's trace context.
  */
 public class OutboxIntegrationEventPublisher implements IntegrationEventPublisher {
 
@@ -66,7 +66,7 @@ public class OutboxIntegrationEventPublisher implements IntegrationEventPublishe
                 trace.traceparent(),
                 trace.tracestate(),
                 clock.instant()));
-        log.debug("Outbox event recorded event_id={} event_type={} key={}", eventId, event.type(), event.key());
+        log.debug("Outbox event recorded ce_id={} ce_type={} key={}", eventId, event.type(), event.key());
         return eventId;
     }
 }

@@ -31,15 +31,13 @@ import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.kafka.KafkaContainer;
 
+import io.cloudevents.core.builder.CloudEventBuilder;
+import io.cloudevents.kafka.KafkaMessageFactory;
 import io.micrometer.core.instrument.MeterRegistry;
 import vn.danang.polaris.TestcontainersConfiguration;
 import vn.danang.polaris.catalog.entity.Product;
 import vn.danang.polaris.catalog.repository.ProductRepository;
-import vn.danang.polaris.events.EventHeaders;
-import vn.danang.polaris.events.avro.AvroEventCodec;
-import vn.danang.polaris.events.avro.fulfilment.ShipmentAvroMapper;
 import vn.danang.polaris.events.fulfilment.FulfilmentEvents;
-import vn.danang.polaris.events.fulfilment.ShipmentEvent;
 import vn.danang.polaris.events.fulfilment.ShipmentStep;
 import vn.danang.polaris.order.dto.OrderItemRequest;
 import vn.danang.polaris.order.repository.OrderRepository;
@@ -50,7 +48,7 @@ import vn.danang.polaris.order.service.OrderService;
  * drive the order and announce each milestone once through the outbox (TR-O4, TR-O5); anything else is a counted no-op.
  * The test topic has one partition, so a trailing "sentinel" report proves every earlier record was consumed.
  */
-@SpringBootTest(properties = "polaris.avro.schema-registry-url=mock://shipment-progress-it")
+@SpringBootTest
 @Import({ TestcontainersConfiguration.class, ShipmentProgressKafkaIntegrationTest.Topics.class })
 class ShipmentProgressKafkaIntegrationTest {
 
@@ -107,17 +105,16 @@ class ShipmentProgressKafkaIntegrationTest {
     }
 
     private void report(String orderNumber, String partner, ShipmentStep step) {
-        var payload = new ShipmentEvent(orderNumber, "S-" + orderNumber, partner, step, Instant.now());
+        String json = "{\"orderNumber\":\"" + orderNumber + "\",\"shipmentId\":\"S-" + orderNumber + "\",\"partnerId\":\""
+                + partner + "\",\"step\":\"" + step + "\",\"occurredAt\":\"" + Instant.now() + "\"}";
+        var event = CloudEventBuilder.v1().withId(UUID.randomUUID().toString()).withType(step.type())
+                .withSource(URI.create(FulfilmentEvents.SOURCE)).withDataContentType("application/json")
+                .withData(json.getBytes()).build();
         var config = Map.<String, Object>of(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
-        try (var producer = new KafkaProducer<>(config, new StringSerializer(), new ByteArraySerializer());
-                var codec = new AvroEventCodec("mock://shipment-progress-it", true)) {
-            var record = new ProducerRecord<String, byte[]>(FulfilmentEvents.DESTINATION, null, orderNumber,
-                    codec.encode(FulfilmentEvents.DESTINATION, ShipmentAvroMapper.toAvro(payload)));
-            record.headers().add(EventHeaders.ID, UUID.randomUUID().toString().getBytes());
-            record.headers().add(EventHeaders.TYPE, step.type().getBytes());
-            record.headers().add(EventHeaders.SOURCE, FulfilmentEvents.SOURCE.getBytes());
-            record.headers().add(EventHeaders.CONTENT_TYPE, EventHeaders.AVRO_CONTENT_TYPE.getBytes());
-            producer.send(record).get();
+        try (var producer = new KafkaProducer<>(config, new StringSerializer(), new ByteArraySerializer())) {
+            var message = KafkaMessageFactory.createWriter(FulfilmentEvents.DESTINATION).writeBinary(event);
+            producer.send(new ProducerRecord<>(FulfilmentEvents.DESTINATION, null, orderNumber, message.value(),
+                    message.headers())).get();
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

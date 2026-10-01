@@ -107,7 +107,6 @@ services:
       # Kafka cluster on the internal network (TR-B1); unauthenticated in dev (TR-X1). Any reachable node
       # bootstraps the client, which then discovers the whole cluster.
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
-      POLARIS_AVRO_SCHEMA_REGISTRY_URL: http://schema-registry:8081
       SPRINGDOC_SWAGGER-UI_OAUTH_CLIENT-ID: "polaris-app"
       SPRINGDOC_SWAGGER-UI_OAUTH_USE-PKCE-WITH-AUTHORIZATION-CODE-GRANT: "true"
       JAVA_TOOL_OPTIONS: "-Djavax.net.ssl.trustStore=/certs/truststore.jks"
@@ -139,8 +138,6 @@ services:
       kafka-2:
         condition: service_healthy
       kafka-3:
-        condition: service_healthy
-      schema-registry:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health/liveness && curl -f http://localhost:8080/actuator/health/readiness || exit 1"]
@@ -214,7 +211,6 @@ services:
     environment:
       SERVER_PORT: "8082"
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
-      POLARIS_AVRO_SCHEMA_REGISTRY_URL: http://schema-registry:8081
       POLARIS_CORE_API_BASE_URL: http://polaris:8080
       # Token endpoint through the canonical public issuer URL (id.polaris.local resolves to nginx on polaris-net).
       POLARIS_FULFILMENT_TOKEN_URI: https://id.${POLARIS_DOMAIN}/realms/polaris/protocol/openid-connect/token
@@ -238,8 +234,6 @@ services:
       kafka-2:
         condition: service_healthy
       kafka-3:
-        condition: service_healthy
-      schema-registry:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8082/actuator/health/liveness && curl -f http://localhost:8082/actuator/health/readiness || exit 1"]
@@ -279,34 +273,6 @@ services:
     healthcheck:
       <<: *kafka-healthcheck
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka-1:9092 > /dev/null 2>&1"]
-
-  # Confluent Schema Registry (avro experiment): schemas live in the Kafka topic _schemas, so it adds no database.
-  # BACKWARD_TRANSITIVE is the default compatibility mode, so a breaking schema is refused with HTTP 409 at
-  # registration. Dev only: unauthenticated, one instance, schemas auto-registered by producers.
-  schema-registry:
-    image: confluentinc/cp-schema-registry:8.0.0
-    container_name: schema-registry
-    environment:
-      SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
-      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD_TRANSITIVE
-    ports:
-      - "127.0.0.1:8081:8081"
-    networks:
-      - polaris-net
-    depends_on:
-      kafka-1:
-        condition: service_healthy
-      kafka-2:
-        condition: service_healthy
-      kafka-3:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8081/subjects > /dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
 
   kafka-2:
     <<: *kafka-node

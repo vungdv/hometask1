@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "OrderLifecycleMessage",
+  "namespace": "vn.danang.polaris.events.avro.order",
+  "doc": "The whole Kafka message value on polaris.order.lifecycle: event metadata plus the OrderLifecycleEvent payload. The registry subject polaris.order.lifecycle-value holds this schema, so metadata and payload evolve under one compatibility rule.",
+  "fields": [
+    {"name": "id", "type": "string", "doc": "Event id, stable across delivery attempts (OutgoingEvent.id)."},
+    {"name": "type", "type": "string", "doc": "Event type, e.g. vn.danang.polaris.order.placed.v1 (OutgoingEvent.type)."},
+    {"name": "source", "type": "string", "doc": "Producing context, e.g. /polaris/order (OutgoingEvent.source)."},
+    {"name": "time", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "When the event was recorded (OutgoingEvent.time)."},
+    {"name": "data", "type": "vn.danang.polaris.events.avro.order.OrderLifecycleEvent"}
+  ]
+}

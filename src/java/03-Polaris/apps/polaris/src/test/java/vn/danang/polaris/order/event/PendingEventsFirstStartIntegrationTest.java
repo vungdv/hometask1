@@ -72,7 +72,6 @@ class PendingEventsFirstStartIntegrationTest {
                 "spring.kafka.bootstrap-servers=" + kafka.getBootstrapServers(),
                 "spring.kafka.admin.operation-timeout=3s",
                 "polaris.outbox.kafka.send-timeout=3s",
-                "polaris.avro.schema-registry-url=mock://pending-first-start",
                 "management.tracing.export.enabled=false",
                 "management.otlp.metrics.export.enabled=false"));
         properties.addAll(List.of(extraProperties));
@@ -123,7 +122,7 @@ class PendingEventsFirstStartIntegrationTest {
         try (after) {
             List<ConsumerRecord<String, byte[]>> records = consume(orderNumber, Duration.ofSeconds(90));
             assertThat(records).isNotEmpty().allSatisfy(record -> assertThat(new String(
-                    record.headers().lastHeader("event-id").value(), StandardCharsets.UTF_8)).isEqualTo(ceId.toString()));
+                    record.headers().lastHeader("ce_id").value(), StandardCharsets.UTF_8)).isEqualTo(ceId.toString()));
             try (Admin admin = admin()) {
                 assertThat(admin.describeTopics(List.of(OrderEvents.DESTINATION)).allTopicNames().get()
                         .get(OrderEvents.DESTINATION).partitions()).hasSize(3);

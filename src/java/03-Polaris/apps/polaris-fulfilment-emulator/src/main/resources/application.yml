@@ -20,11 +20,6 @@ spring:
       enable-auto-commit: false
 
 polaris:
-  avro:
-    # Schema Registry for the Avro event values (avro experiment). Host default for `make run`; compose sets the internal URL.
-    schema-registry-url: ${POLARIS_AVRO_SCHEMA_REGISTRY_URL:http://localhost:8081}
-    # Dev convenience. Production registers schemas from CI and sets this to false.
-    auto-register-schemas: ${POLARIS_AVRO_AUTO_REGISTER_SCHEMAS:true}
   fulfilment:
     partners: partner-north,partner-central,partner-south
     claim-pause:

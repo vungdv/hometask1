@@ -51,7 +51,7 @@ public class OrderIntegrationEventTranslator {
                 null);
         UUID ceId = publisher.publish(new IntegrationEvent(
                 OrderMilestone.PLACED.type(), OrderEvents.SOURCE, OrderEvents.DESTINATION, placed.orderNumber(), payload));
-        log.info("Order event recorded: orderNumber={}, event_id={}, event_type={}",
+        log.info("Order event recorded: orderNumber={}, ce_id={}, ce_type={}",
                 placed.orderNumber(), ceId, OrderMilestone.PLACED.type());
     }
 
@@ -70,7 +70,7 @@ public class OrderIntegrationEventTranslator {
                 confirmed.partnerId());
         UUID ceId = publisher.publish(new IntegrationEvent(
                 OrderMilestone.CONFIRMED.type(), OrderEvents.SOURCE, OrderEvents.DESTINATION, confirmed.orderNumber(), payload));
-        log.info("Order event recorded: orderNumber={}, event_id={}, event_type={}",
+        log.info("Order event recorded: orderNumber={}, ce_id={}, ce_type={}",
                 confirmed.orderNumber(), ceId, OrderMilestone.CONFIRMED.type());
     }
 
@@ -90,7 +90,7 @@ public class OrderIntegrationEventTranslator {
                 progressed.partnerId());
         UUID ceId = publisher.publish(new IntegrationEvent(
                 milestone.type(), OrderEvents.SOURCE, OrderEvents.DESTINATION, progressed.orderNumber(), payload));
-        log.info("Order event recorded: orderNumber={}, event_id={}, event_type={}",
+        log.info("Order event recorded: orderNumber={}, ce_id={}, ce_type={}",
                 progressed.orderNumber(), ceId, milestone.type());
     }
 }

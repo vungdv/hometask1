@@ -13,7 +13,6 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringSerializer;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
@@ -23,18 +22,12 @@ import org.springframework.kafka.core.ProducerFactory;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
-import vn.danang.polaris.events.avro.AvroEventCodec;
+import tools.jackson.databind.json.JsonMapper;
 import vn.danang.polaris.outbox.telemetry.ConsumerGroupMetrics;
 
 /** Wires the partners, their listeners and the shipment topic and producer (F2 design §3). */
 @Configuration(proxyBeanMethods = false)
 class FulfilmentConfiguration {
-
-    @Bean(destroyMethod = "close")
-    AvroEventCodec avroEventCodec(@Value("${polaris.avro.schema-registry-url:http://localhost:8081}") String registryUrl,
-            @Value("${polaris.avro.auto-register-schemas:true}") boolean autoRegister) {
-        return new AvroEventCodec(registryUrl, autoRegister);
-    }
 
     @Bean
     Clock clock() {
@@ -72,7 +65,7 @@ class FulfilmentConfiguration {
 
     @Bean
     ShipmentPublisher shipmentPublisher(FulfilmentProperties properties, ProducerFactory<?, ?> applicationProducerFactory,
-            ObservationRegistry observationRegistry, AvroEventCodec codec, FulfilmentMetrics metrics) {
+            ObservationRegistry observationRegistry, JsonMapper mapper, FulfilmentMetrics metrics) {
         @SuppressWarnings("unchecked")
         ProducerFactory<String, byte[]> producerFactory = (ProducerFactory<String, byte[]>) applicationProducerFactory
                 .copyWithConfigurationOverride(Map.of(
@@ -83,7 +76,7 @@ class FulfilmentConfiguration {
         var template = new KafkaTemplate<>(producerFactory);
         template.setObservationEnabled(true);
         template.setObservationRegistry(observationRegistry);
-        return new ShipmentPublisher(template, codec, properties.topics().shipments(), metrics);
+        return new ShipmentPublisher(template, mapper, properties.topics().shipments(), metrics);
     }
 
     @Bean
@@ -102,11 +95,11 @@ class FulfilmentConfiguration {
 
     @Bean
     OfferListenerRegistrar offerListeners(ConsumerFactory<?, ?> applicationConsumerFactory, FulfilmentProperties properties,
-            List<PartnerAgent> partnerAgents, AvroEventCodec codec, FulfilmentMetrics metrics,
+            List<PartnerAgent> partnerAgents, JsonMapper mapper, FulfilmentMetrics metrics,
             ObservationRegistry observationRegistry, ConsumerGroupMetrics groupMetrics, MeterRegistry meters) {
         @SuppressWarnings("unchecked")
         ConsumerFactory<String, byte[]> consumerFactory = (ConsumerFactory<String, byte[]>) applicationConsumerFactory;
         return new OfferListenerRegistrar(consumerFactory, properties.topics().offers(), partnerAgents,
-                new OfferHandler(codec, metrics), observationRegistry, groupMetrics, meters);
+                new OfferHandler(mapper, metrics), observationRegistry, groupMetrics, meters);
     }
 }

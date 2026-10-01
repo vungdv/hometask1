@@ -19,9 +19,8 @@ import vn.danang.polaris.outbox.transport.EventTransport;
 import vn.danang.polaris.outbox.transport.OutgoingEvent;
 
 /**
- * Kafka implementation of the outbox transport port (ADR-0019, avro experiment). Each event is sent as a record
- * ({@link EventKafkaBinding}) to the topic named by its destination, keyed by its aggregate id, with its value
- * produced by an {@link EventValueEncoder}.
+ * Kafka implementation of the outbox transport port (ADR-0019). Each event is sent as a binary-mode CloudEvent
+ * ({@link CloudEventsKafkaBinding}) to the topic named by its destination, keyed by its aggregate id.
  *
  * <p><b>Delivery (TR-B3).</b> {@link #send} returns only once the broker acknowledged the record with
  * {@code acks=all} on an idempotent producer, so an acknowledged event is durable and the producer's own retries
@@ -46,7 +45,6 @@ public class KafkaEventTransport implements EventTransport, AutoCloseable {
     private final KafkaTemplate<String, byte[]> template;
     private final KafkaAdmin admin;
     private final Duration sendTimeout;
-    private final EventValueEncoder encoder;
     private volatile boolean topicsProvisioned;
 
     /**
@@ -55,13 +53,6 @@ public class KafkaEventTransport implements EventTransport, AutoCloseable {
      * @param sendTimeout upper bound of each phase of a send (metadata wait, then broker acknowledgement)
      */
     public KafkaEventTransport(KafkaTemplate<String, byte[]> template, KafkaAdmin admin, Duration sendTimeout) {
-        this(template, admin, sendTimeout, EventValueEncoder.JSON);
-    }
-
-    /** As above, with the encoder that produces each record value. */
-    public KafkaEventTransport(KafkaTemplate<String, byte[]> template, KafkaAdmin admin, Duration sendTimeout,
-            EventValueEncoder encoder) {
-        this.encoder = Objects.requireNonNull(encoder, "encoder");
         this.template = Objects.requireNonNull(template, "template");
         this.admin = admin;
         this.sendTimeout = Objects.requireNonNull(sendTimeout, "sendTimeout");
@@ -91,13 +82,13 @@ public class KafkaEventTransport implements EventTransport, AutoCloseable {
     @Override
     public void send(OutgoingEvent event) throws Exception {
         provisionTopicsOnce();
-        ProducerRecord<String, byte[]> record = EventKafkaBinding.toRecord(event, encoder);
+        ProducerRecord<String, byte[]> record = CloudEventsKafkaBinding.toRecord(event);
         // The producer bounds the metadata wait and the delivery by sendTimeout; the extra second only guards
         // the future against a lost completion.
         RecordMetadata metadata = template.send(record)
                 .get(sendTimeout.toMillis() + 1_000, TimeUnit.MILLISECONDS)
                 .getRecordMetadata();
-        log.debug("Kafka record sent event_id={} event_type={} key={} topic={} partition={} offset={}",
+        log.debug("Kafka record sent ce_id={} ce_type={} key={} topic={} partition={} offset={}",
                 event.id(), event.type(), event.key(), metadata.topic(), metadata.partition(), metadata.offset());
     }
 

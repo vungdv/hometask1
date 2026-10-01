@@ -9,13 +9,13 @@ import java.util.UUID;
 import vn.danang.polaris.outbox.trace.W3cTraceContext;
 
 /**
- * What a transport receives: the metadata of a recorded event (id, type, source, time), its logical destination and
+ * What a transport receives: the CloudEvents 1.0 attributes of a recorded event, its logical destination and
  * partition key, the JSON payload as recorded, and the W3C trace context to propagate.
  *
- * @param id           event {@code id} ({@code event-id}), the same on every attempt (TR-E4)
- * @param type         event {@code type}
- * @param source       event {@code source}
- * @param time         event {@code time}: when the event was recorded
+ * @param id           CloudEvents {@code id} ({@code ce_id}), the same on every attempt (TR-E4)
+ * @param type         CloudEvents {@code type}
+ * @param source       CloudEvents {@code source}
+ * @param time         CloudEvents {@code time}: when the event was recorded
  * @param destination  logical destination (a topic in Plan 2)
  * @param key          aggregate id: the partition and ordering key (TR-X6)
  * @param payload      JSON {@code data}, exactly as recorded ({@value #DATA_CONTENT_TYPE})
@@ -31,7 +31,7 @@ public record OutgoingEvent(
         String payload,
         W3cTraceContext traceContext) {
 
-    /** Media type of the JSON payload as recorded. */
+    /** CloudEvents {@code datacontenttype} of every payload. */
     public static final String DATA_CONTENT_TYPE = "application/json";
 
     public OutgoingEvent {

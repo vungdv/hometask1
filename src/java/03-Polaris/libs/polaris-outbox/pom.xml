@@ -44,16 +44,15 @@
 			<artifactId>micrometer-core</artifactId>
 		</dependency>
 
-		<!-- Event metadata header names -->
-		<dependency>
-			<groupId>vn.danang</groupId>
-			<artifactId>polaris-events</artifactId>
-		</dependency>
-
-		<!-- Kafka transport (Plan 2, ADR-0019): active only in apps that add Spring Kafka -->
+		<!-- Kafka transport (Plan 2, ADR-0019): active only in apps that add Spring Kafka and the CloudEvents binding -->
 		<dependency>
 			<groupId>org.springframework.kafka</groupId>
 			<artifactId>spring-kafka</artifactId>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>io.cloudevents</groupId>
+			<artifactId>cloudevents-kafka</artifactId>
 			<optional>true</optional>
 		</dependency>
 
