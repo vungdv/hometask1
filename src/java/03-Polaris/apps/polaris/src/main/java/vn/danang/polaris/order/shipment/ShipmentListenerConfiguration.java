@@ -1,5 +1,6 @@
 package vn.danang.polaris.order.shipment;
 
+import java.time.Clock;
 import java.util.Properties;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -22,6 +23,7 @@ import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import tools.jackson.databind.json.JsonMapper;
+import vn.danang.polaris.outbox.telemetry.ConsumerGroupMetrics;
 import vn.danang.polaris.order.service.ShipmentProgressService;
 
 /**
@@ -44,10 +46,19 @@ class ShipmentListenerConfiguration {
     }
 
     @Bean
+    ConsumerGroupMetrics consumerGroupMetrics(MeterRegistry meters) {
+        return new ConsumerGroupMetrics(meters, Clock.systemUTC());
+    }
+
+    @Bean
     ConcurrentMessageListenerContainer<String, byte[]> shipmentReportListener(ConsumerFactory<?, ?> applicationConsumerFactory,
-            ShipmentListenerProperties config, ShipmentReportHandler handler, ObservationRegistry observationRegistry) {
+            ShipmentListenerProperties config, ShipmentReportHandler handler, ObservationRegistry observationRegistry,
+            ConsumerGroupMetrics groupMetrics, MeterRegistry meters) {
         var consumerFactory = new DefaultKafkaConsumerFactory<>(applicationConsumerFactory.getConfigurationProperties(),
                 new StringDeserializer(), new ByteArrayDeserializer());
+        // O6 contract: client lag metrics tagged with the group, and the oldest in-flight record age per group.
+        consumerFactory.addListener(ConsumerGroupMetrics.clientMetrics(meters, config.groupId()));
+        var tracker = groupMetrics.<String, byte[]>recordInterceptor(config.groupId());
         var properties = new ContainerProperties(config.topic());
         properties.setGroupId(config.groupId());
         properties.setAckMode(ContainerProperties.AckMode.RECORD);
@@ -60,12 +71,15 @@ class ShipmentListenerConfiguration {
         properties.setMessageListener((MessageListener<String, byte[]>) handler::handle);
         var container = new ConcurrentMessageListenerContainer<>(consumerFactory, properties);
         container.setBeanName("order-shipment-reports");
+        container.setRecordInterceptor(tracker);
         var backOff = new ExponentialBackOffWithMaxRetries(config.retries());
         backOff.setInitialInterval(config.backoffInitial().toMillis());
         backOff.setMultiplier(2.0);
-        container.setCommonErrorHandler(new DefaultErrorHandler((record, e) -> log.error(
-                "Shipment report skipped after retries topic={} partition={} offset={} key={} error={}",
-                record.topic(), record.partition(), record.offset(), record.key(), e.toString()), backOff));
+        container.setCommonErrorHandler(new DefaultErrorHandler((record, e) -> {
+            tracker.skipped(record);
+            log.error("Shipment report skipped after retries topic={} partition={} offset={} key={} error={}",
+                    record.topic(), record.partition(), record.offset(), record.key(), e.toString());
+        }, backOff));
         return container;
     }
 }

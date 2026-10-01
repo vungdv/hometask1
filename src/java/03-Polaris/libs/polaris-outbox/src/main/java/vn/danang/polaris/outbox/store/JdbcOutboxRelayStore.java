@@ -92,6 +92,15 @@ public class JdbcOutboxRelayStore implements OutboxRelayStore {
                 .map(OffsetDateTime::toInstant);
     }
 
+    @Override
+    public List<PendingByType> pendingByType() {
+        return jdbc.sql("SELECT event_type, COUNT(*), MIN(occurred_at) FROM outbox_events "
+                        + "WHERE status = 'PENDING' GROUP BY event_type")
+                .query((rs, n) -> new PendingByType(rs.getString(1), rs.getLong(2),
+                        rs.getObject(3, OffsetDateTime.class).toInstant()))
+                .list();
+    }
+
     private static PendingEvent pendingEvent(ResultSet rs, int rowNum) throws SQLException {
         return new PendingEvent(
                 rs.getLong("id"),

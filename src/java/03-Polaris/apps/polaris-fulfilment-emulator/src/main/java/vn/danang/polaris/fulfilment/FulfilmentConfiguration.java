@@ -20,8 +20,10 @@ import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import tools.jackson.databind.json.JsonMapper;
+import vn.danang.polaris.outbox.telemetry.ConsumerGroupMetrics;
 
 /** Wires the partners, their listeners and the shipment topic and producer (F2 design §3). */
 @Configuration(proxyBeanMethods = false)
@@ -87,12 +89,17 @@ class FulfilmentConfiguration {
     }
 
     @Bean
+    ConsumerGroupMetrics consumerGroupMetrics(MeterRegistry meters, Clock clock) {
+        return new ConsumerGroupMetrics(meters, clock);
+    }
+
+    @Bean
     OfferListenerRegistrar offerListeners(ConsumerFactory<?, ?> applicationConsumerFactory, FulfilmentProperties properties,
             List<PartnerAgent> partnerAgents, JsonMapper mapper, FulfilmentMetrics metrics,
-            ObservationRegistry observationRegistry) {
+            ObservationRegistry observationRegistry, ConsumerGroupMetrics groupMetrics, MeterRegistry meters) {
         @SuppressWarnings("unchecked")
         ConsumerFactory<String, byte[]> consumerFactory = (ConsumerFactory<String, byte[]>) applicationConsumerFactory;
         return new OfferListenerRegistrar(consumerFactory, properties.topics().offers(), partnerAgents,
-                new OfferHandler(mapper, metrics), observationRegistry);
+                new OfferHandler(mapper, metrics), observationRegistry, groupMetrics, meters);
     }
 }

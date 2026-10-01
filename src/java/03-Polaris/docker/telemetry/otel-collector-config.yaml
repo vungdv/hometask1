@@ -111,13 +111,15 @@ processors:
   # (semantic-convention and Micrometer/JVM/Spring/Kafka/DB keys, all bounded). Anything else
   # (user_id, order_*, session/request ids, ...) is dropped from metrics. To allow a new metric
   # attribute, add its key family here after checking it is bounded.
+  # O6 added: event (event_type: CloudEvents type), group (Kafka consumer group), destination (outbox
+  # logical destination), all small fixed sets.
   transform/metric_allowlist:
     error_mode: ignore
     metric_statements:
       - context: datapoint
         statements:
           - 'delete_matching_keys(datapoint.attributes, "(?i)(authorization|cookie|passw|secret|token|credential|api[-_.]?key|\\.header\\.)")'
-          - 'keep_matching_keys(datapoint.attributes, "^(http|url|server|error|exception|jvm|db|messaging|system|process|kafka|spring|authentication|net|network|rpc|state|area|id|pool|name|gc|cause|action|outcome|status|method|uri|result|level|topic|partition|client|node|type|path|version|vendor|runtime|compiler|main|listener|cache|scope|service|deployment|host|le|quantile)([._].*)?$")'
+          - 'keep_matching_keys(datapoint.attributes, "^(http|url|server|error|exception|jvm|db|messaging|system|process|kafka|spring|authentication|net|network|rpc|state|area|id|pool|name|gc|cause|action|outcome|status|method|uri|result|level|topic|partition|client|node|type|path|version|vendor|runtime|compiler|main|listener|cache|scope|service|deployment|host|le|quantile|event|group|destination)([._].*)?$")'
   batch:
     timeout: 2s
     send_batch_max_size: 8192
