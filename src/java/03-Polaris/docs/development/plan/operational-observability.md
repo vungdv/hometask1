@@ -82,7 +82,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | 6 | O4 | Dashboards as code | `done` | O2, O2a | `feat/o4-dashboards-as-code` | [#35](https://github.com/vungdv/hometask1/pull/35) | |
 | 7 | O5 | SLOs, alerts and runbooks | `done` | O2, O4 | `feat/o5-slos-alerts-runbooks` | [#36](https://github.com/vungdv/hometask1/pull/36) | |
 | 8 | O6 | Async visibility (outbox and Kafka) | `done` | O2 | `feat/o6a-async-metrics-contract` | [#37](https://github.com/vungdv/hometask1/pull/37) (part a, merged); [#38](https://github.com/vungdv/hometask1/pull/38) (part b) | PR #37 and #38 merged; Follow-ups moved to O6c (approved 2026-10-01) |
-| 9 | O6c | Async signal reliability follow-ups | `todo` | O6 | | | Added 2026-10-01; app/library side (`libs/polaris-outbox`, `polaris`); lands before O8 |
+| 9 | O6c | Async signal reliability follow-ups | `in-progress` | O6 | | | Added 2026-10-01; app/library side (`libs/polaris-outbox`, `polaris`); lands before O8 |
 | 10 | O7 | Access, retention and exposure | `todo` | O1 | | | |
 | 11 | O8 | End-to-end verification | `todo` | O1–O7, O2a, O6c | | | |
 
