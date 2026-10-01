@@ -115,6 +115,6 @@ sequenceDiagram
 
 ## 6. Status of the experiment
 
-Wired end to end and opt-in (`polaris.events.format=avro`, `make up-avro`): Polaris publishes order events, fulfilment consumes them and publishes shipment events, Polaris updates the order status, all with Avro payloads in CloudEvents, schemas registered by the local gate. Verified live and by integration tests; see the experiment notes, section 5.
+Wired end to end and the default on this branch (`polaris.events.format=avro`; `json` restores ADR-0019): Polaris publishes order events, fulfilment consumes them and publishes shipment events, Polaris updates the order status, all with Avro payloads in CloudEvents, schemas registered by the local gate. Verified live and by integration tests; see the experiment notes, section 5.
 
 Not done: a staged rollout and rollback procedure, the outbox still stores JSON text (converted at send time), registry HA, access control and performance.

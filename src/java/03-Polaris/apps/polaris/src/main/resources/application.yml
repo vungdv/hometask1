@@ -42,6 +42,11 @@ spring:
           issuer-uri: https://id.polaris.local/realms/polaris
 
 polaris:
+  events:
+    # ADR-0021: Avro payloads in CloudEvents. Host default for `make run` is the compose registry; compose overrides it.
+    format: ${POLARIS_EVENTS_FORMAT:avro}
+    avro:
+      schema-registry-url: ${POLARIS_EVENTS_AVRO_SCHEMA_REGISTRY_URL:http://localhost:8085}
   ai:
     provider: gemini
     api-key: ${GEMINI_API_KEY:${POLARIS_AI_API_KEY:}}

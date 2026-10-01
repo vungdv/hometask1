@@ -138,7 +138,7 @@ Producers should then run with `auto.register.schemas=false` so only this gate r
 
 ## 5. Full lifecycle in Avro (wired end to end)
 
-Opt-in, per service: `polaris.events.format=avro` (default `json`) selects what a service **writes**; what it **reads** follows each event's `content-type`, so JSON and Avro events can share a topic during a migration. Compose: `make up-avro`, then `make e2e-fulfilment-avro`.
+On this branch Avro is the default: `polaris.events.format` (default `avro`, `json` restores ADR-0019) selects what a service **writes**, and `AvroKafkaEventTransport` is the primary transport. What a service **reads** follows each event's `content-type`, so JSON and Avro events can share a topic during a migration. Compose: `make up` then `make e2e-fulfilment`; `make up-json` and `make e2e-fulfilment-json` run the JSON variant.
 
 ```mermaid
 sequenceDiagram
@@ -170,7 +170,7 @@ sequenceDiagram
 | Fulfilment writes shipments | `ShipmentPublisher` writes through `CloudEventPayloads` in the configured format |
 | Polaris reads shipments | `ShipmentReportHandler` reads through `CloudEventPayloads`; status logic unchanged |
 
-**Verified [measured]:** `make e2e-fulfilment-avro` placed 11 orders; all reached DELIVERED; every order has the 5 lifecycle events in order, each with `content-type: application/avro`, and `confirmed` carries the claiming partner. The shipments topic held Avro and older JSON records side by side and Polaris read both. `ShipmentProgressAvroKafkaIntegrationTest` covers the Polaris half automatically (Avro report moves the order; the milestone is published as Avro). The JSON suites (outbox 93, Polaris 454, emulator 9 tests) pass unchanged.
+**Verified [measured]:** `make e2e-fulfilment` (Avro) placed 11 orders; all reached DELIVERED; every order has the 5 lifecycle events in order, each with `content-type: application/avro`, and `confirmed` carries the claiming partner. The shipments topic held Avro and older JSON records side by side and Polaris read both. `ShipmentProgressAvroKafkaIntegrationTest` covers the Polaris half automatically (Avro report moves the order; the milestone is published as Avro). The JSON suites keep passing with `format=json` pinned in their test configuration (outbox 93, Polaris 455, emulator 9).
 
 **Finding from the live run:** with `auto.register=false` (schemas only from the gate) the first send failed with `Error retrieving Avro schema`. The serializer looks the class's schema up *by content*, and generated classes embed `avro.java.string`, so it never equals the reviewed `.avsc`. Fix: `use.latest.version=true`, so the registry decides the version written, with the compatibility check still applied. Every earlier test ran with `auto.register=true` and could not see this; `AvroKafkaEventTransportIntegrationTest.registeredFromCiOnly` now does.
 

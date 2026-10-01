@@ -1,4 +1,4 @@
-.PHONY: pull build up up-avro e2e-fulfilment-avro down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders schema-register schema-check schema-subjects
+.PHONY: pull build up up-json e2e-fulfilment-json down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders schema-register schema-check schema-subjects
 
 run:
 	mvn spring-boot:run -pl apps/polaris
@@ -18,9 +18,9 @@ build:
 	docker compose build
 up:
 	docker compose up -d --build
-# Same stack, events written as Avro (CloudEvents envelope + Schema Registry payload, ADR-0021)
-up-avro: export POLARIS_EVENTS_FORMAT=avro
-up-avro:
+# Events are Avro by default (CloudEvents envelope + Schema Registry payload, ADR-0021); this brings the stack up writing JSON
+up-json: export POLARIS_EVENTS_FORMAT=json
+up-json:
 	docker compose up -d --build
 down: 
 	docker compose down
@@ -36,11 +36,12 @@ test-perf:
 	docker run --network host --rm -i -v $$(pwd)/tests/perf:/scripts -w /scripts grafana/k6 run api-test.js
 test-concurrency:
 	docker run --network host --rm -i -v $$(pwd)/tests/perf:/scripts -w /scripts -e SKU=NG-CHARGER-02 grafana/k6 run order-concurrency-test.js
+# After `make up`: Avro is the default, and the Kafka check requires every event to carry an Avro payload
 e2e-fulfilment:
 	./tests/e2e/run-fulfilment.sh
-# Needs `make up-avro`: same scenario, and the Kafka check also requires every event to carry an Avro payload
-e2e-fulfilment-avro: export POLARIS_EVENTS_FORMAT=avro
-e2e-fulfilment-avro:
+# After `make up-json`: the same scenario with the JSON event check
+e2e-fulfilment-json: export POLARIS_EVENTS_FORMAT=json
+e2e-fulfilment-json:
 	./tests/e2e/run-fulfilment.sh
 gcx: 
 	docker exec -it gcx-cli sh

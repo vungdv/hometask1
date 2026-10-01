@@ -9,6 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
@@ -28,10 +29,10 @@ import vn.danang.polaris.outbox.store.OutboxRelayStore;
 import vn.danang.polaris.outbox.transport.EventTransport;
 
 /**
- * Opt-in Avro layer (ADR-0021). Always contributes {@link CloudEventPayloads}, so a service reads Avro and JSON events
- * alike once a registry URL is configured. With {@code polaris.events.format=avro} an app that has the outbox also gets
- * {@link AvroKafkaEventTransport}, which wins over the JSON {@code KafkaEventTransport} (ordered before it, and that
- * one yields to any {@link EventTransport}). Without the property nothing changes.
+ * Avro layer (ADR-0021), the default on this branch. Always contributes {@link CloudEventPayloads}, so a service reads Avro and JSON events
+ * alike once a registry URL is configured. Unless {@code polaris.events.format=json}, an app that has the outbox also gets
+ * {@link AvroKafkaEventTransport}, the primary transport: it is ordered before the JSON {@code KafkaEventTransport}, and
+ * that one yields to any {@link EventTransport}.
  */
 @AutoConfiguration(after = OutboxAutoConfiguration.class, before = OutboxKafkaAutoConfiguration.class,
         afterName = "org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration")
@@ -52,7 +53,8 @@ public class AvroEventsAutoConfiguration {
     }
 
     @Bean(destroyMethod = "close")
-    @ConditionalOnProperty(prefix = "polaris.events", name = "format", havingValue = "avro")
+    @Primary
+    @ConditionalOnProperty(prefix = "polaris.events", name = "format", havingValue = "avro", matchIfMissing = true)
     @ConditionalOnBean({ OutboxRelayStore.class, ProducerFactory.class })
     @ConditionalOnMissingBean(EventTransport.class)
     AvroKafkaEventTransport avroKafkaEventTransport(OutboxProperties outbox, ProducerFactory<?, ?> applicationProducerFactory,

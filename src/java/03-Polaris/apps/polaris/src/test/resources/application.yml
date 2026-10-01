@@ -40,6 +40,9 @@ management:
 
 # Testcontainers runs a single Kafka broker; the dev stack runs three (replicas 3, min ISR 2).
 polaris:
+  events:
+    # The JSON suites exercise the ADR-0019 path; Avro has its own integration test (ShipmentProgressAvroKafkaIntegrationTest)
+    format: json
   order:
     lifecycle-topic:
       replicas: 1

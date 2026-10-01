@@ -20,6 +20,10 @@ spring:
       enable-auto-commit: false
 
 polaris:
+  events:
+    format: ${POLARIS_EVENTS_FORMAT:avro}
+    avro:
+      schema-registry-url: ${POLARIS_EVENTS_AVRO_SCHEMA_REGISTRY_URL:http://localhost:8085}
   fulfilment:
     partners: partner-north,partner-central,partner-south
     claim-pause:

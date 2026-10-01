@@ -8,9 +8,9 @@ set -uo pipefail
 TOPIC=${TOPIC:-polaris.order.lifecycle}
 KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
 EXPECTED="placed confirmed parceled delivering delivered"
-# POLARIS_EVENTS_FORMAT=avro (ADR-0021): every counted event must carry content-type application/avro, and the
+# Default (ADR-0021, POLARIS_EVENTS_FORMAT=avro): every counted event must carry content-type application/avro, and the
 # confirmed event's partner is read from the Avro value, where the string is stored as plain bytes.
-FORMAT=${POLARIS_EVENTS_FORMAT:-json}
+FORMAT=${POLARIS_EVENTS_FORMAT:-avro}
 [ "$#" -gt 0 ] || { echo "FAIL no order numbers given"; exit 1; }
 
 # Output lines: <headers> TAB <key> TAB <value>; prints "<orderNumber> <event>" in topic order

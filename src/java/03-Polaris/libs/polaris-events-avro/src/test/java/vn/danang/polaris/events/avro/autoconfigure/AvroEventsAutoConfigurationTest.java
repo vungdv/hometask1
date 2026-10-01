@@ -30,37 +30,44 @@ class AvroEventsAutoConfigurationTest {
             .withPropertyValues("polaris.outbox.relay.enabled=false");
 
     @Test
-    @DisplayName("default: nothing changes, the JSON transport stays")
-    void defaultIsJson() {
-        runner.run(context -> {
-            assertThat(context.getBean(EventTransport.class)).isInstanceOf(KafkaEventTransport.class);
-            assertThat(context).hasSingleBean(CloudEventPayloads.class).doesNotHaveBean(AvroEventCodec.class);
+    @DisplayName("default: the Avro transport is the primary one")
+    void defaultIsAvro() {
+        runner.withPropertyValues("polaris.events.avro.schema-registry-url=mock://auto").run(context -> {
+            assertThat(context).hasSingleBean(EventTransport.class);
+            assertThat(context.getBean(EventTransport.class)).isInstanceOf(AvroKafkaEventTransport.class);
+            assertThat(context).hasSingleBean(CloudEventPayloads.class);
         });
     }
 
     @Test
-    @DisplayName("format=avro with a registry: the Avro transport wins over the JSON one")
-    void avroTransportWins() {
-        runner.withPropertyValues("polaris.events.format=avro", "polaris.events.avro.schema-registry-url=mock://auto")
-                .run(context -> {
-                    assertThat(context).hasSingleBean(EventTransport.class);
-                    assertThat(context.getBean(EventTransport.class)).isInstanceOf(AvroKafkaEventTransport.class);
-                });
+    @DisplayName("format=json restores the ADR-0019 transport")
+    void jsonFormatKeepsTheJsonTransport() {
+        runner.withPropertyValues("polaris.events.format=json").run(context -> {
+            assertThat(context.getBean(EventTransport.class)).isInstanceOf(KafkaEventTransport.class);
+            assertThat(context).doesNotHaveBean(AvroEventCodec.class);
+        });
     }
 
     @Test
-    @DisplayName("a registry without format=avro: still the JSON transport, but Avro events can be read")
+    @DisplayName("the Avro transport bean is registered as primary")
+    void avroTransportIsPrimary() {
+        runner.withPropertyValues("polaris.events.avro.schema-registry-url=mock://auto-primary").run(context ->
+                assertThat(context.getBeanFactory().getBeanDefinition("avroKafkaEventTransport").isPrimary()).isTrue());
+    }
+
+    @Test
+    @DisplayName("format=json with a registry: still the JSON transport, but Avro events can be read")
     void registryOnlyEnablesReading() {
-        runner.withPropertyValues("polaris.events.avro.schema-registry-url=mock://auto-read").run(context -> {
+        runner.withPropertyValues("polaris.events.format=json", "polaris.events.avro.schema-registry-url=mock://auto-read").run(context -> {
             assertThat(context.getBean(EventTransport.class)).isInstanceOf(KafkaEventTransport.class);
             assertThat(context).hasSingleBean(AvroEventCodec.class);
         });
     }
 
     @Test
-    @DisplayName("format=avro without a registry fails at startup and names the missing setting")
+    @DisplayName("Avro (the default) without a registry fails at startup and names the missing setting")
     void avroWithoutRegistryFails() {
-        runner.withPropertyValues("polaris.events.format=avro").run(context -> {
+        runner.run(context -> {
             assertThat(context).hasFailed();
             assertThat(context.getStartupFailure()).rootCause().hasMessageContaining("polaris.events.avro.schema-registry-url");
         });
