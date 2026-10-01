@@ -82,7 +82,7 @@ public class OutboxRelay {
                 metrics.recordHandOff(event.destination(), event.type(), false, Duration.between(start, now));
                 Duration retryIn = backoff.delayAfter(event.attempts());
                 store.markFailed(event.id(), now.plus(retryIn), describe(failure));
-                log.warn("Outbox hand-off failed ce_id={} ce_type={} key={} destination={} attempt={} retry_in={} error={}",
+                log.warn("Outbox hand-off failed event_id={} event_type={} key={} destination={} attempt={} retry_in={} error={}",
                         event.eventId(), event.type(), event.key(), event.destination(), event.attempts() + 1, retryIn,
                         describe(failure));
                 return false;
@@ -94,7 +94,7 @@ public class OutboxRelay {
             metrics.recordHandOff(event.destination(), event.type(), true, Duration.between(start, now));
             store.markDelivered(event.id(), now);
             delivered.add(new Delivery(event.destination(), event.type(), Duration.between(event.occurredAt(), now)));
-            log.debug("Outbox event delivered ce_id={} ce_type={} key={} destination={} attempt={}",
+            log.debug("Outbox event delivered event_id={} event_type={} key={} destination={} attempt={}",
                     event.eventId(), event.type(), event.key(), event.destination(), event.attempts() + 1);
             return true;
         }

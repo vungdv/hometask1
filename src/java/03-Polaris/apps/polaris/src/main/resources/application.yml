@@ -42,6 +42,11 @@ spring:
           issuer-uri: https://id.polaris.local/realms/polaris
 
 polaris:
+  avro:
+    # Schema Registry for the Avro event values (avro experiment). Host default for `make run`; compose sets the internal URL.
+    schema-registry-url: ${POLARIS_AVRO_SCHEMA_REGISTRY_URL:http://localhost:8081}
+    # Dev convenience. Production registers schemas from CI and sets this to false.
+    auto-register-schemas: ${POLARIS_AVRO_AUTO_REGISTER_SCHEMAS:true}
   ai:
     provider: gemini
     api-key: ${GEMINI_API_KEY:${POLARIS_AI_API_KEY:}}

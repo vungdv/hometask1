@@ -29,15 +29,15 @@
 			<groupId>vn.danang</groupId>
 			<artifactId>polaris-events</artifactId>
 		</dependency>
+		<dependency>
+			<groupId>vn.danang</groupId>
+			<artifactId>polaris-events-avro</artifactId>
+		</dependency>
 
 		<!-- Kafka transport for the outbox: Spring Kafka + the CloudEvents Kafka binding (Plan 2, ADR-0019) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-kafka</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>io.cloudevents</groupId>
-			<artifactId>cloudevents-kafka</artifactId>
 		</dependency>
 
 		<!-- Web & Security -->

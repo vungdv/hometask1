@@ -20,6 +20,10 @@
 			<groupId>vn.danang</groupId>
 			<artifactId>polaris-events</artifactId>
 		</dependency>
+		<dependency>
+			<groupId>vn.danang</groupId>
+			<artifactId>polaris-events-avro</artifactId>
+		</dependency>
 
 		<!-- Consumer-group metrics (O6): plain classes only; the outbox auto-configuration needs a datasource, so it stays inert here -->
 		<dependency>
@@ -31,10 +35,6 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-kafka</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>io.cloudevents</groupId>
-			<artifactId>cloudevents-kafka</artifactId>
 		</dependency>
 
 		<!-- Actuator over an embedded server; the app has no API of its own -->

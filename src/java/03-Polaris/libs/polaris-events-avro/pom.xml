@@ -19,14 +19,6 @@
 		<confluent.version>8.3.2</confluent.version>
 	</properties>
 
-	<repositories>
-		<repository>
-			<id>confluent</id>
-			<url>https://packages.confluent.io/maven/</url>
-			<snapshots><enabled>false</enabled></snapshots>
-		</repository>
-	</repositories>
-
 	<dependencies>
 		<dependency>
 			<groupId>vn.danang</groupId>
@@ -38,22 +30,14 @@
 			<version>${avro.version}</version>
 		</dependency>
 
-		<!-- Registry-aware (de)serializers: test scope only in this experiment -->
 		<dependency>
 			<groupId>io.confluent</groupId>
 			<artifactId>kafka-avro-serializer</artifactId>
 			<version>${confluent.version}</version>
-			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.kafka</groupId>
 			<artifactId>kafka-clients</artifactId>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>io.cloudevents</groupId>
-			<artifactId>cloudevents-kafka</artifactId>
-			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>tools.jackson.core</groupId>

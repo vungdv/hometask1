@@ -19,7 +19,7 @@ public interface IntegrationEventPublisher {
     /**
      * Records {@code event} in the current transaction.
      *
-     * @return the event's CloudEvents {@code id} ({@code ce_id}), assigned now
+     * @return the event's event {@code id} ({@code event-id}), assigned now
      * @throws org.springframework.transaction.IllegalTransactionStateException if no transaction is active, or it is read-only
      */
     UUID publish(IntegrationEvent event);

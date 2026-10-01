@@ -39,9 +39,7 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
 
-import io.cloudevents.CloudEvent;
-import io.cloudevents.core.builder.CloudEventBuilder;
-import io.cloudevents.kafka.KafkaMessageFactory;
+import vn.danang.polaris.events.EventHeaders;
 import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaAvroSerializer;
 import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
@@ -49,8 +47,8 @@ import io.confluent.kafka.schemaregistry.client.rest.exceptions.RestClientExcept
 import io.confluent.kafka.schemaregistry.avro.AvroSchema;
 
 /**
- * The experiment end to end against a real Kafka broker and a real Confluent Schema Registry: the CloudEvents
- * binary-mode record keeps its {@code ce_*} headers while the value becomes registry-framed Avro, the registry
+ * The experiment end to end against a real Kafka broker and a real Confluent Schema Registry: the record carries
+ * its metadata in plain {@code event-*} headers (no CloudEvents) and a registry-framed Avro value, the registry
  * enforces the compatibility mode at registration, and a v1 consumer keeps reading after the producer moves to v2.
  */
 @Testcontainers
@@ -95,14 +93,14 @@ class RegistryKafkaIntegrationTest {
 
     @Test
     @Order(1)
-    @DisplayName("v1 is registered; a CloudEvents binary record carries ce_* headers and a registry-framed Avro value")
-    void v1RecordKeepsCloudEventsBinding() throws Exception {
+    @DisplayName("v1 is registered; a record carries event-* headers and a registry-framed Avro value")
+    void v1RecordCarriesEventHeaders() throws Exception {
         registry.register(SUBJECT, new AvroSchema(AvroFixtures.V1));
 
         ConsumerRecord<String, byte[]> record = produceAndPoll(AvroFixtures.V1, AvroFixtures.sampleAsGeneric());
 
-        assertThat(header(record, "ce_type")).isEqualTo("vn.danang.polaris.order.confirmed.v1");
-        assertThat(header(record, "content-type")).isEqualTo("application/avro");
+        assertThat(header(record, EventHeaders.TYPE)).isEqualTo("vn.danang.polaris.order.confirmed.v1");
+        assertThat(header(record, EventHeaders.CONTENT_TYPE)).isEqualTo("application/avro");
         assertThat(record.key()).isEqualTo("ORD-10042");
         assertThat(record.value()[0]).as("Confluent wire format magic byte").isZero();
         int schemaId = java.nio.ByteBuffer.wrap(record.value(), 1, 4).getInt();
@@ -157,6 +155,19 @@ class RegistryKafkaIntegrationTest {
         assertThat(registry.register(other, new AvroSchema(bad))).isPositive();
     }
 
+    @Test
+    @Order(5)
+    @DisplayName("the production codec round-trips the generated classes through the real registry")
+    void codecRoundTrip() {
+        var sent = vn.danang.polaris.events.avro.order.OrderLifecycleAvroMapper.toAvro(AvroFixtures.sample());
+        try (var codec = new AvroEventCodec(registryUrl, true)) {
+            byte[] bytes = codec.encode("polaris.codec-check", sent);
+            vn.danang.polaris.events.avro.order.OrderLifecycleEvent read = codec.decode("polaris.codec-check", bytes);
+            assertThat(vn.danang.polaris.events.avro.order.OrderLifecycleAvroMapper.fromAvro(read))
+                    .isEqualTo(AvroFixtures.sample());
+        }
+    }
+
     private ConsumerRecord<String, byte[]> produceAndPoll(Schema schema, GenericRecord value) {
         Properties p = new Properties();
         p.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
@@ -169,11 +180,12 @@ class RegistryKafkaIntegrationTest {
                 KafkaProducer<String, byte[]> producer = new KafkaProducer<>(p, new StringSerializer(),
                         new org.apache.kafka.common.serialization.ByteArraySerializer())) {
             byte[] avro = ser.serialize(TOPIC, value);
-            CloudEvent event = CloudEventBuilder.v1().withId(id).withType("vn.danang.polaris.order.confirmed.v1")
-                    .withSource(URI.create("/polaris/order")).withDataContentType("application/avro").withData(avro)
-                    .build();
-            ProducerRecord<String, byte[]> record = KafkaMessageFactory.createWriter(TOPIC, "ORD-10042")
-                    .writeBinary(event);
+            ProducerRecord<String, byte[]> record = new ProducerRecord<>(TOPIC, null, "ORD-10042", avro);
+            record.headers().add(EventHeaders.ID, id.getBytes(StandardCharsets.UTF_8));
+            record.headers().add(EventHeaders.TYPE,
+                    "vn.danang.polaris.order.confirmed.v1".getBytes(StandardCharsets.UTF_8));
+            record.headers().add(EventHeaders.CONTENT_TYPE,
+                    EventHeaders.AVRO_CONTENT_TYPE.getBytes(StandardCharsets.UTF_8));
             producer.send(record);
             producer.flush();
         }
@@ -183,7 +195,7 @@ class RegistryKafkaIntegrationTest {
             long end = System.currentTimeMillis() + 30_000;
             while (System.currentTimeMillis() < end) {
                 for (ConsumerRecord<String, byte[]> r : consumer.poll(Duration.ofMillis(500))) {
-                    if (id.equals(header(r, "ce_id"))) {
+                    if (id.equals(header(r, EventHeaders.ID))) {
                         return r;
                     }
                 }

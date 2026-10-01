@@ -40,7 +40,7 @@ public record OutboxProperties(@DefaultValue Relay relay, @DefaultValue Retentio
     }
 
     /**
-     * Kafka transport (ADR-0019), active when Spring Kafka and the CloudEvents Kafka binding are on the classpath.
+     * Kafka transport (ADR-0019), active when Spring Kafka is on the classpath.
      *
      * @param enabled     {@code false} leaves the relay without this transport (events stay pending)
      * @param sendTimeout bound of each phase of one send: metadata wait, then broker acknowledgement

@@ -53,8 +53,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import io.cloudevents.CloudEvent;
-import io.cloudevents.kafka.KafkaMessageFactory;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.TraceFlags;
@@ -102,7 +100,7 @@ class KafkaEventTransportIntegrationTest {
     private EventTransport transport;
 
     @Test
-    void recordedEvent_arrivesOnce_asABinaryModeCloudEvent_keyedByAggregate_inTheRecordedTrace() throws Exception {
+    void recordedEvent_arrivesOnce_withEventHeaders_keyedByAggregate_inTheRecordedTrace() throws Exception {
         String key = "K-" + UUID.randomUUID();
         String traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
         UUID recorded;
@@ -117,25 +115,16 @@ class KafkaEventTransportIntegrationTest {
         assertThat(records).singleElement().satisfies(record -> {
             assertThat(record.key()).isEqualTo(key);
             Map<String, String> headers = headers(record);
-            assertThat(headers).containsEntry("ce_specversion", "1.0")
-                    .containsEntry("ce_id", recorded.toString())
-                    .containsEntry("ce_type", TYPE)
-                    .containsEntry("ce_source", SOURCE)
+            assertThat(headers).containsEntry("event-id", recorded.toString())
+                    .containsEntry("event-type", TYPE)
+                    .containsEntry("event-source", SOURCE)
                     .containsEntry("content-type", "application/json")
-                    .containsKey("ce_time")
+                    .containsKey("event-time")
                     .containsEntry("tracestate", "polaris=t1");
             assertThat(headers.get("traceparent")).startsWith("00-" + traceId + "-");
             assertThat(headers.keySet()).noneMatch(name -> name.startsWith("__"));
             assertThat(new String(record.value(), StandardCharsets.UTF_8))
                     .contains("\"key\":\"" + key + "\"").contains("\"amount\":\"12.50\"");
-
-            // Any CloudEvents SDK consumer reads it back (the binding Plans 3 and 4 consume with)
-            CloudEvent event = KafkaMessageFactory.createReader(record).toEvent();
-            assertThat(event.getId()).isEqualTo(recorded.toString());
-            assertThat(event.getType()).isEqualTo(TYPE);
-            assertThat(event.getSource().toString()).isEqualTo(SOURCE);
-            assertThat(event.getDataContentType()).isEqualTo("application/json");
-            assertThat(event.getTime()).isNotNull();
         });
         await().atMost(Duration.ofSeconds(5)).until(() -> "DELIVERED".equals(status(recorded)));
     }

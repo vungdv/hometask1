@@ -45,17 +45,15 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.kafka.KafkaContainer;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.cloudevents.CloudEvent;
-import io.cloudevents.kafka.KafkaMessageFactory;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import vn.danang.polaris.TestcontainersConfiguration;
 import vn.danang.polaris.catalog.entity.Product;
 import vn.danang.polaris.catalog.repository.ProductRepository;
+import vn.danang.polaris.events.avro.AvroEventCodec;
 import vn.danang.polaris.events.order.OrderEvents;
 import vn.danang.polaris.order.repository.OrderRepository;
 import vn.danang.polaris.web.support.JwtMockFactory;
@@ -64,11 +62,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 /**
  * Plan 2 B2 end to end against real PostgreSQL and a real Kafka broker of the compose image with topic auto-creation
- * disabled: a placed order reaches {@value OrderEvents#DESTINATION} as a binary-mode CloudEvent in the placing
+ * disabled: a placed order reaches {@value OrderEvents#DESTINATION} as registry-framed Avro with event-* headers in the placing
  * request's trace (TR-B2, TR-B4), Order provisions its topic (TR-B1, TR-B5), commit order is kept per partition
  * (TR-B3, TR-E3), and a Kafka outage never fails placement and loses nothing (TR-B7, TR-E2).
  */
-@SpringBootTest
+@SpringBootTest(properties = "polaris.avro.schema-registry-url=mock://order-lifecycle-it")
 @AutoConfigureMockMvc
 @Import({ TestcontainersConfiguration.class, OrderLifecycleKafkaIntegrationTest.SpanCapture.class })
 class OrderLifecycleKafkaIntegrationTest {
@@ -150,8 +148,8 @@ class OrderLifecycleKafkaIntegrationTest {
     }
 
     @Test
-    @DisplayName("Placed order → exactly one order.placed.v1 keyed by order number, all ce_* headers, in the request's trace")
-    void placedOrder_arrivesExactlyOnce_asCloudEvent_inThePlacingRequestsTrace() throws Exception {
+    @DisplayName("Placed order → exactly one order.placed.v1 keyed by order number, all event-* headers, in the request's trace")
+    void placedOrder_arrivesExactlyOnce_asAvro_inThePlacingRequestsTrace() throws Exception {
         spans.reset();
         MvcResult result = place();
         assertThat(result.getResponse().getStatus()).isEqualTo(201);
@@ -164,20 +162,20 @@ class OrderLifecycleKafkaIntegrationTest {
             Map<String, String> headers = headers(record);
             String ceId = jdbc.sql("SELECT event_id FROM outbox_events WHERE event_key = ?").param(orderNumber)
                     .query(String.class).single();
-            assertThat(headers).containsEntry("ce_specversion", "1.0")
-                    .containsEntry("ce_id", ceId)
-                    .containsEntry("ce_type", "vn.danang.polaris.order.placed.v1")
-                    .containsEntry("ce_source", "/polaris/order")
-                    .containsEntry("content-type", "application/json")
-                    .containsKey("ce_time");
+            assertThat(headers).containsEntry("event-id", ceId)
+                    .containsEntry("event-type", "vn.danang.polaris.order.placed.v1")
+                    .containsEntry("event-source", "/polaris/order")
+                    .containsEntry("content-type", "application/avro")
+                    .containsKey("event-time");
             assertThat(headers.keySet()).as("no serializer type headers").noneMatch(name -> name.startsWith("__"));
             assertThat(headers.get("traceparent")).startsWith("00-" + TRACE_ID + "-");
 
-            CloudEvent event = KafkaMessageFactory.createReader(record).toEvent();
-            JsonNode data = objectMapper.readTree(event.getData().toBytes());
-            assertThat(data.path("orderNumber").asText()).isEqualTo(orderNumber);
-            assertThat(data.path("status").asText()).isEqualTo("PLACED");
-            assertThat(data.path("totalAmount").asText()).isEqualTo("9.90");
+            try (AvroEventCodec codec = new AvroEventCodec("mock://order-lifecycle-it", false)) {
+                vn.danang.polaris.events.avro.order.OrderLifecycleEvent data = codec.decode(TOPIC, record.value());
+                assertThat(data.getOrderNumber()).isEqualTo(orderNumber);
+                assertThat(data.getStatus().name()).isEqualTo("PLACED");
+                assertThat(data.getTotalAmount()).isEqualByComparingTo("9.90");
+            }
 
             // One trace: HTTP request → outbox hand-off → Kafka produce, whose context is in the record (TR-B4)
             String producedSpanId = headers.get("traceparent").split("-")[2];
@@ -246,9 +244,9 @@ class OrderLifecycleKafkaIntegrationTest {
 
         List<ConsumerRecord<String, byte[]>> records = consume(Set.copyOf(orderNumbers), orderNumbers.size());
 
-        // At-least-once: a send that timed out during the outage may have been written, so dedupe by ce_id
+        // At-least-once: a send that timed out during the outage may have been written, so dedupe by event-id
         Map<String, ConsumerRecord<String, byte[]>> firstByCeId = new LinkedHashMap<>();
-        records.forEach(r -> firstByCeId.putIfAbsent(headers(r).get("ce_id"), r));
+        records.forEach(r -> firstByCeId.putIfAbsent(headers(r).get("event-id"), r));
         assertThat(firstByCeId.values()).extracting(ConsumerRecord::key)
                 .containsExactlyInAnyOrderElementsOf(orderNumbers);
         assertCommitOrderPerPartition(new ArrayList<>(firstByCeId.values()));
@@ -265,7 +263,7 @@ class OrderLifecycleKafkaIntegrationTest {
             List<Long> outboxIds = inPartition.stream()
                     .sorted(Comparator.comparingLong(ConsumerRecord::offset))
                     .map(r -> jdbc.sql("SELECT id FROM outbox_events WHERE event_id = CAST(? AS UUID)")
-                            .param(headers(r).get("ce_id")).query(Long.class).single())
+                            .param(headers(r).get("event-id")).query(Long.class).single())
                     .toList();
             assertThat(outboxIds).as("partition %d", partition).isSorted();
         });

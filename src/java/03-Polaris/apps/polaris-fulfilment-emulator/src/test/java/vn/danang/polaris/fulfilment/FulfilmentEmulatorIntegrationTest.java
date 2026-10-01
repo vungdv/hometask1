@@ -56,12 +56,10 @@ import org.testcontainers.kafka.KafkaContainer;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 
-import io.cloudevents.CloudEvent;
-import io.cloudevents.core.builder.CloudEventBuilder;
-import io.cloudevents.kafka.KafkaMessageFactory;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import vn.danang.polaris.events.fulfilment.FulfilmentEvents;
+import vn.danang.polaris.events.EventHeaders;
 import vn.danang.polaris.events.order.OrderEvents;
 
 /**
@@ -70,6 +68,7 @@ import vn.danang.polaris.events.order.OrderEvents;
  * claim stub: {@value #WINNER} gets 200, the others 409.
  */
 @SpringBootTest(properties = {
+        "polaris.avro.schema-registry-url=mock://fulfilment-emulator-it",
         "polaris.fulfilment.claim-pause.min=100ms",
         "polaris.fulfilment.claim-pause.max=300ms",
         "polaris.fulfilment.step-delay=100ms",
@@ -195,8 +194,13 @@ class FulfilmentEmulatorIntegrationTest {
         assertThat(shipments).extracting(r -> r.key()).containsOnly(order);
         assertThat(shipments).extracting(r -> ceType(r)).containsExactly(
                 FulfilmentEvents.SHIPMENT_PACKED_V1, FulfilmentEvents.SHIPMENT_DISPATCHED_V1, FulfilmentEvents.SHIPMENT_DELIVERED_V1);
-        assertThat(shipments).allSatisfy(r -> assertThat(new String(r.value(), StandardCharsets.UTF_8))
-                .contains("\"partnerId\":\"" + WINNER + "\"").contains("\"orderNumber\":\"" + order + "\""));
+        try (var codec = new vn.danang.polaris.events.avro.AvroEventCodec("mock://fulfilment-emulator-it", false)) {
+            assertThat(shipments).allSatisfy(r -> {
+                vn.danang.polaris.events.avro.fulfilment.ShipmentEvent event = codec.decode(r.topic(), r.value());
+                assertThat(event.getPartnerId()).isEqualTo(WINNER);
+                assertThat(event.getOrderNumber()).isEqualTo(order);
+            });
+        }
         assertThat(pollMore(order, Duration.ofSeconds(2))).isEmpty();
 
         // One trace: the offer's trace id is on every claim request and every shipment record.
@@ -225,12 +229,22 @@ class FulfilmentEmulatorIntegrationTest {
     // -- helpers -----------------------------------------------------------------------------------------------
 
     private void publishOffer(String orderNumber) throws Exception {
-        String payload = "{\"orderNumber\":\"" + orderNumber + "\",\"status\":\"PLACED\",\"occurredAt\":\"2026-09-30T10:00:00Z\","
-                + "\"items\":[],\"totalAmount\":\"9.90\",\"currency\":\"USD\"}";
-        CloudEvent event = CloudEventBuilder.v1().withId(UUID.randomUUID().toString()).withType(OrderEvents.PLACED_V1)
-                .withSource(java.net.URI.create(OrderEvents.SOURCE)).withTime(Instant.now().atOffset(ZoneOffset.UTC))
-                .withDataContentType("application/json").withData(payload.getBytes(StandardCharsets.UTF_8)).build();
-        ProducerRecord<String, byte[]> record = KafkaMessageFactory.createWriter(OrderEvents.DESTINATION, orderNumber).writeBinary(event);
+        var placed = vn.danang.polaris.events.avro.order.OrderLifecycleEvent.newBuilder()
+                .setOrderNumber(orderNumber)
+                .setStatus(vn.danang.polaris.events.avro.order.OrderMilestone.PLACED)
+                .setOccurredAt(Instant.parse("2026-09-30T10:00:00Z"))
+                .setCustomer(null).setItems(List.of())
+                .setTotalAmount(new java.math.BigDecimal("9.90")).setCurrency("USD").setAssignedPartner(null)
+                .build();
+        byte[] value;
+        try (var codec = new vn.danang.polaris.events.avro.AvroEventCodec("mock://fulfilment-emulator-it", true)) {
+            value = codec.encode(OrderEvents.DESTINATION, placed);
+        }
+        ProducerRecord<String, byte[]> record = new ProducerRecord<>(OrderEvents.DESTINATION, null, orderNumber, value);
+        record.headers().add(EventHeaders.ID, UUID.randomUUID().toString().getBytes(StandardCharsets.UTF_8));
+        record.headers().add(EventHeaders.TYPE, OrderEvents.PLACED_V1.getBytes(StandardCharsets.UTF_8));
+        record.headers().add(EventHeaders.SOURCE, OrderEvents.SOURCE.getBytes(StandardCharsets.UTF_8));
+        record.headers().add(EventHeaders.CONTENT_TYPE, EventHeaders.AVRO_CONTENT_TYPE.getBytes(StandardCharsets.UTF_8));
         record.headers().add("traceparent", TRACEPARENT.getBytes(StandardCharsets.UTF_8));
         Properties props = new Properties();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
@@ -285,6 +299,6 @@ class FulfilmentEmulatorIntegrationTest {
     }
 
     private static String ceType(ConsumerRecord<String, byte[]> record) {
-        return header(record, "ce_type");
+        return header(record, EventHeaders.TYPE);
     }
 }

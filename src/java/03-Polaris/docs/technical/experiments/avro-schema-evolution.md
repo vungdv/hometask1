@@ -115,3 +115,26 @@ One sample, so treat the ratio as indicative. Gain grows with repeated field nam
 * The measurable gains are enforcement and size; the measurable costs are tooling friction and the unresolved outbox payload question.
 * A cheaper middle path suggested by the results: keep JSON on the wire and run the same compatibility gate in CI on committed schemas, which gives most of advantage 1 and 2 without a runtime registry.
 * If Avro is pursued, the next vertical slice is the outbox: decide where serialization happens and what the payload column stores, then write an ADR superseding ADR-0019 §3.1.
+
+## 7. Phase 2: CloudEvents replaced completely
+
+Requested follow-up: use the Avro mapper to replace CloudEvents on both topics, in this branch. Decisions taken: event metadata moves to plain `event-id`, `event-type`, `event-source`, `event-time` headers; both `polaris.order.lifecycle` and `polaris.fulfilment.shipments` move to Avro. The decision record is [ADR-0021](../decisions/0021-avro-schema-registry-vs-cloudevents.md).
+
+What changed:
+
+* `polaris-outbox`: `CloudEventsKafkaBinding` removed; new `EventKafkaBinding` and an `EventValueEncoder` port. The outbox still stores JSON and the relay is unchanged. The `cloudevents-kafka` dependency is gone from the parent, the outbox and both apps.
+* `polaris-events-avro`: shipment schema and mapper, `AvroEventCodec` (Confluent wire format, trusts the generated classes once), `EventMeta` (reads the headers).
+* `apps/polaris`: `OrderAvroValueEncoder` encodes the recorded JSON at hand-off; `ShipmentReportHandler` decodes Avro.
+* `apps/polaris-fulfilment-emulator`: `OfferHandler` decodes Avro, `ShipmentPublisher` encodes it.
+* Compose: `schema-registry` service (`BACKWARD_TRANSITIVE` default), apps wait for it.
+* `tests/e2e/verify-kafka-events.sh` reads through `kafka-avro-console-consumer` and matches `event-type`.
+
+Measured: the integration tests listed in ADR-0021 section 6 pass. Not verified: the compose stack and the updated e2e script were not run.
+
+Findings specific to this phase:
+
+* Replacing CloudEvents touched the outbox, two apps, six integration tests, the e2e script and compose, and removed no registry cost. Keeping CloudEvents (option C in the ADR) would have avoided all of it.
+* Tests that asserted on the JSON value text (`"partnerId":"..."`) cannot work on Avro bytes; each had to decode the record instead.
+* A registry outage stops delivery of every event (the encoder runs inside the relay's send), where before only a broker outage did.
+* The `event-*` header names are a Polaris convention with no standard behind them.
+

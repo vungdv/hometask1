@@ -8,10 +8,9 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration;
-import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
-import io.cloudevents.kafka.KafkaMessageFactory;
+import vn.danang.polaris.outbox.kafka.EventValueEncoder;
 import vn.danang.polaris.outbox.kafka.KafkaEventTransport;
 import vn.danang.polaris.outbox.transport.EventTransport;
 
@@ -55,10 +54,10 @@ class OutboxKafkaAutoConfigurationTest {
     }
 
     @Test
-    void withoutTheCloudEventsBinding_backsOff() {
+    void withAnEventValueEncoderBean_stillContributesTheTransport() {
         runner.withBean(DataSource.class, () -> mock(DataSource.class))
-                .withClassLoader(new FilteredClassLoader(KafkaMessageFactory.class))
-                .run(context -> assertThat(context).doesNotHaveBean(EventTransport.class));
+                .withBean(EventValueEncoder.class, () -> EventValueEncoder.JSON)
+                .run(context -> assertThat(context).hasSingleBean(KafkaEventTransport.class));
     }
 
     @Test
