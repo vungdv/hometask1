@@ -36,3 +36,13 @@ never be reused outside local development.
 
 Tunables (env): `KC_ADMIN_USER`, `KC_ADMIN_PASSWORD`, `E2E_STAFF_USER`, `E2E_STAFF_PASSWORD`, `BATCH`, `TIMEOUT`, `SKU`, `POLL_INTERVAL`, `E2E_USER`, `E2E_PASSWORD`, `E2E_EMAIL`, `API_BASE`, `KC_BASE`.
 Extra arguments after `run-fulfilment.sh` go to `k6 run`. Requires the emulator container running and a realm that includes its client.
+
+## Observability end-to-end (plan O8) - `tests/e2e/observability/`
+Needs the compose stack (`make up`); not run in CI. Details and the OBS requirement mapping: [docs/operations/verification.md](../../docs/operations/verification.md).
+```bash
+tests/e2e/observability/run.sh                 # order -> trace/logs/metrics/dashboards/secrets assertions + the existing live checks (~2 min)
+tests/e2e/observability/walkthrough-check.sh   # runs the OBS-DIA-1 operator walk-through queries through Grafana's proxy
+tests/e2e/observability/traceability-check.sh  # static: every OBS-* requirement maps to a check or recorded manual step
+tests/e2e/observability/failure-injection.sh   # DISRUPTIVE (stops backends, Kafka, nginx); restores the stack in a trap
+tests/e2e/observability/fresh-bootstrap.sh --yes-delete-all-volumes   # DESTRUCTIVE, opt-in: make clean && make up from nothing
+```
