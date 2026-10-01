@@ -66,7 +66,7 @@ public class OutboxRelay {
             }
         });
         // Only now are the deliveries committed.
-        delivered.forEach(d -> metrics.recordDelivered(d.destination(), d.lag()));
+        delivered.forEach(d -> metrics.recordDelivered(d.destination(), d.type(), d.lag()));
         return new CycleResult(locked[0], delivered.size(), failed[0]);
     }
 
@@ -79,7 +79,7 @@ public class OutboxRelay {
             } catch (Exception failure) {
                 handOff.failed(failure);
                 Instant now = clock.instant();
-                metrics.recordHandOff(event.destination(), false, Duration.between(start, now));
+                metrics.recordHandOff(event.destination(), event.type(), false, Duration.between(start, now));
                 Duration retryIn = backoff.delayAfter(event.attempts());
                 store.markFailed(event.id(), now.plus(retryIn), describe(failure));
                 log.warn("Outbox hand-off failed ce_id={} ce_type={} key={} destination={} attempt={} retry_in={} error={}",
@@ -91,9 +91,9 @@ public class OutboxRelay {
                 throw crash; // rolls the cycle back: the event stays pending and is re-sent with the same id
             }
             Instant now = clock.instant();
-            metrics.recordHandOff(event.destination(), true, Duration.between(start, now));
+            metrics.recordHandOff(event.destination(), event.type(), true, Duration.between(start, now));
             store.markDelivered(event.id(), now);
-            delivered.add(new Delivery(event.destination(), Duration.between(event.occurredAt(), now)));
+            delivered.add(new Delivery(event.destination(), event.type(), Duration.between(event.occurredAt(), now)));
             log.debug("Outbox event delivered ce_id={} ce_type={} key={} destination={} attempt={}",
                     event.eventId(), event.type(), event.key(), event.destination(), event.attempts() + 1);
             return true;
@@ -106,7 +106,7 @@ public class OutboxRelay {
                 : failure.getClass().getName() + ": " + failure.getMessage();
     }
 
-    private record Delivery(String destination, Duration lag) {
+    private record Delivery(String destination, String type, Duration lag) {
     }
 
     /**

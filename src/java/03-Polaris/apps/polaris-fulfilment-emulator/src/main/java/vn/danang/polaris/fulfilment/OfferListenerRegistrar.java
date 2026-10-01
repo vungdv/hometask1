@@ -9,13 +9,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.listener.ConcurrentMessageListenerContainer;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.listener.MessageListener;
 import org.springframework.util.backoff.FixedBackOff;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
+import vn.danang.polaris.outbox.telemetry.ConsumerGroupMetrics;
 
 /**
  * One listener container, and so one consumer group {@code fulfilment.<partnerId>}, per partner (D3, TR-F1,
@@ -35,15 +38,24 @@ class OfferListenerRegistrar implements SmartLifecycle {
     private boolean running;
 
     OfferListenerRegistrar(ConsumerFactory<String, byte[]> consumerFactory, String topic, List<PartnerAgent> partners,
-            OfferHandler handler, ObservationRegistry observationRegistry) {
-        this.containers = partners.stream().map(partner -> container(consumerFactory, topic, partner, handler, observationRegistry)).toList();
+            OfferHandler handler, ObservationRegistry observationRegistry, ConsumerGroupMetrics groupMetrics,
+            MeterRegistry meters) {
+        this.containers = partners.stream()
+                .map(partner -> container(consumerFactory, topic, partner, handler, observationRegistry, groupMetrics, meters))
+                .toList();
     }
 
     private static ConcurrentMessageListenerContainer<String, byte[]> container(ConsumerFactory<String, byte[]> consumerFactory,
             String topic, PartnerAgent partner, OfferHandler handler,
-            ObservationRegistry observationRegistry) {
+            ObservationRegistry observationRegistry, ConsumerGroupMetrics groupMetrics, MeterRegistry meters) {
         var properties = new ContainerProperties(topic);
-        properties.setGroupId(GROUP_PREFIX + partner.partnerId());
+        String group = GROUP_PREFIX + partner.partnerId();
+        properties.setGroupId(group);
+        // O6 contract: one factory per group so the client lag metrics carry the group tag; oldest in-flight record age.
+        var groupFactory = new DefaultKafkaConsumerFactory<>(consumerFactory.getConfigurationProperties(),
+                consumerFactory.getKeyDeserializer(), consumerFactory.getValueDeserializer());
+        groupFactory.addListener(ConsumerGroupMetrics.clientMetrics(meters, group));
+        var tracker = groupMetrics.<String, byte[]>recordInterceptor(group);
         properties.setAckMode(ContainerProperties.AckMode.RECORD);
         properties.setObservationEnabled(true);
         properties.setObservationRegistry(observationRegistry);
@@ -52,12 +64,15 @@ class OfferListenerRegistrar implements SmartLifecycle {
         overrides.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         properties.setKafkaConsumerProperties(overrides);
         properties.setMessageListener((MessageListener<String, byte[]>) record -> handler.handle(partner, record));
-        var container = new ConcurrentMessageListenerContainer<>(consumerFactory, properties);
+        var container = new ConcurrentMessageListenerContainer<>(groupFactory, properties);
+        container.setRecordInterceptor(tracker);
         container.setBeanName("fulfilment-" + partner.partnerId());
         // A poison offer never blocks the partition: two quick retries, then ERROR with its coordinates, and skip.
-        container.setCommonErrorHandler(new DefaultErrorHandler((record, e) -> log.error(
-                "Offer skipped after retries partnerId={} topic={} partition={} offset={} error={}", partner.partnerId(),
-                record.topic(), record.partition(), record.offset(), e.toString()), new FixedBackOff(500, 2)));
+        container.setCommonErrorHandler(new DefaultErrorHandler((record, e) -> {
+            tracker.skipped(record);
+            log.error("Offer skipped after retries partnerId={} topic={} partition={} offset={} error={}",
+                    partner.partnerId(), record.topic(), record.partition(), record.offset(), e.toString());
+        }, new FixedBackOff(500, 2)));
         return container;
     }
 

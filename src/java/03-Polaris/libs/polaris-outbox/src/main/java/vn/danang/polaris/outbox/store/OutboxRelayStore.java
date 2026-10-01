@@ -27,4 +27,7 @@ public interface OutboxRelayStore {
     long countPending();
 
     Optional<Instant> oldestPendingOccurredAt();
+
+    /** Pending events grouped by event type (one row per type that has any); empty when nothing is pending. */
+    List<PendingByType> pendingByType();
 }
