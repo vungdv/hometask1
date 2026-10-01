@@ -81,9 +81,10 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | 5 | O3 | Redaction and cardinality guardrails | `done` | O1, O2a | `feat/o3-redaction-guardrails` | [#34](https://github.com/vungdv/hometask1/pull/34) | |
 | 6 | O4 | Dashboards as code | `done` | O2, O2a | `feat/o4-dashboards-as-code` | [#35](https://github.com/vungdv/hometask1/pull/35) | |
 | 7 | O5 | SLOs, alerts and runbooks | `done` | O2, O4 | `feat/o5-slos-alerts-runbooks` | [#36](https://github.com/vungdv/hometask1/pull/36) | |
-| 8 | O6 | Async visibility (outbox and Kafka) | `approved` | O2 | `feat/o6a-async-metrics-contract` | [#37](https://github.com/vungdv/hometask1/pull/37) (part a, merged); [#38](https://github.com/vungdv/hometask1/pull/38) (part b) | PR #37 and #38 merged; held for user decision on two follow-ups (see run report) |
-| 9 | O7 | Access, retention and exposure | `todo` | O1 | | | |
-| 10 | O8 | End-to-end verification | `todo` | O1–O7, O2a | | | |
+| 8 | O6 | Async visibility (outbox and Kafka) | `done` | O2 | `feat/o6a-async-metrics-contract` | [#37](https://github.com/vungdv/hometask1/pull/37) (part a, merged); [#38](https://github.com/vungdv/hometask1/pull/38) (part b) | PR #37 and #38 merged; Follow-ups moved to O6c (approved 2026-10-01) |
+| 9 | O6c | Async signal reliability follow-ups | `todo` | O6 | | | Added 2026-10-01; app/library side (`libs/polaris-outbox`, `polaris`); lands before O8 |
+| 10 | O7 | Access, retention and exposure | `todo` | O1 | | | |
+| 11 | O8 | End-to-end verification | `todo` | O1–O7, O2a, O6c | | | |
 
 **Statuses:** `todo` → `in-progress` → `in-review` → `approved` (not merged) → `done` (merged), plus `blocked` (reason in *Notes*) and `dropped`.
 
@@ -146,6 +147,12 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 - Alerts: outbox stuck, consumer lag growing, poison record blocked. Panels join on `event type`, not `orderNumber`.
 - Stopping Kafka makes pending count and age rise and the alert fire; restarting drains them.
 
+### O6c: Async signal reliability follow-ups
+**Covers:** OBS-ASY-1, OBS-RES-1. **Detail design:** required. Added 2026-10-01 from the O6 reviews. Single bounded context (app/library side); platform changes only if the contract changes.
+- **Metrics going dark:** during a Kafka outage in one O6b run, `polaris` OTLP metrics (JVM included) stopped updating for about 17 minutes; not reproduced, cause unknown. Diagnose first (thread dump of `polaris`, Collector logs and `otelcol_*` refused/failed counters during a Kafka stop), then fix. Outbox signals must keep exporting while Kafka is down, so `OutboxStuck` can fire.
+- **Poison-record signal:** `ConsumerGroupMetrics` `GroupTracker` clears its in-flight entry only on success or skip. Clear it on partition revoke and container stop, and add a poison signal that does not depend on lag (so a blocked last record at lag 0 is detected). Update the `PoisonRecordBlocked` rule, tests and runbook if the signal changes.
+- Tests: reproduce or bound the dark-metrics case in an automated test where feasible; unit and integration tests for revoke/stop clearing; the O6b Kafka-stop scenario (`async-check.sh`) shows the pending count and age metrics continue to export throughout the outage.
+
 ### O7: Access, retention and exposure
 **Covers:** OBS-SEC-1. **Detail design:** not needed.
 - Retention set and documented per signal (for example metrics 15d, traces 3d, logs 7d in dev), with disk-cap safeguards.
@@ -187,3 +194,4 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 |:--|:--|:--|:--|
 | 2026-09-30 | Initial draft | Improve the high-level requirements and implement them on the current Grafana stack | all |
 | 2026-09-30 | Tenants dropped (none exist); tier-0 set to `polaris`, `polaris-assistant` and the `nginx` gateway; added O2a and OBS-EDGE-1, D6, D7 | Product answers; the gateway is the first hop and the only place edge failures are visible | O0, O2a, O3, O4, O5 |
+| 2026-10-01 | Added O6c (async signal reliability follow-ups: metrics going dark during a Kafka outage; poison-record signal fixes), placed after O6 and before O7/O8 | Findings from the O6a/O6b reviews; approved by the user | O6c (new), O6 → done, O7, O8 renumbered |
