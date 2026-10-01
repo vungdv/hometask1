@@ -70,6 +70,8 @@ import vn.danang.polaris.events.order.OrderEvents;
  * claim stub: {@value #WINNER} gets 200, the others 409.
  */
 @SpringBootTest(properties = {
+        // asserts on JSON text: the ADR-0019 path (Avro is the default, covered by CloudEventPayloadsTest and the e2e)
+        "polaris.events.format=json",
         "polaris.fulfilment.claim-pause.min=100ms",
         "polaris.fulfilment.claim-pause.max=300ms",
         "polaris.fulfilment.step-delay=100ms",

@@ -1,4 +1,4 @@
-.PHONY: pull build up up-dev-ports init-env down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders
+.PHONY: pull build up up-dev-ports init-env down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders up-json e2e-fulfilment-json schema-register schema-check schema-subjects
 
 run:
 	mvn spring-boot:run -pl apps/polaris
@@ -20,6 +20,10 @@ init-env:
 	./scripts/init-env.sh
 up: init-env
 	docker compose up -d --build
+# Events are Avro by default (CloudEvents envelope + Schema Registry payload, ADR-0021); this brings the stack up writing JSON
+up-json: export POLARIS_EVENTS_FORMAT=json
+up-json: init-env
+	docker compose up -d --build
 # Opt-in loopback publish of telemetry backends for host-side tooling (docs/operations/exposure.md)
 up-dev-ports: init-env
 	docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.dev-ports.yml up -d --build
@@ -37,7 +41,12 @@ test-perf:
 	docker run --network host --rm -i -v $$(pwd)/tests/perf:/scripts -w /scripts grafana/k6 run api-test.js
 test-concurrency:
 	docker run --network host --rm -i -v $$(pwd)/tests/perf:/scripts -w /scripts -e SKU=NG-CHARGER-02 grafana/k6 run order-concurrency-test.js
+# After `make up`: Avro is the default, and the Kafka check requires every event to carry an Avro payload
 e2e-fulfilment:
+	./tests/e2e/run-fulfilment.sh
+# After `make up-json`: the same scenario with the JSON event check
+e2e-fulfilment-json: export POLARIS_EVENTS_FORMAT=json
+e2e-fulfilment-json:
 	./tests/e2e/run-fulfilment.sh
 gcx: 
 	docker exec -it gcx-cli sh
@@ -81,6 +90,16 @@ kafka-stop-%:
 	docker compose stop kafka-$*
 kafka-start-%:
 	docker compose start kafka-$*
+# Schema Registry (ADR-0021). schema-init already runs on `make up`; these re-run the gate by hand.
+schema-register:
+	docker compose run --rm schema-init register
+# make schema-check SUBJECT=polaris.order.lifecycle-value FILE=path/to/candidate.avsc  (registers nothing)
+schema-check:
+	@test -n "$(SUBJECT)" -a -f "$(FILE)" || { echo "usage: make schema-check SUBJECT=<topic>-value FILE=<schema.avsc>"; exit 1; }
+	docker compose run --rm -v "$(abspath $(FILE)):/candidate.avsc:ro" schema-init check $(SUBJECT) /candidate.avsc
+schema-subjects:
+	@curl -s http://localhost:8085/subjects; echo
+	@curl -s http://localhost:8085/config/polaris.order.lifecycle-value; echo
 playwright-ui:
 	playwright-cli open https://polaris.local/swagger-ui/index.html
 playwright-close:

@@ -8,6 +8,9 @@ set -uo pipefail
 TOPIC=${TOPIC:-polaris.order.lifecycle}
 KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-kafka-1:9092,kafka-2:9092,kafka-3:9092}
 EXPECTED="placed confirmed parceled delivering delivered"
+# Default (ADR-0021, POLARIS_EVENTS_FORMAT=avro): every counted event must carry content-type application/avro, and the
+# confirmed event's partner is read from the Avro value, where the string is stored as plain bytes.
+FORMAT=${POLARIS_EVENTS_FORMAT:-avro}
 [ "$#" -gt 0 ] || { echo "FAIL no order numbers given"; exit 1; }
 
 # Output lines: <headers> TAB <key> TAB <value>; prints "<orderNumber> <event>" in topic order
@@ -15,9 +18,24 @@ EXPECTED="placed confirmed parceled delivering delivered"
 lifecycle_events() {
   docker compose exec -T kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server "$KAFKA_BOOTSTRAP" \
     --topic "$TOPIC" --from-beginning --timeout-ms 6000 --property print.headers=true --property print.key=true 2>/dev/null |
-    awk -F'\t' '{ if (match($1, /ce_type:vn\.danang\.polaris\.order\.[a-z]+\.v1/)) { t = substr($1, RSTART, RLENGTH);
-      sub(/.*order\./, "", t); sub(/\.v1/, "", t);
-      if (t == "confirmed" && match($3, /"assignedPartner":"[^"]*"/)) t = t "@" substr($3, RSTART + 19, RLENGTH - 20); print $2, t } }'
+    LC_ALL=C tr -d '\000' |   # Avro values start with a NUL byte, which ends a string for awk
+    LC_ALL=C awk -F'\t' -v format="$FORMAT" '
+      function flush() { if (key != "") print key, t (t == "confirmed" && p != "" ? "@" p : ""); key = ""; p = "" }
+      {
+        if (match($1, /ce_type:vn\.danang\.polaris\.order\.[a-z]+\.v1/)) {
+          flush()
+          t = substr($1, RSTART, RLENGTH); sub(/.*order\./, "", t); sub(/\.v1/, "", t)
+          if (format == "avro" && $1 !~ /content-type:application\/avro/) next
+          key = $2
+          if (format != "avro") {
+            if (t == "confirmed" && match($3, /"assignedPartner":"[^"]*"/)) p = substr($3, RSTART + 19, RLENGTH - 20)
+            flush(); next
+          }
+        }
+        # Avro values are binary and may contain newlines: the partner can sit on a continuation line
+        if (key != "" && p == "" && match($0, /partner-[a-z]+/)) p = substr($0, RSTART, RLENGTH)
+      }
+      END { flush() }'
 }
 
 # ORD or ORD=partner -> the expected sequence for that order (confirmed carries the partner when given).

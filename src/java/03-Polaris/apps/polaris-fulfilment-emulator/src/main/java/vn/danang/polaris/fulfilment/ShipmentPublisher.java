@@ -1,7 +1,6 @@
 package vn.danang.polaris.fulfilment;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
@@ -13,14 +12,14 @@ import org.springframework.kafka.core.KafkaTemplate;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.core.builder.CloudEventBuilder;
 import io.cloudevents.kafka.KafkaMessageFactory;
-import tools.jackson.databind.json.JsonMapper;
+import vn.danang.polaris.events.avro.cloudevents.CloudEventPayloads;
 import vn.danang.polaris.events.fulfilment.FulfilmentEvents;
 import vn.danang.polaris.events.fulfilment.ShipmentEvent;
 import vn.danang.polaris.events.fulfilment.ShipmentStep;
 
 /**
  * Sends one shipment event as a binary-mode CloudEvent (ADR-0019 §4): topic {@value FulfilmentEvents#DESTINATION},
- * key = order number, value = the JSON payload. Sent directly, not through an outbox, and never retried: a lost
+ * key = order number, value = the payload in the configured format (JSON, or Avro through the Schema Registry, ADR-0021). Sent directly, not through an outbox, and never retried: a lost
  * report only stalls a demo order (TR-F4). The template has observation on, so the send is a producer span in the
  * current trace and the record carries its {@code traceparent}.
  */
@@ -29,26 +28,27 @@ class ShipmentPublisher {
     private static final Logger log = LoggerFactory.getLogger(ShipmentPublisher.class);
 
     private final KafkaTemplate<String, byte[]> template;
-    private final JsonMapper mapper;
+    private final CloudEventPayloads payloads;
     private final String topic;
     private final FulfilmentMetrics metrics;
 
-    ShipmentPublisher(KafkaTemplate<String, byte[]> template, JsonMapper mapper, String topic, FulfilmentMetrics metrics) {
+    ShipmentPublisher(KafkaTemplate<String, byte[]> template, CloudEventPayloads payloads, String topic, FulfilmentMetrics metrics) {
         this.template = template;
-        this.mapper = mapper;
+        this.payloads = payloads;
         this.topic = topic;
         this.metrics = metrics;
     }
 
     void publish(String orderNumber, String partnerId, ShipmentStep step, Instant now) {
         var payload = new ShipmentEvent(orderNumber, "SHP-" + orderNumber, partnerId, step, now);
+        CloudEventPayloads.Encoded encoded = payloads.writeShipment(payload);
         CloudEvent event = CloudEventBuilder.v1()
                 .withId(UUID.randomUUID().toString())
                 .withType(step.type())
                 .withSource(URI.create(FulfilmentEvents.SOURCE))
                 .withTime(now.atOffset(ZoneOffset.UTC))
-                .withDataContentType("application/json")
-                .withData(mapper.writeValueAsString(payload).getBytes(StandardCharsets.UTF_8))
+                .withDataContentType(encoded.contentType())
+                .withData(encoded.data())
                 .build();
         template.send(KafkaMessageFactory.createWriter(topic, orderNumber).writeBinary(event))
                 .whenComplete((result, error) -> {

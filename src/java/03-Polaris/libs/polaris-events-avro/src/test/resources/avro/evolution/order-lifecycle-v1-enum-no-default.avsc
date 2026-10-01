@@ -1,0 +1,127 @@
+{
+  "type": "record",
+  "name": "OrderLifecycleEvent",
+  "namespace": "vn.danang.polaris.events.avro.order",
+  "doc": "Payload of every vn.danang.polaris.order.*.v1 event (Avro twin of polaris-events OrderLifecycleEvent). Schema v1.",
+  "fields": [
+    {
+      "name": "orderNumber",
+      "type": "string"
+    },
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "OrderMilestone",
+        "symbols": [
+          "UNKNOWN",
+          "PLACED",
+          "CONFIRMED",
+          "PARCELED",
+          "DELIVERING",
+          "DELIVERED"
+        ],
+        "doc": "UNKNOWN is the enum default: it lets an old reader survive symbols added later."
+      }
+    },
+    {
+      "name": "occurredAt",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    {
+      "name": "customer",
+      "type": [
+        "null",
+        {
+          "type": "record",
+          "name": "Customer",
+          "fields": [
+            {
+              "name": "id",
+              "type": [
+                "null",
+                "long"
+              ],
+              "default": null
+            },
+            {
+              "name": "name",
+              "type": [
+                "null",
+                "string"
+              ],
+              "default": null
+            },
+            {
+              "name": "email",
+              "type": [
+                "null",
+                "string"
+              ],
+              "default": null
+            }
+          ]
+        }
+      ],
+      "default": null
+    },
+    {
+      "name": "items",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "Item",
+          "fields": [
+            {
+              "name": "sku",
+              "type": "string"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "quantity",
+              "type": "int"
+            },
+            {
+              "name": "unitPrice",
+              "type": {
+                "type": "bytes",
+                "logicalType": "decimal",
+                "precision": 12,
+                "scale": 2
+              }
+            }
+          ]
+        }
+      },
+      "default": []
+    },
+    {
+      "name": "totalAmount",
+      "type": {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 12,
+        "scale": 2
+      }
+    },
+    {
+      "name": "currency",
+      "type": "string"
+    },
+    {
+      "name": "assignedPartner",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    }
+  ]
+}

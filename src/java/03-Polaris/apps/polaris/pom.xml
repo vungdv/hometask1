@@ -27,6 +27,10 @@
 		</dependency>
 		<dependency>
 			<groupId>vn.danang</groupId>
+			<artifactId>polaris-events-avro</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>vn.danang</groupId>
 			<artifactId>polaris-events</artifactId>
 		</dependency>
 

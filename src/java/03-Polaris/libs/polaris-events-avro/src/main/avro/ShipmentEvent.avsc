@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "ShipmentEvent",
+  "namespace": "vn.danang.polaris.events.avro.fulfilment",
+  "doc": "Payload of every vn.danang.polaris.fulfilment.shipment.*.v1 event (Avro twin of polaris-events ShipmentEvent). Schema v1.",
+  "fields": [
+    {"name": "orderNumber", "type": "string"},
+    {"name": "shipmentId", "type": ["null", "string"], "default": null},
+    {"name": "partnerId", "type": "string"},
+    {"name": "step", "type": {
+      "type": "enum", "name": "ShipmentStep",
+      "symbols": ["UNKNOWN", "PACKED", "DISPATCHED", "DELIVERED"],
+      "default": "UNKNOWN"
+    }},
+    {"name": "occurredAt", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}

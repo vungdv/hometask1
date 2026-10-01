@@ -26,6 +26,10 @@
 			<groupId>vn.danang</groupId>
 			<artifactId>polaris-outbox</artifactId>
 		</dependency>
+		<dependency>
+			<groupId>vn.danang</groupId>
+			<artifactId>polaris-events-avro</artifactId>
+		</dependency>
 
 		<!-- Kafka + CloudEvents binding (ADR-0019) -->
 		<dependency>
