@@ -15,6 +15,7 @@ See the [shared click-path](README.md#click-path-alert-to-metric-exemplar-trace-
 2. Is the Collector forwarding? See `TelemetryCollectorDown` and the **Telemetry pipeline** dashboard; query `polaris_outbox_backlog_events` in Prometheus.
 3. The outbox gauges are not exported when the database is unreachable (NaN): check `/actuator/health` of `polaris`.
 4. Consumer series appear up to a minute after a consumer starts or rebalances; the alert allows for this.
+5. Is the whole stack missing the same window? Query `up{job="prometheus"}` over the gap: if Prometheus' own scrape has the same hole, the host or Docker VM was suspended (a sleeping laptop freezes everything) and there is nothing to fix. A hung database no longer stops the app's other metrics (O6c: gauges read the database on their own thread), so a gap in only the outbox series points to the database or the app's DB pool; a gap in every `polaris` series with the emulator still reporting points to the app itself (thread dump with `docker exec polaris kill -3 1`, then `docker logs polaris`).
 
 ## Mitigation
 

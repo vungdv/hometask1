@@ -48,18 +48,15 @@ groups:
           runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/consumer-lag-growing.md"
 
       - alert: PoisonRecordBlocked
-        # The oldest in-flight record is older than 5 minutes (retries never finish) AND the group still has lag AND reports lag now.
-        # Known limitation (O6a review): the consumer's in-flight entry is cleared only on success or skip. If a partition is revoked or
-        # the container stops mid-record the age can keep growing. Requiring the group to have lag > 0 (series disappear or drain after
-        # a revoke) and the series to be fresh (the exporter drops a dead app's series after 5 minutes) tolerates that, but a revoked
-        # partition whose lag series lingers can still raise a false ticket: see the runbook.
-        expr: |
-          polaris_kafka_consumer_oldest_record_age_seconds > 300
-          and on (exported_job, group) (sum by (exported_job, group) (async:consumer_lag:records) > 0)
+        # O6c: the consumer has held one record (retries included) for more than 5 minutes. The gauge counts from the moment the
+        # container first handed the record to the listener, is cleared on success, skip, partition revoke/loss and container stop,
+        # and does not depend on lag or on the record timestamp, so a blocked last record at lag 0 is detected and a revoked or
+        # stopped consumer cannot keep it growing. (Before O6c this used oldest_record_age and required lag > 0.)
+        expr: polaris_kafka_consumer_blocked_record_age_seconds > 300
         for: 5m
         labels: {severity: ticket, owner: polaris, service: kafka-consumer}
         annotations:
-          summary: "Consumer group {{ $labels.group }} is blocked: oldest in-flight record is {{ $value | humanizeDuration }} old with lag"
+          summary: "Consumer group {{ $labels.group }} is blocked: one record has been held for {{ $value | humanizeDuration }}"
           description: "A record keeps failing (poison record) or its handler is stuck, so the group makes no progress on that partition."
           service: "kafka-consumer"
           severity: "ticket"

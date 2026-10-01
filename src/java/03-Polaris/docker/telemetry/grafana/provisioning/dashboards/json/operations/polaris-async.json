@@ -925,7 +925,7 @@
       "id": 17,
       "type": "timeseries",
       "title": "Oldest in-flight record age by group",
-      "description": "Grows while a record keeps failing; 0 when idle or caught up.",
+      "description": "Since record time: the backlog-style age. Blocked: how long the consumer has held its oldest unfinished record (retries included); this is what PoisonRecordBlocked alerts on and it is independent of lag. Both 0 when idle.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -940,7 +940,16 @@
         {
           "refId": "A",
           "expr": "max by (group)(polaris_kafka_consumer_oldest_record_age_seconds{exported_job=~\"$service\",group=~\"$group\"})",
-          "legendFormat": "{{group}}",
+          "legendFormat": "{{group}} (since record time)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max by (group)(polaris_kafka_consumer_blocked_record_age_seconds{exported_job=~\"$service\",group=~\"$group\"})",
+          "legendFormat": "{{group}} (blocked, held by consumer)",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"

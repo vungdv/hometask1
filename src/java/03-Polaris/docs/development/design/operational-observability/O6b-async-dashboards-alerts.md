@@ -25,12 +25,12 @@ The metrics arrive through the Collector's Prometheus exporter with the service 
 |:--|:--|:--|:--|
 | `OutboxStuck` | page | oldest pending age > 300 s and backlog > 0, for 5 min | both series are always present (0 when empty); a stale age with no backlog does not fire |
 | `ConsumerLagGrowing` | ticket | lag (dotted topic only) never at or below 100 in 10 min and still growing (deriv > 0), for 5 min | needs 10 minutes of samples, so a restart cannot fire it |
-| `PoisonRecordBlocked` | ticket | oldest in-flight record age > 300 s and the group has lag > 0, for 5 min | see limitation below |
+| `PoisonRecordBlocked` | ticket | blocked-record age > 300 s, for 5 min (changed in O6c; was oldest in-flight record age with lag > 0) | see the superseded limitation below |
 | `AsyncMetricsMissing` | ticket | outbox gauge, `order.shipments` age series or emulator age series absent, for 10 min | the Collector exporter keeps a dead app's series 5 min, so the alert waits about 15 min from the death of the app and cannot fire at a normal restart |
 
 `polaris_kafka_consumer_records_skipped_records_total` exists only after the first skip, so no alert depends on it; the dashboard uses `or vector(0)`.
 
-**Limitation of `PoisonRecordBlocked`** (known from the O6a review): the consumer clears its in-flight entry only on success or skip, so after a partition revoke or a container stop mid-record the age can keep growing. Requiring lag > 0 for the group and a live series tolerates the stop (series expire) and the typical revoke (lag series disappear), but a lingering lag series after a revoke can still raise a false ticket, and a blocked record whose lag reads 0 is missed. Fixing it properly is an application-side change (clear on revoke/stop) and would be a contract-compatible O6a follow-up.
+**Superseded by [O6c](O6c-async-signal-reliability.md):** the consumer now clears its in-flight state on revoke and stop and exposes `polaris_kafka_consumer_blocked_record_age_seconds`, so the rule no longer needs lag and the limitation below no longer applies. Original text, kept for history. **Limitation of `PoisonRecordBlocked`** (known from the O6a review): the consumer clears its in-flight entry only on success or skip, so after a partition revoke or a container stop mid-record the age can keep growing. Requiring lag > 0 for the group and a live series tolerates the stop (series expire) and the typical revoke (lag series disappear), but a lingering lag series after a revoke can still raise a false ticket, and a blocked record whose lag reads 0 is missed. Fixing it properly is an application-side change (clear on revoke/stop) and would be a contract-compatible O6a follow-up.
 
 ## Verification
 

@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.event.ConsumerStoppedEvent;
 import org.springframework.kafka.listener.ConcurrentMessageListenerContainer;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DefaultErrorHandler;
@@ -56,6 +57,7 @@ class OfferListenerRegistrar implements SmartLifecycle {
                 consumerFactory.getKeyDeserializer(), consumerFactory.getValueDeserializer());
         groupFactory.addListener(ConsumerGroupMetrics.clientMetrics(meters, group));
         var tracker = groupMetrics.<String, byte[]>recordInterceptor(group);
+        properties.setConsumerRebalanceListener(tracker.rebalanceListener()); // O6c: revoked partitions drop in-flight state
         properties.setAckMode(ContainerProperties.AckMode.RECORD);
         properties.setObservationEnabled(true);
         properties.setObservationRegistry(observationRegistry);
@@ -66,6 +68,12 @@ class OfferListenerRegistrar implements SmartLifecycle {
         properties.setMessageListener((MessageListener<String, byte[]>) record -> handler.handle(partner, record));
         var container = new ConcurrentMessageListenerContainer<>(groupFactory, properties);
         container.setRecordInterceptor(tracker);
+        // Not a context bean, so no event publisher is injected: hand the stop event to the metrics directly (O6c).
+        container.setApplicationEventPublisher(event -> {
+            if (event instanceof ConsumerStoppedEvent stopped) {
+                groupMetrics.onApplicationEvent(stopped);
+            }
+        });
         container.setBeanName("fulfilment-" + partner.partnerId());
         // A poison offer never blocks the partition: two quick retries, then ERROR with its coordinates, and skip.
         container.setCommonErrorHandler(new DefaultErrorHandler((record, e) -> {
