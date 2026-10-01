@@ -61,6 +61,7 @@ class ShipmentListenerConfiguration {
         var tracker = groupMetrics.<String, byte[]>recordInterceptor(config.groupId());
         var properties = new ContainerProperties(config.topic());
         properties.setGroupId(config.groupId());
+        properties.setConsumerRebalanceListener(tracker.rebalanceListener()); // O6c: revoked partitions drop in-flight state
         properties.setAckMode(ContainerProperties.AckMode.RECORD);
         properties.setObservationEnabled(true);
         properties.setObservationRegistry(observationRegistry);

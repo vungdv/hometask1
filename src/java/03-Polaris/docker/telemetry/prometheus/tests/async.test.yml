@@ -69,33 +69,43 @@ tests:
               dashboard_url: "https://grafana.polaris.local/d/polaris-async/async-outbox-and-kafka"
               runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/consumer-lag-growing.md"
 
-  # ---- PoisonRecordBlocked
-  # fulfilment.partner-north: age grows past 300 s while lag > 0 -> fires. order.shipments: age grows but lag series gone (partition
-  # revoked / consumer stopped mid-record) -> tolerated. partner-south: short blip -> silent. partner-central: age grows, lag 0 -> silent.
+  # ---- PoisonRecordBlocked (O6c: blocked-record age, independent of lag)
+  # partner-north: held record grows past 300 s with lag 0 (a blocked LAST record) -> fires. order.shipments: grows with no lag series at
+  # all -> still fires (lag is no longer consulted; revoke/stop are handled by the app clearing the gauge to 0). partner-south: short
+  # blip -> silent. partner-central: cleared to 0 (revoked/stopped/skipped) -> silent. Old-backlog catch-up (record-age gauge high,
+  # blocked age 0) -> silent.
   - interval: 30s
     input_series:
-      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-north"}'
+      - series: 'polaris_kafka_consumer_blocked_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-north"}'
         values: '0x4 0+30x40'
       - series: 'kafka_consumer_fetch_manager_records_lag{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-north",topic="polaris.order.lifecycle",partition="0"}'
-        values: '1x44'
-      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris",group="order.shipments"}'
+        values: '0x44'
+      - series: 'polaris_kafka_consumer_blocked_record_age_seconds{exported_job="Polaris",group="order.shipments"}'
         values: '0x4 0+30x40'
-      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-south"}'
+      - series: 'polaris_kafka_consumer_blocked_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-south"}'
         values: '0x4 600x3 0x37'
-      - series: 'kafka_consumer_fetch_manager_records_lag{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-south",topic="polaris.order.lifecycle",partition="0"}'
-        values: '1x44'
-      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-central"}'
-        values: '0x4 0+30x40'
-      - series: 'kafka_consumer_fetch_manager_records_lag{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-central",topic="polaris.order.lifecycle",partition="0"}'
+      - series: 'polaris_kafka_consumer_blocked_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-central"}'
+        values: '0x4 0+30x10 0x30'
+      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-backlog"}'
+        values: '3600x44'
+      - series: 'polaris_kafka_consumer_blocked_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-backlog"}'
         values: '0x44'
     alert_rule_test:
-      - {eval_time: 8m, alertname: PoisonRecordBlocked, exp_alerts: []}   # age still under 300 s
+      - {eval_time: 8m, alertname: PoisonRecordBlocked, exp_alerts: []}   # held record still under 300 s
       - eval_time: 20m
         alertname: PoisonRecordBlocked
         exp_alerts:
+          - exp_labels: {severity: ticket, owner: polaris, service: kafka-consumer, exported_job: Polaris, group: order.shipments}
+            exp_annotations:
+              summary: "Consumer group order.shipments is blocked: one record has been held for 17m 30s"
+              description: "A record keeps failing (poison record) or its handler is stuck, so the group makes no progress on that partition."
+              service: "kafka-consumer"
+              severity: "ticket"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-async/async-outbox-and-kafka"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/poison-record-blocked.md"
           - exp_labels: {severity: ticket, owner: polaris, service: kafka-consumer, exported_job: Polaris-Fulfilment-Emulator, group: fulfilment.partner-north}
             exp_annotations:
-              summary: "Consumer group fulfilment.partner-north is blocked: oldest in-flight record is 17m 30s old with lag"
+              summary: "Consumer group fulfilment.partner-north is blocked: one record has been held for 17m 30s"
               description: "A record keeps failing (poison record) or its handler is stuck, so the group makes no progress on that partition."
               service: "kafka-consumer"
               severity: "ticket"

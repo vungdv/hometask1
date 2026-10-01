@@ -107,4 +107,52 @@ class ConsumerGroupMetricsKafkaIntegrationTest {
             container.stop();
         }
     }
+
+    /**
+     * O6c: a poison record that is still being retried when its container stops (no success, no skip) must not leave a
+     * growing age behind. The blocked-record signal also rises while it is held, with the record being the last one
+     * of the partition (nothing queued behind it).
+     */
+    @Test
+    void containerStoppedWhileARecordIsBlocked_clearsTheInFlightState() throws Exception {
+        String topic = "o6c-" + System.nanoTime();
+        String group = "o6c.group";
+        try (Admin admin = Admin.create(Map.of("bootstrap.servers", kafka.getBootstrapServers()))) {
+            admin.createTopics(List.of(new NewTopic(topic, 1, (short) 1))).all().get(30, TimeUnit.SECONDS);
+        }
+        var registry = new SimpleMeterRegistry();
+        var groupMetrics = new ConsumerGroupMetrics(registry, Clock.systemUTC());
+        var tracker = groupMetrics.<String, String>recordInterceptor(group);
+        var factory = new DefaultKafkaConsumerFactory<String, String>(Map.<String, Object>of(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers(),
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest"), new StringDeserializer(), new StringDeserializer());
+        var props = new ContainerProperties(topic);
+        props.setGroupId(group);
+        props.setConsumerRebalanceListener(tracker.rebalanceListener());
+        props.setMessageListener((MessageListener<String, String>) record -> {
+            throw new IllegalStateException("poison");
+        });
+        var container = new ConcurrentMessageListenerContainer<>(factory, props);
+        container.setRecordInterceptor(tracker);
+        container.setApplicationEventPublisher(event -> {
+            if (event instanceof org.springframework.kafka.event.ConsumerStoppedEvent stopped) {
+                groupMetrics.onApplicationEvent(stopped);
+            }
+        });
+        container.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(50, FixedBackOff.UNLIMITED_ATTEMPTS)));
+        container.start();
+        try (var producer = new KafkaProducer<String, String>(Map.<String, Object>of(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers(),
+                ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class,
+                ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class))) {
+            producer.send(new ProducerRecord<>(topic, "k", "poison")).get();
+        }
+        var blocked = registry.get(ConsumerGroupMetrics.BLOCKED_RECORD_AGE).tag("group", group).gauge();
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(blocked.value()).isGreaterThan(0.0));
+
+        container.stop();
+
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(blocked.value()).as("cleared on stop").isZero());
+        assertThat(registry.get(ConsumerGroupMetrics.OLDEST_RECORD_AGE).tag("group", group).gauge().value()).isZero();
+    }
 }

@@ -29,7 +29,7 @@ Prometheus names are those produced by the Collector's exporter from the OTLP na
 
 Why totals and per-type are separate names: a metric must not mix labelled and unlabelled series, and the totals must stay present when nothing is pending (no per-type series then exists). Dashboards join and group on `event_type`; alerts use the totals.
 
-Semantics: gauges are read when sampled by the registry. Per-type values come from one grouped query cached for 5 s, so a scrape costs one query. If the database is unreachable the gauges are not exported (NaN); that outage is itself visible through the app's own health and DB metrics. A pending event with an old age and increasing `outcome="failure"` counts means "outbox stuck".
+Semantics: gauges are read when sampled by the registry. **Since O6c the database is read on a dedicated thread, never on the registry's publish thread** (a bounded wait of 2 s in total, a 5 s statement timeout, snapshots cached 5 s and not reported once older than 30 s): see [O6c](O6c-async-signal-reliability.md). Per-type values come from one grouped query cached for 5 s, so a scrape costs one query. If the database is unreachable the gauges are not exported (NaN); that outage is itself visible through the app's own health and DB metrics. A pending event with an old age and increasing `outcome="failure"` counts means "outbox stuck".
 
 ## 3. Kafka consumer-group metrics (class `ConsumerGroupMetrics`, wired in `polaris` and `polaris-fulfilment-emulator`)
 
@@ -37,11 +37,12 @@ Semantics: gauges are read when sampled by the registry. Per-type values come fr
 |:--|:--|:--|:--|
 | `kafka_consumer_fetch_manager_records_lag` | gauge, records (Kafka client metric) | `group`, `topic`, `partition`, plus client labels | **Consumer-group lag.** Same client metric as before, now carrying an explicit `group` label (a Micrometer listener tag per group). Aggregate with `sum by (group, topic)`; use the dotted `topic` series only (the underscore twin is an exporter artefact) |
 | `polaris_kafka_consumer_oldest_record_age_seconds` | gauge, seconds | `group` | **Oldest-record age.** Age (now − record timestamp) of the oldest record the group's consumer has taken from the broker and not finished. A record failing and being retried stays in flight, so a blocked partition makes this grow; idle or caught-up groups report 0 |
+| `polaris_kafka_consumer_blocked_record_age_seconds` | gauge, seconds | `group` | **Blocked-record age (added in O6c, additive).** How long the oldest unfinished record has been held by the consumer: from the first time the container hands that offset to the listener (kept across retries), 0 when idle. Independent of record timestamp and of lag; cleared on success, skip, partition revoke/loss and container stop. The poison-record alert uses this one |
 | `polaris_kafka_consumer_records_skipped_records_total` | counter | `group`, `topic` | Records the error handler gave up on after retries (poison record skipped). The series first appears at the first skip, so alerts must tolerate its absence |
 
 Honest limits of this approach:
 - Lag and age are reported **by the consumer itself**. If the consumer app is down or cannot reach Kafka, its series go stale or vanish; part (b) must alert on absence (`up`/missing series), and could add a broker-side exporter if group lag with a dead consumer is needed. A broker-side exporter was not chosen here because O6a is the application side and adds no new component.
-- "Oldest-record age" is the oldest *in-flight* record, not the oldest unfetched one. Records still queued at the broker behind a slow consumer are visible only as lag (records), which is why both signals exist. In-flight age is the stuck-handler/poison-record signal, lag is the backlog signal.
+- "Oldest-record age" is the oldest *in-flight* record, not the oldest unfetched one. Records still queued at the broker behind a slow consumer are visible only as lag (records), which is why both signals exist. In-flight record age is the backlog-style age; the blocked-record age (O6c) is the stuck-handler/poison-record signal, lag is the backlog signal.
 - The Kafka client's per-partition lag meters are bound by Micrometer on a 60 s cycle after partition assignment, so lag series appear up to a minute after a start or rebalance.
 - The emulator's per-partner groups (`fulfilment.<partner>`) now each get their own consumer factory so each carries its own `group` label; the old `spring_id` label value changed accordingly.
 

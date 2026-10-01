@@ -7,12 +7,15 @@
 #
 # Scenario: stop the 3 Kafka brokers -> place orders through the gateway (orders are accepted, events pile up in the outbox)
 #   -> pending count and oldest-pending age rise (also per event_type) and the test alert fires, email in Mailpit
+#   -> metrics continuity (O6c): for CONTINUITY_SECS more of the outage, polaris keeps exporting (its JVM uptime series changes at
+#      least every 150 s, OTLP step is 60 s) and the pending count/age series are present at every sample, the age rising
 #   -> start Kafka -> outbox drains to 0, the alert resolves, consumers recover.
-# Env: PROM AM MAILPIT (localhost defaults), WAIT_SECS (per wait, default 240), BROKERS (default "kafka-1 kafka-2 kafka-3")
+# Env: PROM AM MAILPIT (localhost defaults), WAIT_SECS (per wait, default 240), BROKERS (default "kafka-1 kafka-2 kafka-3"),
+#      CONTINUITY_SECS (default 180; 0 skips the continuity window), DRAIN_WAIT_SECS (default 420, relay backoff caps at 5 min)
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 PROM=${PROM:-http://localhost:9090}; AM=${AM:-http://localhost:9093}; MAILPIT=${MAILPIT:-http://localhost:8025}
-WAIT=${WAIT_SECS:-240}; BROKERS=${BROKERS:-"kafka-1 kafka-2 kafka-3"}
+WAIT=${WAIT_SECS:-240}; CONTINUITY=${CONTINUITY_SECS:-180}; BROKERS=${BROKERS:-"kafka-1 kafka-2 kafka-3"}
 TESTRULES=docker/telemetry/prometheus/rules-test/test-async-short.yml
 fail=0
 ok()  { echo "PASS $1"; }
@@ -36,6 +39,39 @@ sys.exit(0 if any(os.environ["ALERT"] in m["Subject"] for m in json.load(sys.std
 wait_for() { local d=$1; shift; local end=$((SECONDS + WAIT))
   until "$@" >/dev/null 2>&1; do [ $SECONDS -ge $end ] && { bad "$d (waited ${WAIT}s)"; return 1; }; sleep 5; done
   ok "$d after $((WAIT - (end - SECONDS)))s"; }
+# continuity <secs>: polaris keeps exporting for <secs> while Kafka stays down. Samples every 10 s and checks
+#  - the JVM series process_uptime_milliseconds{Polaris} changes at least every 150 s (it changes with every OTLP export; the
+#    Collector exporter would otherwise just repeat the last value for 5 minutes, so "present" alone proves nothing),
+#  - polaris_outbox_backlog_events and polaris_outbox_oldest_pending_age_seconds exist at every sample, backlog stays > 0, and the
+#    age ends higher than it started (it grows with the clock while events are stuck).
+# A sample gap above 60 s means this host was suspended (a sleeping laptop freezes the whole stack): the window restarts instead of
+# blaming the app.
+continuity() {
+  local secs=$1 end start_age last_up last_change t_prev t_now up age backlog missing=0 stuck=0
+  while :; do
+    end=$((SECONDS + secs)); start_age=none; last_up=none; last_change=$SECONDS; t_prev=$SECONDS; restart=0
+    while [ $SECONDS -lt $end ]; do
+      sleep 10; t_now=$SECONDS
+      if [ $((t_now - t_prev)) -gt 60 ]; then echo "WARN host paused for $((t_now - t_prev)) s during the window, restarting it"; restart=1; break; fi
+      t_prev=$t_now
+      up=$(qval 'process_uptime_milliseconds{exported_job="Polaris"}'); age=$(qval 'polaris_outbox_oldest_pending_age_seconds{exported_job="Polaris"}')
+      backlog=$(qval 'polaris_outbox_backlog_events{exported_job="Polaris"}')
+      [ "$up" != "$last_up" ] && { last_up=$up; last_change=$SECONDS; }
+      [ $((SECONDS - last_change)) -gt 150 ] && stuck=1
+      { [ "$age" = none ] || [ "$backlog" = none ]; } && missing=1
+      [ "$backlog" = 0.0 ] || [ "$backlog" = 0 ] && missing=1
+      [ "$start_age" = none ] && start_age=$age
+    done
+    [ $restart = 1 ] && continue
+    break
+  done
+  [ $stuck = 0 ] && ok "polaris metrics kept exporting for ${secs}s of outage (JVM uptime series advanced at least every 150 s)" \
+    || bad "polaris metrics stopped exporting during the outage (JVM uptime series unchanged for more than 150 s)"
+  [ $missing = 0 ] && ok "pending count and oldest-pending age present at every sample during the outage" \
+    || bad "pending count/age series missing (or backlog 0) at some sample during the outage"
+  python3 -c "import sys; sys.exit(0 if '$start_age' != 'none' and '$age' != 'none' and float('$age') >= float('$start_age') + $secs/2 else 1)" \
+    && ok "oldest pending age kept rising ($start_age -> $age s)" || bad "oldest pending age did not keep rising ($start_age -> $age s)"
+}
 healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$1" 2>/dev/null)" = healthy ]; }
 
 # ---- preconditions
@@ -77,11 +113,16 @@ wait_for "outbox oldest pending age rises above 20 s" gt 'polaris_outbox_oldest_
 wait_for "pending count per event_type is reported" gt 'sum(polaris_outbox_pending_events{event_type!=""})' 1
 wait_for "TestOutboxStuck_ShortWindow firing in Alertmanager" firing TestOutboxStuck_ShortWindow
 wait_for "email for the alert in Mailpit" mail TestOutboxStuck_ShortWindow
+[ "$CONTINUITY" -gt 0 ] && continuity "$CONTINUITY"
 
 # ---- recover
 for b in $BROKERS; do docker start "$b" >/dev/null; done
 for b in $BROKERS; do wait_for "$b healthy again" healthy "$b"; done
+# The relay's retry backoff doubles up to 5 minutes (polaris.outbox.relay.backoff.max), so after a long outage the first retry can be
+# 5 minutes away: allow DRAIN_WAIT_SECS (default 420) for the drain.
+WAIT_DEFAULT=$WAIT; WAIT=${DRAIN_WAIT_SECS:-420}
 wait_for "outbox drains to 0 pending" zero 'polaris_outbox_backlog_events{exported_job="Polaris"}'
+WAIT=$WAIT_DEFAULT
 wait_for "oldest pending age back to 0" zero 'polaris_outbox_oldest_pending_age_seconds{exported_job="Polaris"}'
 wait_for "alert resolved" notfiring TestOutboxStuck_ShortWindow
 wait_for "polaris healthy" healthy polaris

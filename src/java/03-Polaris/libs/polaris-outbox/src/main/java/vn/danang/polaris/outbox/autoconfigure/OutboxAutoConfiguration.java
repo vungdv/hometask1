@@ -14,6 +14,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnSingleCandidate;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -53,6 +54,9 @@ import vn.danang.polaris.outbox.transport.EventTransport;
 @EnableConfigurationProperties(OutboxProperties.class)
 public class OutboxAutoConfiguration {
 
+    /** Statement timeout of the metrics queries (seconds). */
+    private static final int METRICS_QUERY_TIMEOUT_SECONDS = 5;
+
     @Bean
     @ConditionalOnMissingBean
     OutboxStore outboxStore(DataSource dataSource) {
@@ -73,9 +77,15 @@ public class OutboxAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    OutboxMetrics outboxMetrics(OutboxRelayStore relayStore, ObjectProvider<MeterRegistry> meterRegistry) {
+    OutboxMetrics outboxMetrics(DataSource dataSource, ObjectProvider<MeterRegistry> meterRegistry) {
+        // Gauges are read on the registry's publish thread: own store with a statement timeout, snapshot cache and a
+        // bounded wait (O6c), so a slow database can never stall the whole app's metric export.
+        JdbcTemplate template = new JdbcTemplate(dataSource);
+        template.setQueryTimeout(METRICS_QUERY_TIMEOUT_SECONDS);
         // Without an app registry the meters stay local (not exported) rather than leaking into the global one.
-        return new OutboxMetrics(meterRegistry.getIfUnique(SimpleMeterRegistry::new), relayStore, Clock.systemUTC());
+        return new OutboxMetrics(meterRegistry.getIfUnique(SimpleMeterRegistry::new),
+                new JdbcOutboxRelayStore(JdbcClient.create(template)), Clock.systemUTC(),
+                OutboxMetrics.DEFAULT_SNAPSHOT_TTL, OutboxMetrics.DEFAULT_QUERY_TIMEOUT, OutboxMetrics.DEFAULT_STALE_AFTER);
     }
 
     @Bean
