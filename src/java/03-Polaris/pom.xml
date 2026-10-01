@@ -61,6 +61,11 @@
 			</dependency>
 			<dependency>
 				<groupId>vn.danang</groupId>
+				<artifactId>polaris-events-avro</artifactId>
+				<version>${polaris.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>vn.danang</groupId>
 				<artifactId>polaris</artifactId>
 				<version>${polaris.version}</version>
 			</dependency>

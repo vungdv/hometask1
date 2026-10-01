@@ -39,13 +39,18 @@ public final class AvroEventCodec implements AutoCloseable {
 
     /**
      * @param registryUrl  Schema Registry URL ({@code mock://scope} for an in-memory registry in tests)
-     * @param autoRegister whether a producer may register the schema it writes. Convenient in dev; production should
-     *                     register from CI and set this to {@code false} (see the experiment notes)
+     * @param autoRegister whether a producer may register the schema it writes. Convenient in tests; otherwise register
+     *                     from CI (the schema-init gate) and pass {@code false}: the producer then writes the latest
+     *                     registered version and fails if the subject has none
      */
     public AvroEventCodec(String registryUrl, boolean autoRegister) {
         Map<String, Object> config = Map.of(
                 AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, registryUrl,
                 AbstractKafkaSchemaSerDeConfig.AUTO_REGISTER_SCHEMAS, autoRegister,
+                // Registered from CI: write with the subject's latest registered version instead of looking the
+                // class's schema up by content. The generated classes embed extra properties (avro.java.string), so a
+                // content lookup never matches the reviewed .avsc. Compatibility with the latest version is still checked.
+                AbstractKafkaSchemaSerDeConfig.USE_LATEST_VERSION, !autoRegister,
                 KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG, true);
         serializer.configure(config, false);
         deserializer.configure(config, false);

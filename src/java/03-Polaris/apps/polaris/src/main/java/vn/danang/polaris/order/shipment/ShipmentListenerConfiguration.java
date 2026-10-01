@@ -22,7 +22,7 @@ import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
-import tools.jackson.databind.json.JsonMapper;
+import vn.danang.polaris.events.avro.cloudevents.CloudEventPayloads;
 import vn.danang.polaris.outbox.telemetry.ConsumerGroupMetrics;
 import vn.danang.polaris.order.service.ShipmentProgressService;
 
@@ -41,8 +41,8 @@ class ShipmentListenerConfiguration {
     private static final Logger log = LoggerFactory.getLogger(ShipmentListenerConfiguration.class);
 
     @Bean
-    ShipmentReportHandler shipmentReportHandler(ShipmentProgressService service, JsonMapper mapper, MeterRegistry meters) {
-        return new ShipmentReportHandler(service, mapper, meters);
+    ShipmentReportHandler shipmentReportHandler(ShipmentProgressService service, CloudEventPayloads payloads, MeterRegistry meters) {
+        return new ShipmentReportHandler(service, payloads, meters);
     }
 
     @Bean

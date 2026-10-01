@@ -113,6 +113,8 @@ sequenceDiagram
 4. **Minimum conditions:** schemas registered from CI with `auto.register.schemas=false`; `BACKWARD_TRANSITIVE` or stricter set by provisioning code; enums declare a default; renames use aliases; the registry gets HA, access control, metrics and a runbook as its own slice.
 5. **Revisit when:** external partners consume the topics, several teams produce to shared topics, or analytics/CDC sinks are planned.
 
-## 6. Not done
+## 6. Status of the experiment
 
-No auto-configuration selects the transport; no app, compose file or e2e script uses it; no consumer-side adapter beyond `AvroEventCodec.decode`; the fulfilment emulator would first need to move onto the outbox `EventTransport` port; registry HA, performance and dual-format rollout are not covered.
+Wired end to end and opt-in (`polaris.events.format=avro`, `make up-avro`): Polaris publishes order events, fulfilment consumes them and publishes shipment events, Polaris updates the order status, all with Avro payloads in CloudEvents, schemas registered by the local gate. Verified live and by integration tests; see the experiment notes, section 5.
+
+Not done: a staged rollout and rollback procedure, the outbox still stores JSON text (converted at send time), registry HA, access control and performance.

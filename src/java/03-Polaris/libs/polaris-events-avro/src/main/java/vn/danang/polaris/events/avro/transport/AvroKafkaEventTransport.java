@@ -20,6 +20,7 @@ import io.cloudevents.CloudEvent;
 import io.cloudevents.core.builder.CloudEventBuilder;
 import io.cloudevents.kafka.KafkaMessageFactory;
 import vn.danang.polaris.events.avro.AvroEventCodec;
+import vn.danang.polaris.events.avro.cloudevents.CloudEventPayloads;
 import vn.danang.polaris.outbox.kafka.CloudEventsKafkaBinding;
 import vn.danang.polaris.outbox.kafka.KafkaEventTransport;
 import vn.danang.polaris.outbox.transport.EventTransport;
@@ -38,9 +39,6 @@ import vn.danang.polaris.outbox.transport.OutgoingEvent;
  * relay retries with its backoff. The registry is therefore on the relay's path.
  */
 public class AvroKafkaEventTransport implements EventTransport, AutoCloseable {
-
-    /** CloudEvents {@code datacontenttype} of an Avro payload in the Confluent wire format. */
-    public static final String AVRO_CONTENT_TYPE = "application/avro";
 
     private static final Logger log = LoggerFactory.getLogger(AvroKafkaEventTransport.class);
 
@@ -78,7 +76,7 @@ public class AvroKafkaEventTransport implements EventTransport, AutoCloseable {
         provisionTopicsOnce();
         byte[] data = codec.encode(event.destination(), mapper.toPayload(event));
         CloudEvent cloudEvent = CloudEventBuilder.v1(CloudEventsKafkaBinding.toCloudEvent(event))
-                .withDataContentType(AVRO_CONTENT_TYPE)
+                .withDataContentType(CloudEventPayloads.AVRO_CONTENT_TYPE)
                 .withData(data)
                 .build();
         ProducerRecord<String, byte[]> record = KafkaMessageFactory

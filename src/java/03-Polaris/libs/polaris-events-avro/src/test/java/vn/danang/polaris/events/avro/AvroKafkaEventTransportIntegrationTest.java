@@ -170,6 +170,42 @@ class AvroKafkaEventTransportIntegrationTest {
     }
 
     @Test
+    @DisplayName("auto-register off (schemas come from the CI gate): sends with the registered schema, fails when none is registered")
+    void registeredFromCiOnly() throws Exception {
+        var schemaFile = java.nio.file.Path.of("src/main/avro/ShipmentEvent.avsc");
+        var registry = new CachedSchemaRegistryClient(registryUrl, 10);
+        var strict = new AvroEventCodec(registryUrl, false);
+        try (var strictTransport = transport(strict)) {
+            var event = shipmentOutgoing();
+
+            // nothing registered under this subject yet: a producer that may not register cannot send
+            registry.deleteSubject(FulfilmentEvents.DESTINATION + "-value", false);
+            registry.deleteSubject(FulfilmentEvents.DESTINATION + "-value", true);
+            assertThatThrownBy(() -> strictTransport.send(event)).isInstanceOf(Exception.class);
+
+            // the CI gate registers the reviewed .avsc; the same producer now sends
+            registry.register(FulfilmentEvents.DESTINATION + "-value", new io.confluent.kafka.schemaregistry.avro.AvroSchema(
+                    java.nio.file.Files.readString(schemaFile)));
+            strictTransport.send(event);
+
+            ConsumerRecord<String, byte[]> record = poll(FulfilmentEvents.DESTINATION, event.key());
+            assertThat(record.value()[0]).isZero();
+        }
+        finally {
+            strict.close();
+        }
+    }
+
+    private static OutgoingEvent shipmentOutgoing() {
+        var key = "ORD-CI-" + UUID.randomUUID();
+        var shipment = new ShipmentEvent(key, "SHP-" + key, "partner-south", ShipmentStep.PACKED,
+                Instant.parse("2026-09-29T10:20:00.000Z"));
+        return new OutgoingEvent(UUID.randomUUID(), ShipmentStep.PACKED.type(), FulfilmentEvents.SOURCE,
+                Instant.parse("2026-09-29T10:20:00.000Z"), FulfilmentEvents.DESTINATION, key,
+                JSON.writeValueAsString(shipment), null);
+    }
+
+    @Test
     @DisplayName("an unreachable registry fails the send: the registry is on the relay's path")
     void unreachableRegistryFailsTheSend() {
         try (var brokenCodec = new AvroEventCodec("http://localhost:1", true);

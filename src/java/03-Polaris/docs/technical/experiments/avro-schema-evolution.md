@@ -136,15 +136,53 @@ Verified locally: first run registers ids 1 and 2; a re-run is idempotent; `orde
 
 Producers should then run with `auto.register.schemas=false` so only this gate registers schemas.
 
-## 5. Evidence
+## 5. Full lifecycle in Avro (wired end to end)
 
-Run: `mvn -pl libs/polaris-events-avro test` (Docker; real `apache/kafka:3.9.1` and `cp-schema-registry:8.0.0`). 21 tests pass.
+Opt-in, per service: `polaris.events.format=avro` (default `json`) selects what a service **writes**; what it **reads** follows each event's `content-type`, so JSON and Avro events can share a topic during a migration. Compose: `make up-avro`, then `make e2e-fulfilment-avro`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Polaris (Order)
+    participant K as Kafka
+    participant F as Fulfilment emulator
+    participant R as Schema Registry
+
+    Note over R: schema-init registered both payload schemas (section 4)
+    P->>R: latest schema of polaris.order.lifecycle-value
+    P->>K: outbox relay: order.placed.v1, ce_* headers, data = Avro
+    K->>F: offer (partner group)
+    F->>R: writer schema by id (cached)
+    F->>P: REST claim (unchanged, OAuth)
+    P->>K: order.confirmed.v1 (Avro)
+    F->>R: latest schema of polaris.fulfilment.shipments-value
+    F->>K: shipment PACKED, DISPATCHED, DELIVERED (ce_* headers, data = Avro)
+    K->>P: shipment report
+    P->>R: writer schema by id (cached)
+    P->>P: apply step, update order status (guarded)
+    P->>K: parceled, delivering, delivered milestones (Avro)
+```
+
+| Hop | Change |
+|:--|:--|
+| Polaris to Kafka | `AvroEventsAutoConfiguration` contributes `AvroKafkaEventTransport`, which wins over the JSON transport; the outbox and relay are untouched |
+| Fulfilment reads offers | `OfferHandler` reads through `CloudEventPayloads` (Avro or JSON by content type) |
+| Fulfilment writes shipments | `ShipmentPublisher` writes through `CloudEventPayloads` in the configured format |
+| Polaris reads shipments | `ShipmentReportHandler` reads through `CloudEventPayloads`; status logic unchanged |
+
+**Verified [measured]:** `make e2e-fulfilment-avro` placed 11 orders; all reached DELIVERED; every order has the 5 lifecycle events in order, each with `content-type: application/avro`, and `confirmed` carries the claiming partner. The shipments topic held Avro and older JSON records side by side and Polaris read both. `ShipmentProgressAvroKafkaIntegrationTest` covers the Polaris half automatically (Avro report moves the order; the milestone is published as Avro). The JSON suites (outbox 93, Polaris 454, emulator 9 tests) pass unchanged.
+
+**Finding from the live run:** with `auto.register=false` (schemas only from the gate) the first send failed with `Error retrieving Avro schema`. The serializer looks the class's schema up *by content*, and generated classes embed `avro.java.string`, so it never equals the reviewed `.avsc`. Fix: `use.latest.version=true`, so the registry decides the version written, with the compatibility check still applied. Every earlier test ran with `auto.register=true` and could not see this; `AvroKafkaEventTransportIntegrationTest.registeredFromCiOnly` now does.
+
+## 6. Evidence
+
+Run: `mvn -pl libs/polaris-events-avro test` (Docker; real `apache/kafka:3.9.1` and `cp-schema-registry:8.0.0`). 30 tests pass.
 
 * `AvroKafkaEventTransportIntegrationTest`: an order and a shipment event arrive as CloudEvents readable by the SDK (`ce_*`, key = aggregate, trace headers, `content-type: application/avro`); `data` decodes back equal to the contract record; the registry holds the payload schema under `<topic>-value`; unknown destination, unmappable payload and unreachable registry fail the send.
 * `RegistryKafkaIntegrationTest`: 409 on a breaking schema, additive v2 accepted, v1 reader decodes v2, `NONE` accepts the break.
 * `AvroSchemaEvolutionTest`, `PayloadMappersTest`: the matrix above and the mapping rules.
 * The existing `CloudEventsKafkaBindingTest` and `KafkaEventTransportIntegrationTest` are untouched.
 
-## 6. Not covered
+## 7. Not covered
 
-Outbox storing Avro instead of JSON text, auto-configuration and app wiring, consumer migration and dual-format rollout, registry HA/ACLs/performance, Protobuf or JSON Schema as alternatives.
+Outbox storing Avro instead of JSON text (the relay converts at send time), a staged rollout and rollback procedure, registry HA/ACLs/performance, `verify-kafka-events.sh` reading Avro by scraping bytes (an Avro-aware consumer would be cleaner), Protobuf or JSON Schema as alternatives.

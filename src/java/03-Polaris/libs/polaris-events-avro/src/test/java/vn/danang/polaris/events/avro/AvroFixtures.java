@@ -18,7 +18,7 @@ import org.apache.avro.io.EncoderFactory;
 import vn.danang.polaris.events.order.OrderLifecycleEvent;
 import vn.danang.polaris.events.order.OrderMilestone;
 
-final class AvroFixtures {
+public final class AvroFixtures {
 
     static final Schema V1 = vn.danang.polaris.events.avro.order.OrderLifecycleEvent.getClassSchema();
 
@@ -51,7 +51,7 @@ final class AvroFixtures {
         }
     }
 
-    static OrderLifecycleEvent sample() {
+    public static OrderLifecycleEvent sample() {
         return new OrderLifecycleEvent("ORD-10042", OrderMilestone.CONFIRMED, Instant.parse("2026-09-28T09:15:02.311Z"),
                 new OrderLifecycleEvent.Customer(1L, "Alice Tran", "alice.tran@example.com"),
                 List.of(new OrderLifecycleEvent.Item("NG-EARBUD-01", "Nova Wireless Earbuds", 1, new BigDecimal("49.90")),

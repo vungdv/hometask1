@@ -107,6 +107,9 @@ services:
       # Kafka cluster on the internal network (TR-B1); unauthenticated in dev (TR-X1). Any reachable node
       # bootstraps the client, which then discovers the whole cluster.
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      # Event payload format (ADR-0021): json (default) or avro. Reading always follows each event's content type.
+      POLARIS_EVENTS_FORMAT: ${POLARIS_EVENTS_FORMAT:-json}
+      POLARIS_EVENTS_AVRO_SCHEMA_REGISTRY_URL: http://schema-registry:8081
       SPRINGDOC_SWAGGER-UI_OAUTH_CLIENT-ID: "polaris-app"
       SPRINGDOC_SWAGGER-UI_OAUTH_USE-PKCE-WITH-AUTHORIZATION-CODE-GRANT: "true"
       JAVA_TOOL_OPTIONS: "-Djavax.net.ssl.trustStore=/certs/truststore.jks"
@@ -139,6 +142,8 @@ services:
         condition: service_healthy
       kafka-3:
         condition: service_healthy
+      schema-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health/liveness && curl -f http://localhost:8080/actuator/health/readiness || exit 1"]
       interval: 10s
@@ -211,6 +216,9 @@ services:
     environment:
       SERVER_PORT: "8082"
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      # Event payload format (ADR-0021): json (default) or avro. Reading always follows each event's content type.
+      POLARIS_EVENTS_FORMAT: ${POLARIS_EVENTS_FORMAT:-json}
+      POLARIS_EVENTS_AVRO_SCHEMA_REGISTRY_URL: http://schema-registry:8081
       POLARIS_CORE_API_BASE_URL: http://polaris:8080
       # Token endpoint through the canonical public issuer URL (id.polaris.local resolves to nginx on polaris-net).
       POLARIS_FULFILMENT_TOKEN_URI: https://id.${POLARIS_DOMAIN}/realms/polaris/protocol/openid-connect/token
@@ -235,6 +243,8 @@ services:
         condition: service_healthy
       kafka-3:
         condition: service_healthy
+      schema-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8082/actuator/health/liveness && curl -f http://localhost:8082/actuator/health/readiness || exit 1"]
       interval: 10s

@@ -7,6 +7,7 @@ WORKDIR /app
 COPY pom.xml .
 COPY libs/polaris-common/pom.xml libs/polaris-common/
 COPY libs/polaris-events/pom.xml libs/polaris-events/
+COPY libs/polaris-events-avro/pom.xml libs/polaris-events-avro/
 COPY libs/polaris-outbox/pom.xml libs/polaris-outbox/
 COPY apps/polaris/pom.xml apps/polaris/
 COPY apps/polaris-assistant/pom.xml apps/polaris-assistant/

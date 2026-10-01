@@ -1,4 +1,4 @@
-.PHONY: pull build up down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders schema-register schema-check schema-subjects
+.PHONY: pull build up up-avro e2e-fulfilment-avro down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders schema-register schema-check schema-subjects
 
 run:
 	mvn spring-boot:run -pl apps/polaris
@@ -18,6 +18,10 @@ build:
 	docker compose build
 up:
 	docker compose up -d --build
+# Same stack, events written as Avro (CloudEvents envelope + Schema Registry payload, ADR-0021)
+up-avro: export POLARIS_EVENTS_FORMAT=avro
+up-avro:
+	docker compose up -d --build
 down: 
 	docker compose down
 clean:
@@ -33,6 +37,10 @@ test-perf:
 test-concurrency:
 	docker run --network host --rm -i -v $$(pwd)/tests/perf:/scripts -w /scripts -e SKU=NG-CHARGER-02 grafana/k6 run order-concurrency-test.js
 e2e-fulfilment:
+	./tests/e2e/run-fulfilment.sh
+# Needs `make up-avro`: same scenario, and the Kafka check also requires every event to carry an Avro payload
+e2e-fulfilment-avro: export POLARIS_EVENTS_FORMAT=avro
+e2e-fulfilment-avro:
 	./tests/e2e/run-fulfilment.sh
 gcx: 
 	docker exec -it gcx-cli sh
