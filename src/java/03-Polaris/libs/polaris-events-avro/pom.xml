@@ -12,7 +12,7 @@
 	<artifactId>polaris-events-avro</artifactId>
 	<packaging>jar</packaging>
 	<name>Polaris :: Event Contracts (Avro experiment)</name>
-	<description>EXPERIMENT: Avro twin of the event contracts, Avro message schemas (metadata + payload), an AvroKafkaEventTransport next to the existing CloudEvents one, and Schema Registry compatibility tests. Not wired into any app.</description>
+	<description>EXPERIMENT: Avro twin of the event contracts, an AvroKafkaEventTransport that keeps the CloudEvents envelope and carries an Avro payload, and Schema Registry compatibility tests. Not wired into any app.</description>
 
 	<properties>
 		<avro.version>1.12.2</avro.version>
@@ -59,7 +59,6 @@
 		<dependency>
 			<groupId>io.cloudevents</groupId>
 			<artifactId>cloudevents-kafka</artifactId>
-			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>tools.jackson.core</groupId>
@@ -94,27 +93,11 @@
 				<artifactId>avro-maven-plugin</artifactId>
 				<version>${avro.version}</version>
 				<executions>
-					<!-- 1. Payload contracts (src/main/avro) -->
 					<execution>
 						<id>payload-schemas</id>
 						<phase>generate-sources</phase>
 						<goals><goal>schema</goal></goals>
 						<configuration>
-							<stringType>String</stringType>
-							<enableDecimalLogicalType>true</enableDecimalLogicalType>
-						</configuration>
-					</execution>
-					<!-- 2. Message schemas (src/main/avro-messages) embed the payload records, so they import them -->
-					<execution>
-						<id>message-schemas</id>
-						<phase>generate-sources</phase>
-						<goals><goal>schema</goal></goals>
-						<configuration>
-							<sourceDirectory>${project.basedir}/src/main/avro-messages</sourceDirectory>
-							<imports>
-								<import>${project.basedir}/src/main/avro/OrderLifecycleEvent.avsc</import>
-								<import>${project.basedir}/src/main/avro/ShipmentEvent.avsc</import>
-							</imports>
 							<stringType>String</stringType>
 							<enableDecimalLogicalType>true</enableDecimalLogicalType>
 						</configuration>

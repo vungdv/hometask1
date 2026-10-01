@@ -16,16 +16,20 @@ import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaTemplate;
 
+import io.cloudevents.CloudEvent;
+import io.cloudevents.core.builder.CloudEventBuilder;
+import io.cloudevents.kafka.KafkaMessageFactory;
 import vn.danang.polaris.events.avro.AvroEventCodec;
+import vn.danang.polaris.outbox.kafka.CloudEventsKafkaBinding;
 import vn.danang.polaris.outbox.kafka.KafkaEventTransport;
 import vn.danang.polaris.outbox.transport.EventTransport;
 import vn.danang.polaris.outbox.transport.OutgoingEvent;
 
 /**
- * Avro implementation of the outbox transport port, next to the existing CloudEvents {@link KafkaEventTransport}
- * (which is unchanged). The destination picks an {@link AvroMessageMapper}, which builds the Avro message (metadata
- * plus typed payload); the {@link AvroEventCodec} frames it for the Schema Registry; the record is keyed by the
- * aggregate id and carries only the W3C trace headers, because the metadata lives inside the message.
+ * Avro implementation of the outbox transport port, next to the existing {@link KafkaEventTransport} (unchanged).
+ * The record is still a CloudEvents 1.0 binary-mode record: {@code ce_*} headers, key = aggregate id, W3C trace
+ * headers. Only the {@code data} differs: the destination picks an {@link AvroPayloadMapper}, and the
+ * {@link AvroEventCodec} frames the typed payload for the Schema Registry ({@code content-type: application/avro}).
  *
  * <p>The delivery guarantees are the existing transport's: build the template over
  * {@link KafkaEventTransport#producerOverrides(Duration)} ({@code acks=all}, idempotence, bounded sends), and
@@ -35,13 +39,16 @@ import vn.danang.polaris.outbox.transport.OutgoingEvent;
  */
 public class AvroKafkaEventTransport implements EventTransport, AutoCloseable {
 
+    /** CloudEvents {@code datacontenttype} of an Avro payload in the Confluent wire format. */
+    public static final String AVRO_CONTENT_TYPE = "application/avro";
+
     private static final Logger log = LoggerFactory.getLogger(AvroKafkaEventTransport.class);
 
     private final KafkaTemplate<String, byte[]> template;
     private final KafkaAdmin admin;
     private final Duration sendTimeout;
     private final AvroEventCodec codec;
-    private final Map<String, AvroMessageMapper> mappers;
+    private final Map<String, AvroPayloadMapper> mappers;
     private volatile boolean topicsProvisioned;
 
     /**
@@ -52,26 +59,35 @@ public class AvroKafkaEventTransport implements EventTransport, AutoCloseable {
      * @param mappers     one per destination this transport can deliver
      */
     public AvroKafkaEventTransport(KafkaTemplate<String, byte[]> template, KafkaAdmin admin, Duration sendTimeout,
-            AvroEventCodec codec, List<AvroMessageMapper> mappers) {
+            AvroEventCodec codec, List<AvroPayloadMapper> mappers) {
         this.template = Objects.requireNonNull(template, "template");
         this.admin = admin;
         this.sendTimeout = Objects.requireNonNull(sendTimeout, "sendTimeout");
         this.codec = Objects.requireNonNull(codec, "codec");
-        this.mappers = mappers.stream().collect(Collectors.toUnmodifiableMap(AvroMessageMapper::destination,
+        this.mappers = mappers.stream().collect(Collectors.toUnmodifiableMap(AvroPayloadMapper::destination,
                 Function.identity()));
         this.topicsProvisioned = admin == null;
     }
 
     @Override
     public void send(OutgoingEvent event) throws Exception {
-        AvroMessageMapper mapper = mappers.get(event.destination());
+        AvroPayloadMapper mapper = mappers.get(event.destination());
         if (mapper == null) {
             throw new IllegalArgumentException("No Avro message mapper for destination " + event.destination());
         }
         provisionTopicsOnce();
-        byte[] value = codec.encode(event.destination(), mapper.toMessage(event));
-        ProducerRecord<String, byte[]> record = new ProducerRecord<>(event.destination(), null, event.key(), value);
-        event.traceHeaders().forEach((name, header) -> record.headers().add(name, header.getBytes(StandardCharsets.UTF_8)));
+        byte[] data = codec.encode(event.destination(), mapper.toPayload(event));
+        CloudEvent cloudEvent = CloudEventBuilder.v1(CloudEventsKafkaBinding.toCloudEvent(event))
+                .withDataContentType(AVRO_CONTENT_TYPE)
+                .withData(data)
+                .build();
+        ProducerRecord<String, byte[]> record = KafkaMessageFactory
+                .createWriter(event.destination(), event.key())
+                .writeBinary(cloudEvent);
+        event.traceHeaders().forEach((name, header) -> {
+            record.headers().remove(name);
+            record.headers().add(name, header.getBytes(StandardCharsets.UTF_8));
+        });
         RecordMetadata metadata = template.send(record)
                 .get(sendTimeout.toMillis() + 1_000, TimeUnit.MILLISECONDS)
                 .getRecordMetadata();

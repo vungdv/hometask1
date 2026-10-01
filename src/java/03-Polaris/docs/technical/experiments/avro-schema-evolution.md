@@ -1,137 +1,111 @@
-# Experiment: Avro + Schema Registry + schema evolution for Polaris Kafka events
+# Experiment: an Avro layer inside the CloudEvents envelope
 
-* **Status:** Experiment, not adopted. Branch `experiment/avro-schema-evolution`. Nothing in `apps/` or `polaris-outbox` is changed.
-* **Date:** 2026-10-01
-* **Question:** Should the Kafka event payloads move from JSON (ADR-0019) to Avro with a Schema Registry, and what do we gain and pay?
-* **Baseline:** [ADR-0019](../decisions/0019-kafka-and-cloudevents-binding.md): CloudEvents 1.0 binary mode, JSON value, lenient consumers, no registry.
+* **Status:** Experiment, not adopted. Branch `experiment/avro-schema-evolution`. Nothing in `apps/`, `polaris-outbox` or `polaris-events` is changed.
+* **Decision record:** [ADR-0021](../decisions/0021-avro-schema-registry-vs-cloudevents.md).
+* **Question:** keep CloudEvents (ADR-0019) and add Avro + Schema Registry only as a stronger **payload** schema. What changes, and what does Avro add?
+* Labels: **[measured]** observed in this module's tests; **[doc]** known behaviour not re-tested here.
 
-Evidence labels used below: **[measured]** observed in this experiment's tests; **[doc]** known Avro/Confluent behaviour that was not re-tested here.
+## 1. What changes in the architecture
 
----
+Only the `data` of the record and one new dependency. Envelope, key, trace headers and the relay are the same.
 
-## 1. What was built
+```mermaid
+sequenceDiagram
+    autonumber
+    participant O as Outbox relay
+    participant T as Transport
+    participant R as Schema Registry
+    participant K as Kafka
+    participant C as Consumer
 
-New, isolated module `libs/polaris-events-avro` (added to the parent reactor, depended on by nobody).
+    O->>T: OutgoingEvent (JSON payload as recorded)
+    rect rgb(245,245,245)
+    Note over T,K: today: KafkaEventTransport
+    T->>K: ce_* headers + data = JSON bytes
+    end
+    rect rgb(235,245,255)
+    Note over T,K: added: AvroKafkaEventTransport (new class, same port)
+    T->>T: PayloadMapper: JSON contract record to Avro record
+    T->>R: schema id for subject topic-value (409 if incompatible)
+    T->>K: same ce_* headers + content-type application/avro + data = [id][Avro]
+    end
+    K->>C: record
+    C->>C: route on ce_type (unchanged, no decode needed)
+    C->>R: writer schema by id (cached)
+    C->>C: Avro record, typed
+```
 
-| Piece | Where |
+| Piece (all in `libs/polaris-events-avro`) | Role |
 |:--|:--|
-| Avro twin of the order lifecycle payload (schema v1) | `src/main/avro/OrderLifecycleEvent.avsc` |
-| Java classes generated from it by `avro-maven-plugin` | `target/generated-sources` |
-| Hand-written mapper JSON-contract record <-> Avro class | `OrderLifecycleAvroMapper` |
-| Evolution scenarios as `.avsc` files (additive, bad required field, removed field, type change, enum, rename, int->long) | `src/test/resources/avro/evolution/` |
-| Library-level evolution tests (no registry) | `AvroSchemaEvolutionTest` (10 tests) |
-| End to end test: real Kafka (`apache/kafka:3.9.1`) + real Confluent Schema Registry (`cp-schema-registry:8.0.0`) via Testcontainers | `RegistryKafkaIntegrationTest` (4 tests) |
+| `*.avsc` payload schemas | Avro twins of the order and shipment payloads; generated classes |
+| `AvroPayloadMapper` per destination | `OutgoingEvent` JSON to the Avro payload record |
+| `AvroKafkaEventTransport implements EventTransport` | Builds the CloudEvent through the SDK with Avro `data`; reuses `KafkaEventTransport.producerOverrides` |
+| `AvroEventCodec` | Confluent wire format encode/decode against the registry |
 
-Schema design choices: money is `bytes` + `decimal(12,2)` (JSON used a string), time is `long` + `timestamp-millis`, `status` is an enum with `default: UNKNOWN`, every optional field is a `["null", T]` union with `default: null`, `items` defaults to `[]`.
+## 2. What Avro adds
 
-How the record looks on Kafka in the experiment (still the ADR-0019 binding, only the value changes):
+### 2.1 Schema changes: from convention to a checked rule **[measured]**
 
-* `ce_*` headers and the record key are unchanged; `content-type` becomes `application/avro`.
-* Value = Confluent wire format: magic byte `0x00` + 4-byte schema id + Avro binary.
-* The CloudEvents SDK (`KafkaMessageFactory...writeBinary`) carried the Avro bytes without any change, because binary mode treats `data` as opaque bytes. **[measured]**
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CI as CI / producer
+    participant R as Registry (BACKWARD_TRANSITIVE)
+    participant C1 as Consumer on v1
 
-Run it: `mvn -pl libs/polaris-events-avro test` (needs Docker; the first run pulls the registry image, which is large).
-
-## 2. Results
-
-### 2.1 Registry behaviour (integration test) **[measured]**
-
-| Scenario | Result |
-|:--|:--|
-| Subject set to `BACKWARD_TRANSITIVE`, register v1 | accepted, schema id 1 |
-| Register additive v2 (new optional field, new enum symbol, new defaulted sub-field) | accepted as version 2 |
-| A v1 reader decodes a record written with v2 (writer schema fetched from the registry by id) | works |
-| Register a schema with a new required field (no default) | **rejected, HTTP 409**; `testCompatibility` returns false |
-| Same kind of breaking change on a subject configured `NONE` | **accepted**: the guard is per-subject configuration, not a property of the data |
-
-### 2.2 Compatibility matrix (library level) **[measured]**
-
-"Backward" = new schema reads old data. "Forward" = old schema reads new data.
+    CI->>R: register v1
+    R-->>CI: id 1
+    CI->>R: register v2 (new optional field, new enum symbol)
+    R-->>CI: id 2, accepted
+    CI->>R: register v3 (new required field, no default)
+    R-->>CI: 409, build fails, nothing produced
+    Note over C1: reads a v2 record
+    C1->>R: writer schema for id 2
+    C1->>C1: resolves to v1, new fields dropped
+```
 
 | Change | Backward | Forward |
 |:--|:--|:--|
-| Add optional field / sub-field with default | OK | OK |
+| Add optional field (default) | OK | OK |
 | Add required field, no default | **breaks** | OK |
-| Remove field that has no default | OK | **breaks** |
-| `string` -> `int` | **breaks** | **breaks** |
-| `int` -> `long` | OK (promotion) | **breaks** |
-| Add enum symbol, enum has a `default` | OK | OK |
-| Add enum symbol, enum has no `default` | OK | **breaks** |
-| Rename a defaulted field, with alias | OK, value kept | n/a |
-| Rename a defaulted field, **no alias** | reported **compatible** | the value is silently lost |
+| Remove field without default | OK | **breaks** |
+| `string` to `int` | **breaks** | **breaks** |
+| `int` to `long` | OK | **breaks** |
+| Add enum symbol, enum has `default` | OK | OK |
+| Add enum symbol, no enum `default` | OK | **breaks** |
+| Rename with alias | OK, value kept | n/a |
+| Rename **without** alias | reported compatible, **value lost** | n/a |
 
-### 2.3 Data-level surprises **[measured]**
+The table is checkable with `SchemaCompatibility` in a unit test with no broker (`AvroSchemaEvolutionTest`).
 
-* A v1 consumer reading a v2 record **drops the new fields silently**: no error, no metric. That is the same outcome as today's `ignoreUnknown`, but it is now a designed property rather than an accident, and it is the reason "forward compatible" is not the same as "the consumer is correct".
-* A rename without an alias passes the compatibility check but loses the data (see matrix). The registry cannot tell a rename from "drop a field and add a new defaulted one".
-* Money keeps scale (`49.90` stays `49.90`) through the generated `BigDecimal`. Time is truncated to **milliseconds** (`Instant` carries nanoseconds); the mapper truncates explicitly, and the round-trip test equals only because the sample is millisecond precision.
+### 2.2 Schema contract: the producer cannot emit off-schema data **[measured]**
 
-### 2.4 Size **[measured]** (one realistic `order.confirmed` payload, 2 items)
+| | JSON (today) | Avro layer |
+|:--|:--|:--|
+| Breaking schema | reaches the topic | refused at registration (HTTP 409) |
+| Malformed payload | produced, consumer fails | fails at encode, relay retries, nothing produced |
+| Money / time | string workaround / ISO text | `decimal(12,2)`, `timestamp-millis` |
+| Enum from a newer producer | string, consumer decides | enum with `default: UNKNOWN`, old readers survive |
+| Payload size (one `order.confirmed`, 2 items) | 410 B | 150 B (155 B framed) |
 
-| Representation | Bytes |
-|:--|:--|
-| JSON payload used today | 410 |
-| Avro binary | 150 (37%) |
-| Avro in the registry wire format | 155 |
+## 3. What does not improve, or gets worse
 
-One sample, so treat the ratio as indicative. Gain grows with repeated field names (items) and shrinks with long string values; the registry has no per-record lookup cost after the schema id is cached **[doc]**.
+* **Compatibility is configuration.** The same breaking change is accepted on a subject set to `NONE` **[measured]**. Set the mode from provisioning code and check it in CI.
+* **"Compatible" is not "correct".** A v1 consumer silently drops v2 fields, and a rename without alias passes the check and loses the value **[measured]**.
+* **The registry is on the relay's path.** An unreachable registry fails every Avro send; the relay retries **[measured]**.
+* **Two representations.** The mapper between the JSON contract record and the Avro record is hand-written; a forgotten field fails only if a test covers it.
+* **Tooling friction [measured]:** decimals need `enableDecimalLogicalType`; Avro 1.12 needs the generated package trusted (`SERIALIZABLE_PACKAGES` or `ClassSecurityValidator`) or decoding throws at runtime; Confluent artifacts need `packages.confluent.io`; stale generated sources survive incremental builds.
+* **Debuggability.** `kafka-tail`, `verify-kafka-events.sh` and k6 read `data` as JSON; they need an Avro-aware consumer. Headers stay readable.
 
-## 3. Advantages (for Polaris)
+## 4. Evidence
 
-1. **Compatibility is enforced, not conventional.** Today TR-X6 relies on every consumer being lenient. With a registry in `BACKWARD_TRANSITIVE` (or `FULL_TRANSITIVE`) a breaking schema fails at registration/CI with a 409, before any event is produced. **[measured]**
-2. **Explicit evolution rules.** The table in 2.2 is mechanical and checkable with `SchemaCompatibility` in plain unit tests, no broker needed. **[measured]**
-3. **Smaller records.** About 63% less payload for the sample, which reduces replication traffic on the 3-node cluster. **[measured]**
-4. **Better types than JSON.** Decimals with fixed scale and precision, timestamps, enums with a declared default. The JSON contract needs `@JsonFormat(STRING)` workarounds for money today. **[measured]**
-5. **The CloudEvents binding survives.** Headers, key and tracing are unaffected; only `content-type` and the value change. **[measured]**
-6. **Ecosystem fit** for Connect, ksqlDB, Flink and lake sinks, which read registry-framed Avro natively. **[doc]**
-7. **A catalogue of contracts**: subjects and versions in one place, which supports AGENTS.md "traceable integration points". **[doc]**
+Run: `mvn -pl libs/polaris-events-avro test` (Docker; real `apache/kafka:3.9.1` and `cp-schema-registry:8.0.0`). 21 tests pass.
 
-## 4. Disadvantages and costs
+* `AvroKafkaEventTransportIntegrationTest`: an order and a shipment event arrive as CloudEvents readable by the SDK (`ce_*`, key = aggregate, trace headers, `content-type: application/avro`); `data` decodes back equal to the contract record; the registry holds the payload schema under `<topic>-value`; unknown destination, unmappable payload and unreachable registry fail the send.
+* `RegistryKafkaIntegrationTest`: 409 on a breaking schema, additive v2 accepted, v1 reader decodes v2, `NONE` accepts the break.
+* `AvroSchemaEvolutionTest`, `PayloadMappersTest`: the matrix above and the mapping rules.
+* The existing `CloudEventsKafkaBindingTest` and `KafkaEventTransportIntegrationTest` are untouched.
 
-1. **The outbox payload is JSON text.** `OutgoingEvent.payload` is a `String` stored as recorded (E2/E3). Avro needs either serialization at record time (payload column becomes binary/base64, schema id fixed at write time) or in the relay (the relay then needs the registry on its hot path). The experiment did not change the outbox; this is the largest unproven part. **[doc, from reading E3]**
-2. **Registry is a new critical runtime dependency.** Producers need it to register/look up a schema id; consumers need it for any id not cached. It needs HA, auth, backup, metrics, alerts and a runbook, which is a whole slice of Principle 3 work on top of O6/O7. In the experiment the registry container also needed Kafka reachable and a long image pull. **[measured: setup; doc: HA needs]**
-3. **Wire format is a vendor convention.** Magic byte + schema id is Confluent's, not a CloudEvents or Avro standard, which sits uneasily with Principle 1. CloudEvents has an Avro *format* spec but it is a different (structured-mode) design. **[doc]**
-4. **Readability is lost.** `make kafka-tail`, `verify-kafka-events.sh` and the k6 checks read the value as JSON text today; they would all need an Avro-aware consumer. **[doc, from repo]**
-5. **Tooling friction found while building it. [measured]**
-   * `avro-maven-plugin` generates `ByteBuffer` for decimals unless `enableDecimalLogicalType=true`.
-   * Avro 1.12 refuses to load generated classes by name unless the package is whitelisted via `org.apache.avro.SERIALIZABLE_PACKAGES`. Every producer and consumer JVM needs that property; forgetting it fails at runtime with a `SecurityException`, not at build time.
-   * The Confluent serializer artifacts are not on Maven Central; the build needs `https://packages.confluent.io/maven/`.
-   * Incremental builds kept stale generated sources until `clean`.
-6. **Two representations to keep in sync.** The mapper is hand-written; a field added on one side and forgotten on the other fails only if a test covers it. Generating the Java contract from the `.avsc` (and dropping the Jackson records) would remove the duplication but changes `polaris-events` for every consumer. **[measured: mapper needed]**
-7. **Evolution is not free.** Renames need aliases, type changes are mostly blocked, enums need a default from day one (it cannot be added later without breaking old readers), and the rename-without-alias hole in 2.3 means "compatible" does not imply "correct". **[measured]**
-8. **Failure mode is wider.** A bad or unreachable schema id makes a record undecodable for every consumer at once. With the current no-DLT policy (ADR-0019 §4.1 item 4) that becomes a skipped-and-counted poison record per consumer. **[doc]**
-9. **Compatibility is configuration.** A subject accidentally set to `NONE` accepts anything (2.1). The mode must be set by provisioning code and checked in CI, not by hand. **[measured]**
+## 5. Not covered
 
-## 5. What this experiment does not cover
-
-* Outbox/relay changes, consumer migration and a dual-format rollout.
-* Registry HA, authentication, ACLs, retention of old versions, disaster recovery.
-* Performance (serialization CPU, registry latency under load, schema-cache misses).
-* Protobuf or JSON Schema alternatives, and CI-only compatibility checking without a runtime registry (for example Avro `SchemaCompatibility` on committed `.avsc` files, which this experiment shows works without any broker).
-
-## 6. Take-aways
-
-* Technically it works with the existing CloudEvents binding; the integration test proves the end to end path, including enforcement.
-* The measurable gains are enforcement and size; the measurable costs are tooling friction and the unresolved outbox payload question.
-* A cheaper middle path suggested by the results: keep JSON on the wire and run the same compatibility gate in CI on committed schemas, which gives most of advantage 1 and 2 without a runtime registry.
-* If Avro is pursued, the next vertical slice is the outbox: decide where serialization happens and what the payload column stores, then write an ADR superseding ADR-0019 §3.1.
-
-## 7. Phase 2: Avro message schemas and an adapter transport (additive)
-
-Follow-up request: handle Avro at the **message** level, add components instead of changing existing ones, and use the same adapter pattern for shipments. Decision record: [ADR-0021](../decisions/0021-avro-schema-registry-vs-cloudevents.md).
-
-Added in `libs/polaris-events-avro` only (the diff to the phase 1 commit is 12 files there; `polaris-outbox`, `polaris-events`, both apps, compose and the e2e scripts are unchanged):
-
-* Message schemas `OrderLifecycleMessage.avsc` and `ShipmentMessage.avsc` (`src/main/avro-messages`): metadata (`id`, `type`, `source`, `time`) plus `data`, the payload record. They are generated by a second `avro-maven-plugin` execution that imports the payload schemas.
-* `AvroMessageMapper` adapter port with `OrderLifecycleMessageMapper` and `ShipmentMessageMapper`: `OutgoingEvent` to message, going through the existing contract records and payload mappers.
-* `AvroKafkaEventTransport implements EventTransport`, next to the unchanged `KafkaEventTransport`; `AvroEventCodec` frames messages for the registry.
-
-Measured (`AvroKafkaEventTransportIntegrationTest`, `MessageMappersTest`, real Kafka and registry): both topics are delivered through the one transport; records carry only trace headers; the registry holds the message schema per topic; unknown destination, unmappable payload and unreachable registry all fail the send, which the relay would retry. The existing CloudEvents tests still pass.
-
-Findings of this phase:
-
-* Metadata moves into the value, so a consumer must decode before it can route. That is the price of letting the registry govern metadata and payload together.
-* A message schema that embeds payload records needs the payloads imported in a second codegen execution; defining the payload twice breaks code generation.
-* The registry is on the relay's path: an unreachable registry fails every Avro send.
-* Not done: no auto-configuration selects the transport, no app uses it, and the fulfilment emulator would first need to move onto the outbox transport port to use the shipment adapter.
-
+Outbox storing Avro instead of JSON text, auto-configuration and app wiring, consumer migration and dual-format rollout, registry HA/ACLs/performance, Protobuf or JSON Schema as alternatives.

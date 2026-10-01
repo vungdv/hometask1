@@ -32,14 +32,14 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
 
+import io.cloudevents.CloudEvent;
+import io.cloudevents.kafka.KafkaMessageFactory;
 import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
 import tools.jackson.databind.json.JsonMapper;
 import vn.danang.polaris.events.avro.fulfilment.ShipmentAvroMapper;
-import vn.danang.polaris.events.avro.fulfilment.ShipmentMessage;
-import vn.danang.polaris.events.avro.fulfilment.ShipmentMessageMapper;
+import vn.danang.polaris.events.avro.fulfilment.ShipmentPayloadMapper;
 import vn.danang.polaris.events.avro.order.OrderLifecycleAvroMapper;
-import vn.danang.polaris.events.avro.order.OrderLifecycleMessage;
-import vn.danang.polaris.events.avro.order.OrderLifecycleMessageMapper;
+import vn.danang.polaris.events.avro.order.OrderLifecyclePayloadMapper;
 import vn.danang.polaris.events.avro.transport.AvroKafkaEventTransport;
 import vn.danang.polaris.events.fulfilment.FulfilmentEvents;
 import vn.danang.polaris.events.fulfilment.ShipmentEvent;
@@ -51,8 +51,9 @@ import vn.danang.polaris.outbox.transport.OutgoingEvent;
 
 /**
  * {@link AvroKafkaEventTransport} against a real Kafka broker and a real Confluent Schema Registry: an
- * {@code OutgoingEvent} for each destination arrives as one Avro message (metadata plus payload) keyed by the
- * aggregate, with no CloudEvents headers, and the registry holds the message schema.
+ * {@code OutgoingEvent} for each destination arrives as one CloudEvents binary-mode record keyed by the
+ * aggregate, with the {@code ce_*} attributes in headers and an Avro payload as data; the registry holds the payload
+ * schema.
  */
 @Testcontainers
 class AvroKafkaEventTransportIntegrationTest {
@@ -98,7 +99,7 @@ class AvroKafkaEventTransportIntegrationTest {
         config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
         var template = new KafkaTemplate<String, byte[]>(new DefaultKafkaProducerFactory<>(config));
         return new AvroKafkaEventTransport(template, null, TIMEOUT, withCodec,
-                List.of(new OrderLifecycleMessageMapper(JSON), new ShipmentMessageMapper(JSON)));
+                List.of(new OrderLifecyclePayloadMapper(JSON), new ShipmentPayloadMapper(JSON)));
     }
 
     private static OutgoingEvent order(UUID id, String key) {
@@ -108,8 +109,8 @@ class AvroKafkaEventTransportIntegrationTest {
     }
 
     @Test
-    @DisplayName("an order OutgoingEvent arrives as one Avro message: metadata + payload in the value, trace headers only")
-    void orderEventArrivesAsAvroMessage() throws Exception {
+    @DisplayName("an order OutgoingEvent arrives as a CloudEvent whose data is the Avro payload")
+    void orderEventArrivesAsCloudEventWithAvroData() throws Exception {
         UUID id = UUID.randomUUID();
         String key = "ORD-" + id;
 
@@ -117,25 +118,27 @@ class AvroKafkaEventTransportIntegrationTest {
 
         ConsumerRecord<String, byte[]> record = poll(OrderEvents.DESTINATION, key);
         assertThat(record.key()).isEqualTo(key);
-        assertThat(headerNames(record)).containsExactlyInAnyOrder("traceparent", "tracestate")
-                .noneMatch(n -> n.startsWith("ce_"));
-        assertThat(record.value()[0]).as("Confluent wire format magic byte").isZero();
-        OrderLifecycleMessage message = codec.decode(OrderEvents.DESTINATION, record.value());
-        assertThat(message.getId()).isEqualTo(id.toString());
-        assertThat(message.getType()).isEqualTo(OrderEvents.CONFIRMED_V1);
-        assertThat(message.getSource()).isEqualTo(OrderEvents.SOURCE);
-        assertThat(message.getTime()).isEqualTo(Instant.parse("2026-09-29T10:15:30.123Z"));
-        assertThat(OrderLifecycleAvroMapper.fromAvro(message.getData())).isEqualTo(AvroFixtures.sample());
+        CloudEvent event = KafkaMessageFactory.createReader(record).toEvent();
+        assertThat(event.getId()).isEqualTo(id.toString());
+        assertThat(event.getType()).isEqualTo(OrderEvents.CONFIRMED_V1);
+        assertThat(event.getSource().toString()).isEqualTo(OrderEvents.SOURCE);
+        assertThat(event.getTime().toInstant()).isEqualTo(Instant.parse("2026-09-29T10:15:30.123Z"));
+        assertThat(event.getDataContentType()).isEqualTo("application/avro");
+        assertThat(headerNames(record)).contains("ce_specversion", "traceparent", "tracestate");
+        byte[] data = event.getData().toBytes();
+        assertThat(data[0]).as("Confluent wire format magic byte").isZero();
+        vn.danang.polaris.events.avro.order.OrderLifecycleEvent payload = codec.decode(OrderEvents.DESTINATION, data);
+        assertThat(OrderLifecycleAvroMapper.fromAvro(payload)).isEqualTo(AvroFixtures.sample());
 
         var registry = new CachedSchemaRegistryClient(registryUrl, 10);
         assertThat(registry.getAllSubjects()).contains(OrderEvents.DESTINATION + "-value");
         assertThat(registry.getLatestSchemaMetadata(OrderEvents.DESTINATION + "-value").getSchema())
-                .contains("\"name\":\"OrderLifecycleMessage\"").contains("\"name\":\"data\"");
+                .contains("\"name\":\"OrderLifecycleEvent\"").doesNotContain("\"name\":\"source\"");
     }
 
     @Test
     @DisplayName("shipment: the same transport and the same adapter pattern deliver the shipments topic")
-    void shipmentEventArrivesAsAvroMessage() throws Exception {
+    void shipmentEventArrivesAsCloudEventWithAvroData() throws Exception {
         UUID id = UUID.randomUUID();
         String key = "ORD-SHP-" + id;
         var shipment = new ShipmentEvent(key, "SHP-" + key, "partner-south", ShipmentStep.DISPATCHED,
@@ -146,11 +149,12 @@ class AvroKafkaEventTransportIntegrationTest {
                 JSON.writeValueAsString(shipment), null));
 
         ConsumerRecord<String, byte[]> record = poll(FulfilmentEvents.DESTINATION, key);
-        assertThat(headerNames(record)).isEmpty();
-        ShipmentMessage message = codec.decode(FulfilmentEvents.DESTINATION, record.value());
-        assertThat(message.getId()).isEqualTo(id.toString());
-        assertThat(message.getType()).isEqualTo(ShipmentStep.DISPATCHED.type());
-        assertThat(ShipmentAvroMapper.fromAvro(message.getData())).isEqualTo(shipment);
+        CloudEvent event = KafkaMessageFactory.createReader(record).toEvent();
+        assertThat(event.getId()).isEqualTo(id.toString());
+        assertThat(event.getType()).isEqualTo(ShipmentStep.DISPATCHED.type());
+        vn.danang.polaris.events.avro.fulfilment.ShipmentEvent payload =
+                codec.decode(FulfilmentEvents.DESTINATION, event.getData().toBytes());
+        assertThat(ShipmentAvroMapper.fromAvro(payload)).isEqualTo(shipment);
     }
 
     @Test
