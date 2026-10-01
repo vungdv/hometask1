@@ -1,0 +1,139 @@
+# Plan O6b / OBS-ASY-1: OutboxStuck, ConsumerLagGrowing, PoisonRecordBlocked and AsyncMetricsMissing fire on their failure
+# and stay silent otherwise (healthy, cold start, short blip, drained backlog, dead or revoked consumer).
+rule_files:
+  - ../rules/async.rules.yml
+evaluation_interval: 30s
+tests:
+  # ---- OutboxStuck: pending age climbs past 300 s with a backlog (Kafka down); silent while below threshold
+  - interval: 30s
+    input_series:
+      - series: 'polaris_outbox_backlog_events{exported_job="Polaris"}'
+        values: '0x4 3x40'
+      - series: 'polaris_outbox_oldest_pending_age_seconds{exported_job="Polaris"}'
+        values: '0x4 0+30x40'
+    alert_rule_test:
+      - {eval_time: 8m, alertname: OutboxStuck, exp_alerts: []}   # age 120..240 s, below the threshold
+      - eval_time: 20m
+        alertname: OutboxStuck
+        exp_alerts:
+          - exp_labels: {severity: page, owner: polaris, service: polaris-outbox, exported_job: Polaris}
+            exp_annotations:
+              summary: "Outbox is stuck: oldest pending event is 17m 30s old"
+              description: "Order events are recorded but not reaching Kafka (Kafka down or unreachable, relay failing, or database slow). Break down by event_type on the dashboard."
+              service: "polaris-outbox"
+              severity: "page"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-async/async-outbox-and-kafka"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/outbox-stuck.md"
+  # drained after Kafka returns: fires while stuck, resolved after the backlog and age drop to 0
+  - interval: 30s
+    input_series:
+      - series: 'polaris_outbox_backlog_events{exported_job="Polaris"}'
+        values: '0x10 5x30 0x30'
+      - series: 'polaris_outbox_oldest_pending_age_seconds{exported_job="Polaris"}'
+        values: '0x10 0+30x30 0x30'
+    alert_rule_test:
+      - {eval_time: 5m, alertname: OutboxStuck, exp_alerts: []}
+      - {eval_time: 45m, alertname: OutboxStuck, exp_alerts: []}   # resolved after the drain
+  # a stale high age without backlog must not fire
+  - interval: 30s
+    input_series:
+      - series: 'polaris_outbox_backlog_events{exported_job="Polaris"}'
+        values: '0x30'
+      - series: 'polaris_outbox_oldest_pending_age_seconds{exported_job="Polaris"}'
+        values: '900x30'
+    alert_rule_test:
+      - {eval_time: 14m, alertname: OutboxStuck, exp_alerts: []}
+
+  # ---- ConsumerLagGrowing: steadily rising lag above 100 fires; flat zero, draining and the underscore topic twin do not
+  - interval: 30s
+    input_series:
+      - series: 'kafka_consumer_fetch_manager_records_lag{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-north",topic="polaris.order.lifecycle",partition="0"}'
+        values: '100+5x80'
+      - series: 'kafka_consumer_fetch_manager_records_lag{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-south",topic="polaris.order.lifecycle",partition="0"}'
+        values: '0x80'
+      - series: 'kafka_consumer_fetch_manager_records_lag{exported_job="Polaris",group="order.shipments",topic="polaris.fulfilment.shipments",partition="0"}'
+        values: '500-5x80'
+      - series: 'kafka_consumer_fetch_manager_records_lag{exported_job="Polaris",group="order.shipments",topic="polaris_fulfilment_shipments",partition="0"}'
+        values: '0+50x80'
+    alert_rule_test:
+      - {eval_time: 6m, alertname: ConsumerLagGrowing, exp_alerts: []}   # cold start: not enough history, and not yet over 5 minutes
+      - eval_time: 35m
+        alertname: ConsumerLagGrowing
+        exp_alerts:
+          - exp_labels: {severity: ticket, owner: polaris, service: kafka-consumer, exported_job: Polaris-Fulfilment-Emulator, group: fulfilment.partner-north, topic: polaris.order.lifecycle}
+            exp_annotations:
+              summary: "Consumer group fulfilment.partner-north is falling behind on polaris.order.lifecycle: lag above 100 and still growing"
+              description: "Lag has stayed above 100 records for 10 minutes and is still growing. A group with no lag series at all (consumer gone) is covered by AsyncMetricsMissing."
+              service: "kafka-consumer"
+              severity: "ticket"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-async/async-outbox-and-kafka"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/consumer-lag-growing.md"
+
+  # ---- PoisonRecordBlocked
+  # fulfilment.partner-north: age grows past 300 s while lag > 0 -> fires. order.shipments: age grows but lag series gone (partition
+  # revoked / consumer stopped mid-record) -> tolerated. partner-south: short blip -> silent. partner-central: age grows, lag 0 -> silent.
+  - interval: 30s
+    input_series:
+      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-north"}'
+        values: '0x4 0+30x40'
+      - series: 'kafka_consumer_fetch_manager_records_lag{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-north",topic="polaris.order.lifecycle",partition="0"}'
+        values: '1x44'
+      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris",group="order.shipments"}'
+        values: '0x4 0+30x40'
+      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-south"}'
+        values: '0x4 600x3 0x37'
+      - series: 'kafka_consumer_fetch_manager_records_lag{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-south",topic="polaris.order.lifecycle",partition="0"}'
+        values: '1x44'
+      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-central"}'
+        values: '0x4 0+30x40'
+      - series: 'kafka_consumer_fetch_manager_records_lag{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-central",topic="polaris.order.lifecycle",partition="0"}'
+        values: '0x44'
+    alert_rule_test:
+      - {eval_time: 8m, alertname: PoisonRecordBlocked, exp_alerts: []}   # age still under 300 s
+      - eval_time: 20m
+        alertname: PoisonRecordBlocked
+        exp_alerts:
+          - exp_labels: {severity: ticket, owner: polaris, service: kafka-consumer, exported_job: Polaris-Fulfilment-Emulator, group: fulfilment.partner-north}
+            exp_annotations:
+              summary: "Consumer group fulfilment.partner-north is blocked: oldest in-flight record is 17m 30s old with lag"
+              description: "A record keeps failing (poison record) or its handler is stuck, so the group makes no progress on that partition."
+              service: "kafka-consumer"
+              severity: "ticket"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-async/async-outbox-and-kafka"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/poison-record-blocked.md"
+
+  # ---- AsyncMetricsMissing: silent while all reporting; fires after the series vanish for 10 minutes; a short gap is silent
+  - interval: 30s
+    input_series:
+      - series: 'polaris_outbox_backlog_events{exported_job="Polaris"}'
+        values: '0x20 _x40'
+      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris",group="order.shipments"}'
+        values: '0x60'
+      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-north"}'
+        values: '0x60'
+    alert_rule_test:
+      - {eval_time: 9m, alertname: AsyncMetricsMissing, exp_alerts: []}
+      - {eval_time: 15m, alertname: AsyncMetricsMissing, exp_alerts: []}   # gone for 5 minutes only
+      - eval_time: 25m
+        alertname: AsyncMetricsMissing
+        exp_alerts:
+          - exp_labels: {severity: ticket, owner: polaris, service: kafka-consumer, exported_job: Polaris}
+            exp_annotations:
+              summary: "Async visibility metrics are missing: the outbox or a Kafka consumer is not reporting"
+              description: "The outbox gauges, the order.shipments consumer or the fulfilment emulator consumers have not reported for 15 minutes (app down, Collector not forwarding, or metrics wiring broken). Lag and stuck alerts cannot fire without them."
+              service: "kafka-consumer"
+              severity: "ticket"
+              dashboard_url: "https://grafana.polaris.local/d/polaris-async/async-outbox-and-kafka"
+              runbook_url: "https://github.com/vungdv/hometask1/blob/main/src/java/03-Polaris/docs/operations/runbooks/async-metrics-missing.md"
+  # cold start of the whole app: series appear after 3 minutes of nothing; never fires before `for` elapses, and not once reporting
+  - interval: 30s
+    input_series:
+      - series: 'polaris_outbox_backlog_events{exported_job="Polaris"}'
+        values: '_x6 0x40'
+      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris",group="order.shipments"}'
+        values: '_x6 0x40'
+      - series: 'polaris_kafka_consumer_oldest_record_age_seconds{exported_job="Polaris-Fulfilment-Emulator",group="fulfilment.partner-north"}'
+        values: '_x6 0x40'
+    alert_rule_test:
+      - {eval_time: 5m, alertname: AsyncMetricsMissing, exp_alerts: []}
+      - {eval_time: 15m, alertname: AsyncMetricsMissing, exp_alerts: []}

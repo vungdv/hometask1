@@ -93,7 +93,7 @@ end
 if ENV["LIVE"] == "1"
   base = ENV["PROM_URL"]; empty = 0
   queries.each do |(dash, title, q, _)|
-    e = q.gsub("$__rate_interval", "5m").gsub(/\$service\b/, ".+").gsub(/\$env\b/, ".*")
+    e = q.gsub("$__rate_interval", "5m").gsub(/\$service\b/, ".+").gsub(/\$env\b/, ".*").gsub(/\$(event_type|group)\b/, ".+")
     r = JSON.parse(Net::HTTP.post_form(URI("#{base}/api/v1/query"), "query" => e).body)
     if r["status"] != "success" then bad("live #{dash} / #{title}: #{r["error"]}")
     elsif r["data"]["result"].empty? then empty += 1; puts "WARN live #{dash} / #{title}: no data"
