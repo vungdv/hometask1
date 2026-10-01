@@ -12,6 +12,11 @@ Telemetry security (OBS-SEC-1), all Q1-scoped to the single-node dev/reference s
 - [Exposure](exposure.md): which ports are published (none for backends), the opt-in `docker-compose.dev-ports.yml`, how scripts reach the backends.
 - [Access](access.md): Keycloak roles to Grafana roles, datasource and folder permissions as code, secrets bootstrap and rotation, operator guides, the Grafana OSS limits.
 
+Verification (plan O8):
+
+- [Verification](verification.md): every `OBS-*` requirement mapped to an automated check or a recorded manual step (`tests/e2e/observability/traceability-check.sh` fails on a gap), plus how to run the end-to-end, failure-injection and (opt-in, destructive) fresh-bootstrap scripts.
+- [Operator walk-through](operator-walkthrough.md): alert to metric panel, exemplar trace, logs and business transaction in 4 steps, with the queries verified on the live stack.
+
 Other operational documents are organised here by category as they are written:
 
 - **Deployment** — how to build, configure, and deploy each app (`polaris`, `polaris-assistant`, gateway, Grafana/Keycloak stack).
