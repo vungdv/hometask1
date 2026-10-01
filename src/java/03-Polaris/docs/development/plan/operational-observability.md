@@ -81,7 +81,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | 5 | O3 | Redaction and cardinality guardrails | `done` | O1, O2a | `feat/o3-redaction-guardrails` | [#34](https://github.com/vungdv/hometask1/pull/34) | |
 | 6 | O4 | Dashboards as code | `done` | O2, O2a | `feat/o4-dashboards-as-code` | [#35](https://github.com/vungdv/hometask1/pull/35) | |
 | 7 | O5 | SLOs, alerts and runbooks | `done` | O2, O4 | `feat/o5-slos-alerts-runbooks` | [#36](https://github.com/vungdv/hometask1/pull/36) | |
-| 8 | O6 | Async visibility (outbox and Kafka) | `in-review` | O2 | `feat/o6a-async-metrics-contract` | [#37](https://github.com/vungdv/hometask1/pull/37) (part a) | Touches `libs/polaris-outbox` and Kafka; see note |
+| 8 | O6 | Async visibility (outbox and Kafka) | `in-progress` | O2 | `feat/o6a-async-metrics-contract` | [#37](https://github.com/vungdv/hometask1/pull/37) (part a, merged); part b in progress | Touches `libs/polaris-outbox` and Kafka; see note |
 | 9 | O7 | Access, retention and exposure | `todo` | O1 | | | |
 | 10 | O8 | End-to-end verification | `todo` | O1–O7, O2a | | | |
 
