@@ -145,4 +145,5 @@ route platform-page severity=page owner=platform && route polaris-page severity=
   && ok "amtool routes: severity x owner reach the expected receiver, unknown falls to catch-all" || bad "amtool routes test"
 scripts/telemetry/alerts-validate.sh >/dev/null && ok "alert metadata, runbook files, dashboard uids, dev wiring (scripts/telemetry/alerts-validate.sh)" || bad "alerts validation (run scripts/telemetry/alerts-validate.sh)"
 [ -x scripts/telemetry/alerts-check.sh ] && ok "live failure-injection check present (scripts/telemetry/alerts-check.sh)" || bad "alerts-check.sh missing"
+[ -x scripts/telemetry/async-check.sh ] && ok "live outbox/Kafka failure-injection check present (scripts/telemetry/async-check.sh)" || bad "async-check.sh missing"
 exit $fail

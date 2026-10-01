@@ -96,7 +96,7 @@ Notes:
 
 Every alert has annotations `summary`, `description`, `service`, `severity`, `dashboard_url`, `runbook_url`, and labels `severity`, `owner` (and `service` for burn alerts).
 
-- `dashboard_url` = `https://grafana.polaris.local/d/<uid>/…` using O4 uids: `polaris-edge` (gateway), `polaris-service-red` (apps), `polaris-telemetry-pipeline` (pipeline).
+- `dashboard_url` = `https://grafana.polaris.local/d/<uid>/…` using O4 uids: `polaris-edge` (gateway), `polaris-service-red` (apps), `polaris-telemetry-pipeline` (pipeline), `polaris-async` (outbox and Kafka, O6b).
 - `runbook_url` = repository blob URL of `docs/operations/runbooks/<alert-name-kebab>.md`.
 
 ## 8. Runbooks and the click-path (OBS-DIA-1)
