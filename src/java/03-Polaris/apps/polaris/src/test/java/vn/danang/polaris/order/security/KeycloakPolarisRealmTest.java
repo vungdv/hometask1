@@ -18,15 +18,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Guards the Keycloak realm contract that shopper identity binding (V12, CustomerService) depends on.
  */
-@DisplayName("Keycloak realm-export contract")
-class KeycloakRealmExportTest {
+@DisplayName("Keycloak polaris realm contract")
+class KeycloakPolarisRealmTest {
 
     /** Module working directory is apps/polaris; the realm lives at the project root. */
-    private static final Path REALM_EXPORT = Path.of("../../docker/keycloak/realm-export.json");
+    private static final Path POLARIS_REALM = Path.of("../../docker/keycloak/polaris-realm.json");
 
     private static JsonNode realm() throws Exception {
-        assertThat(REALM_EXPORT).exists();
-        return new ObjectMapper().readTree(Files.readString(REALM_EXPORT));
+        assertThat(POLARIS_REALM).exists();
+        return new ObjectMapper().readTree(Files.readString(POLARIS_REALM));
     }
 
     @Test

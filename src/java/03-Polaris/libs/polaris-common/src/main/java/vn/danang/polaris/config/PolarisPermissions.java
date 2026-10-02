@@ -3,7 +3,7 @@ package vn.danang.polaris.config;
 /**
  * Standard fine-grained permission identifiers across Polaris bounded contexts.
  * <p>
- * Corresponds directly to Keycloak client roles provisioned under {@code polaris-api} in {@code docker/keycloak/realm-export.json}.
+ * Corresponds directly to Keycloak client roles provisioned under {@code polaris-api} in {@code docker/keycloak/polaris-realm.json}.
  */
 public final class PolarisPermissions {
 

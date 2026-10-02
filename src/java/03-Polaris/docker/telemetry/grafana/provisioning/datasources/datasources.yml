@@ -2,15 +2,6 @@ apiVersion: 1
 
 # Plan O2: full jsonData so an operator can pivot metric -> trace -> logs (OBS-DIA-1).
 # UIDs are fixed so the datasources reference each other.
-# Pre-O2 volumes hold these datasources with auto-generated UIDs; drop them so the
-# fixed-UID definitions below apply cleanly (idempotent on fresh volumes).
-deleteDatasources:
-  - name: Prometheus
-    orgId: 1
-  - name: Loki
-    orgId: 1
-  - name: Tempo
-    orgId: 1
 
 datasources:
 

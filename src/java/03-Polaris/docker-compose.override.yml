@@ -217,16 +217,18 @@ services:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?run scripts/init-env.sh (see docs/operations/access.md)}
       - GF_AUTH_GENERIC_OAUTH_SCOPES=openid email profile roles
-      - GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://id.polaris.local/realms/polaris/protocol/openid-connect/auth
-      - GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://id.polaris.local/realms/polaris/protocol/openid-connect/token
-      - GF_AUTH_GENERIC_OAUTH_API_URL=https://id.polaris.local/realms/polaris/protocol/openid-connect/userinfo
+      # Staff SSO lives in the Keycloak master realm (client imported from docker/keycloak/master-realm.json), apart from the polaris
+      # customer realm: shoppers and other polaris users have no account Grafana can see.
+      - GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://id.polaris.local/realms/master/protocol/openid-connect/auth
+      - GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://id.polaris.local/realms/master/protocol/openid-connect/token
+      - GF_AUTH_GENERIC_OAUTH_API_URL=https://id.polaris.local/realms/master/protocol/openid-connect/userinfo
       - GF_AUTH_GENERIC_OAUTH_TLS_CLIENT_CA=/etc/grafana/certs/rootCA.pem
       - GF_AUTH_GENERIC_OAUTH_TLS_SKIP_VERIFY_INSECURE=false
-      # Role comes from Keycloak claims. No fallback role and strict mode (plan O7): a realm user without an admin, editor or
-      # viewer role (for example a shopper) cannot log in to Grafana at all.
-      # `roles` merges the grafana client roles and the realm roles; either may be absent (JMESPath errors on null, which the
-      # old per-claim contains() expressions hit for any user without grafana client roles and silently became Viewer).
-      - GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains([resource_access.grafana.roles, realm_access.roles][], 'admin') && 'Admin' || contains([resource_access.grafana.roles, realm_access.roles][], 'editor') && 'Editor' || contains([resource_access.grafana.roles, realm_access.roles][], 'viewer') && 'Viewer'
+      - GF_AUTH_GENERIC_OAUTH_USE_PKCE=true
+      # Role comes from the master realm `grafana` client roles only; master realm roles are ignored (the master `admin` realm
+      # role is the Keycloak superuser, not a Grafana grant). No fallback role and strict mode (plan O7): a user without a
+      # grafana client role cannot log in to Grafana at all. `|| [] literal` because JMESPath contains() errors on a missing claim.
+      - GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains(resource_access.grafana.roles || `[]`, 'admin') && 'Admin' || contains(resource_access.grafana.roles || `[]`, 'editor') && 'Editor' || contains(resource_access.grafana.roles || `[]`, 'viewer') && 'Viewer'
       - GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT=true
       - GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN=true
       - GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN=false

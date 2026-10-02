@@ -95,26 +95,6 @@
       "defaultClientScopes": [
         "openid", "basic", "profile", "email", "roles", "web-origins"
       ]
-    },
-    {
-      "clientId": "grafana",
-      "name": "Grafana Observability",
-      "enabled": true,
-      "publicClient": false,
-      "secret": "${GRAFANA_OAUTH_CLIENT_SECRET}",
-      "redirectUris": [
-        "https://grafana.polaris.local/login/generic_oauth"
-      ],
-      "webOrigins": [
-        "https://grafana.polaris.local"
-      ],
-      "directAccessGrantsEnabled": false,
-      "standardFlowEnabled": true,
-      "serviceAccountsEnabled": false,
-      "protocol": "openid-connect",
-      "attributes": {
-        "post.logout.redirect.uris": "+"
-      }
     }
   ],
 
@@ -129,8 +109,6 @@
           "inventory.read", "inventory.write"
         ]}}
       },
-      { "name": "editor", "description": "Content editor" },
-      { "name": "viewer", "description": "Read-only viewer" },
 
       { "name": "customer-success", "description": "Customer Success - managing customer profiles, accounts, and relationships",
         "composite": true,
@@ -179,11 +157,6 @@
         { "name": "customer.write", "description": "Write access to customer profiles — update customer details and accounts" },
         { "name": "inventory.read", "description": "Read access to store inventory, stock levels, and warehouse counts" },
         { "name": "inventory.write", "description": "Write access to store inventory — adjust stock and sync product counts" }
-      ],
-      "grafana": [
-        { "name": "admin", "clientRole": true },
-        { "name": "editor", "clientRole": true },
-        { "name": "viewer", "clientRole": true }
       ]
     }
   },
@@ -211,8 +184,7 @@
         "purchase-management", "purchase_management"
       ],
       "clientRoles": {
-        "account": ["view-profile", "manage-account"],
-        "grafana": ["admin"]
+        "account": ["view-profile", "manage-account"]
       }
     },
     {

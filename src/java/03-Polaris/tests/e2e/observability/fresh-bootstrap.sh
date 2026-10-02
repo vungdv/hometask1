@@ -6,7 +6,7 @@
 # generate it. Never run it on a stack you want to keep. It is NOT part of run.sh or failure-injection.sh.
 #
 # Proves, from nothing: `make up` (1) generates .env with non-empty GRAFANA_ADMIN_PASSWORD / GRAFANA_OAUTH_CLIENT_SECRET,
-# (2) imports the Keycloak realm with ${GRAFANA_OAUTH_CLIENT_SECRET} substituted (the placeholder is not stored; Grafana SSO login
+# (2) imports the Keycloak master realm with ${GRAFANA_OAUTH_CLIENT_SECRET} substituted into its grafana client (Grafana SSO login
 # works, which only works when both sides hold the same secret), (3) every container becomes healthy, (4) the O8 end-to-end
 # run passes on the empty stack (dev users and SKU are created by tests/e2e/run-fulfilment.sh first).
 # Usage: tests/e2e/observability/fresh-bootstrap.sh --yes-delete-all-volumes
@@ -31,11 +31,11 @@ done
 out=$(wait_stack_healthy "${UP_SECS:-900}") && ok "all stack containers healthy on an empty volume set" || { bad "stack not healthy: $out"; exit 1; }
 SECRET=$(envval GRAFANA_OAUTH_CLIENT_SECRET); GRAFANA_ADMIN_PASSWORD=$(envval GRAFANA_ADMIN_PASSWORD)
 TOKEN=$(docker exec keycloak sh -c 'true' >/dev/null 2>&1; gw -d grant_type=client_credentials -d client_id=grafana --data-urlencode "client_secret=$SECRET" \
-  https://id.polaris.local/realms/polaris/protocol/openid-connect/token | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
-[ -n "$TOKEN" ] && ok "Keycloak accepts the substituted grafana client secret (realm import substituted \${GRAFANA_OAUTH_CLIENT_SECRET})" \
+  https://id.polaris.local/realms/master/protocol/openid-connect/token | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
+[ -n "$TOKEN" ] && ok "Keycloak accepts the .env grafana client secret (master realm import substituted \${GRAFANA_OAUTH_CLIENT_SECRET})" \
   || info "client_credentials grant not enabled for the grafana client; the SSO login in access-check.sh covers the secret instead"
-grep -q '\${GRAFANA_OAUTH_CLIENT_SECRET}' <(docker exec keycloak sh -c 'cat /opt/keycloak/data/import/realm-export.json' 2>/dev/null) \
-  && info "the mounted realm file still holds the placeholder (expected: Keycloak substitutes while importing)"
+docker logs keycloak 2>&1 | grep -q "Realm 'master' imported" && ok "Keycloak imported the master realm from master-realm.json" \
+  || bad "Keycloak did not import master-realm.json (volume not empty, or file name not *-realm.json)"
 ./scripts/telemetry/access-check.sh > $LOGS/access.log 2>&1 && ok "access-check.sh (SSO logins prove Grafana and Keycloak share the secret)" || { bad "access-check.sh (see $LOGS/access.log)"; }
 RUN_FULFILMENT=1 ./tests/e2e/observability/run.sh && ok "run.sh on the fresh stack" || bad "run.sh on the fresh stack"
 echo; [ $fail -eq 0 ] && echo "PASS" || echo "FAIL"; exit $fail

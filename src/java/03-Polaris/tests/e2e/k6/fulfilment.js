@@ -1,5 +1,5 @@
 // F4 fulfilment end-to-end (PRD-007 Scenarios 2, 4-7), API first: everything goes through public REST/OIDC.
-//   setup (idempotent, repeatable): Keycloak Admin API users -> unlimited-stock product via catalog REST
+//   setup (idempotent, repeatable): realm users' tokens -> unlimited-stock product via catalog REST
 //   scenario: place 1 order + a batch, poll GET /orders/{n} until DELIVERED with an assignedPartner,
 //             assert the batch was won by more than one partner.
 // The order numbers and their assignedPartner are logged as an `E2E_ORDERS ORD-1=partner ...` line; tests/e2e/run-fulfilment.sh feeds them to
@@ -10,7 +10,7 @@ import { textSummary } from 'https://jslib.k6.io/k6-summary/0.1.0/index.js';
 import {
   SKU, BATCH, TIMEOUT_S, SHOPPER, STAFF,
 } from './lib/config.js';
-import { ensureUsers, emulatorClientPresent, userToken } from './lib/keycloak.js';
+import { userToken } from './lib/keycloak.js';
 import { ensureUnlimitedProduct } from './lib/catalog.js';
 import { placeOrders, awaitDelivered } from './lib/orders.js';
 
@@ -32,10 +32,6 @@ export const options = {
 };
 
 export function setup() {
-  const kcAuth = ensureUsers([SHOPPER, STAFF]);
-  if (!emulatorClientPresent(kcAuth)) {
-    fail('Keycloak client polaris-fulfilment-emulator is missing: the realm predates F1 (reset the Keycloak volume so the realm is re-imported)');
-  }
   const staff = userToken(STAFF.username, STAFF.password);
   if (!staff) fail(`no token for ${STAFF.username}`);
   ensureUnlimitedProduct(staff, SKU);

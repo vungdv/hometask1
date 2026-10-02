@@ -158,8 +158,11 @@ if grep -rnE "$OLD1|$OLD2|$OLD3|$OLD4|GF_SECURITY_$OLD5" docker-compose.yml dock
      --exclude=validate-configs.sh | grep -v 'KEYCLOAK_ADMIN_PASSWORD' | grep -v 'Keycloak Admin'; then
   bad "old inline credentials reappeared (matches above); use .env / scripts/init-env.sh"
 else ok "no inline Grafana admin password or OAuth client secret in committed files"; fi
-grep -q '"secret": "${GRAFANA_OAUTH_CLIENT_SECRET}"' docker/keycloak/realm-export.json && grep -q 'GRAFANA_OAUTH_CLIENT_SECRET:' docker-compose.yml \
-  && ok "realm import takes the grafana client secret from the environment" || bad "realm grafana client secret not env-substituted"
+grep -q '"secret": "${GRAFANA_OAUTH_CLIENT_SECRET}"' docker/keycloak/master-realm.json && ! grep -q '"clientId": "grafana"' docker/keycloak/polaris-realm.json \
+  && grep -q 'GRAFANA_OAUTH_CLIENT_SECRET:' docker-compose.yml && grep -q 'import/master-realm.json' docker-compose.yml \
+  && ok "grafana client is imported into the master realm with its secret from the environment; none in polaris" || bad "grafana client must be only in docker/keycloak/master-realm.json with an env-substituted secret"
+grep -q 'realms/master/protocol' docker-compose.override.yml && ! grep -q 'realms/polaris/protocol' docker-compose.override.yml \
+  && ok "Grafana SSO points at the master realm" || bad "Grafana SSO endpoints are not the master realm"
 ruby -ryaml -rjson -e '
 def req(c, m); abort(m) unless c; end
 base = YAML.load_file("docker-compose.override.yml")["services"]; main = YAML.load_file("docker-compose.yml")["services"]

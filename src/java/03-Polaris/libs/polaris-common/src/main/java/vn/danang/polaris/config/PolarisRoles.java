@@ -3,7 +3,7 @@ package vn.danang.polaris.config;
 /**
  * Standard system role identifiers across Polaris bounded contexts.
  * <p>
- * Corresponds directly to the Keycloak realm roles provisioned in {@code docker/keycloak/realm-export.json}.
+ * Corresponds directly to the Keycloak realm roles provisioned in {@code docker/keycloak/polaris-realm.json}.
  */
 public final class PolarisRoles {
 

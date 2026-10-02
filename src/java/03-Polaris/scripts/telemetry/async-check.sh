@@ -105,7 +105,7 @@ for b in $BROKERS; do docker stop "$b" >/dev/null; done
 ok "kafka brokers stopped ($BROKERS)"
 LOG=$(mktemp)
 perl -e 'alarm 240; exec @ARGV' docker run --rm -i --network "$NET" -v "$PWD/tests/e2e/k6:/scripts:ro" -w /scripts \
-  -e API_BASE="${API_BASE:-https://polaris.local}" -e KC_BASE="${KC_BASE:-https://id.polaris.local}" -e KC_ADMIN_USER -e KC_ADMIN_PASSWORD -e E2E_STAFF_USER -e E2E_STAFF_PASSWORD -e E2E_USER -e E2E_PASSWORD -e E2E_EMAIL -e SKU \
+  -e API_BASE="${API_BASE:-https://polaris.local}" -e KC_BASE="${KC_BASE:-https://id.polaris.local}" -e E2E_STAFF_USER -e E2E_STAFF_PASSWORD -e E2E_USER -e E2E_PASSWORD -e SKU \
   -e BATCH=2 -e TIMEOUT=15 -e POLL_INTERVAL=3 grafana/k6 run fulfilment.js >"$LOG" 2>&1
 grep -q 'placed (201)' "$LOG" && ok "orders were placed while Kafka was down (business path unaffected)" || { bad "no order placed (see $LOG)"; tail -20 "$LOG"; }
 wait_for "outbox pending count rises" gt 'polaris_outbox_backlog_events{exported_job="Polaris"}' 1

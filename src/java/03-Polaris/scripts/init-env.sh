@@ -3,7 +3,7 @@
 # generated secret. Idempotent; NEVER overwrites a value that is already set. Run by `make up`.
 #   GRAFANA_ADMIN_PASSWORD        Grafana local admin (break-glass login form; normal users sign in with Keycloak)
 #   GRAFANA_OAUTH_CLIENT_SECRET   Confidential client secret shared by Grafana and the Keycloak `grafana` client
-# Rotating: set the value in .env, then run scripts/telemetry/sync-secrets.sh to push it into existing volumes.
+# Rotating: set the value in .env, then `make clean && make up` (Grafana and Keycloak read it only into a fresh volume).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f .env ] || { cp .env.template .env; echo "created .env from .env.template"; }

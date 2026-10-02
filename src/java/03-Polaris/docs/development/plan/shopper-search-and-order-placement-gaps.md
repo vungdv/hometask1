@@ -183,7 +183,7 @@ S8 (product cards) ────────────────┘ (widget p
 
 ### S2 — Bind shopper identity to a customer *(Order Management; G3)*
 **Files:** new `V12__add_customer_auth_subject.sql`, `order/entity/Customer.java`, `order/service/CustomerService.java`, `order/web/controller/CustomerController.java`, `order/web/controller/OrderController.java`, `mcp/OrderMcpTools.java`
-1. Migration: `customers.auth_subject VARCHAR(64) UNIQUE NULL`, and backfill seeded customers to match `docker/keycloak/realm-export.json` users.
+1. Migration: `customers.auth_subject VARCHAR(64) UNIQUE NULL`, and backfill seeded customers to match `docker/keycloak/polaris-realm.json` users.
 2. `GET /api/v1/customers/me` resolves by JWT `sub`, falling back to the `email` claim (see D1) → 404 problem if no customer is linked.
 3. Enforce in `POST /api/v1/orders` and in the `place_order` MCP tool: a caller without a staff role (`ROLE_STAFF` or `ROLE_ADMIN`) always gets the customer from `/me`. A supplied `customer_id` that doesn't match → 403 problem.
 
