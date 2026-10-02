@@ -52,12 +52,12 @@ class OfferListenerRegistrar implements SmartLifecycle {
         var properties = new ContainerProperties(topic);
         String group = GROUP_PREFIX + partner.partnerId();
         properties.setGroupId(group);
-        // O6 contract: one factory per group so the client lag metrics carry the group tag; oldest in-flight record age.
+        // Consumer-group metrics: one factory per group so the client lag metrics carry the group tag; oldest in-flight record age.
         var groupFactory = new DefaultKafkaConsumerFactory<>(consumerFactory.getConfigurationProperties(),
                 consumerFactory.getKeyDeserializer(), consumerFactory.getValueDeserializer());
         groupFactory.addListener(ConsumerGroupMetrics.clientMetrics(meters, group));
         var tracker = groupMetrics.<String, byte[]>recordInterceptor(group);
-        properties.setConsumerRebalanceListener(tracker.rebalanceListener()); // O6c: revoked partitions drop in-flight state
+        properties.setConsumerRebalanceListener(tracker.rebalanceListener()); // revoked partitions drop in-flight state
         properties.setAckMode(ContainerProperties.AckMode.RECORD);
         properties.setObservationEnabled(true);
         properties.setObservationRegistry(observationRegistry);
@@ -68,7 +68,7 @@ class OfferListenerRegistrar implements SmartLifecycle {
         properties.setMessageListener((MessageListener<String, byte[]>) record -> handler.handle(partner, record));
         var container = new ConcurrentMessageListenerContainer<>(groupFactory, properties);
         container.setRecordInterceptor(tracker);
-        // Not a context bean, so no event publisher is injected: hand the stop event to the metrics directly (O6c).
+        // Not a context bean, so no event publisher is injected: hand the stop event to the metrics directly.
         container.setApplicationEventPublisher(event -> {
             if (event instanceof ConsumerStoppedEvent stopped) {
                 groupMetrics.onApplicationEvent(stopped);

@@ -95,7 +95,7 @@ class ConsumerGroupMetricsTest {
         return registry.get(ConsumerGroupMetrics.BLOCKED_RECORD_AGE).tag("group", group).gauge().value();
     }
 
-    // ---- O6c: poison signal that does not depend on lag or on the record timestamp
+    // ---- Poison signal that does not depend on lag or on the record timestamp
 
     @Test
     void blockedAge_countsFromFirstTake_acrossRetriesOfTheSameOffset_evenForTheLastRecord() {
@@ -140,7 +140,7 @@ class ConsumerGroupMetricsTest {
         assertThat(blocked("g1")).isZero();
     }
 
-    // ---- O6c: in-flight state is cleared on revoke, loss and container stop
+    // ---- In-flight state is cleared on revoke, loss and container stop
 
     @Test
     void revokedPartitions_dropTheirInFlightRecords_andOnlyThose() {

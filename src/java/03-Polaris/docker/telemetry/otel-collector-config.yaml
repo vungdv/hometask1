@@ -1,11 +1,11 @@
 # https://opentelemetry.io/docs/collector/configuration/
-# Pipeline hardening (plan O1, OBS-RES-1 / OBS-PIPE-1):
+# Pipeline hardening:
 #   - memory_limiter is FIRST in every pipeline
 #   - every exporter has a bounded sending_queue and retry_on_failure; when a backend is
 #     down the queue fills, then data is dropped (never back-pressures the apps for long)
 #   - collector self-metrics on :8888 are scraped by Prometheus
 #   - health_check on :13133 drives the compose healthcheck
-# Redaction and cardinality guardrails (plan O3, OBS-LOG-1 / OBS-MET-1):
+# Redaction and cardinality guardrails:
 #   - redaction/secrets + transform/redact_* run on ALL pipelines (incl. the edge access log)
 #     after memory_limiter and BEFORE batch/exporter: secrets and PII never reach a backend
 #   - transform/metric_allowlist keeps only allow-listed attribute keys on metric data points
@@ -23,7 +23,7 @@ receivers:
       http:
         endpoint: "0.0.0.0:4318"
 
-  # Gateway access log (plan O2a): nginx sends JSON access-log lines over syslog/UDP.
+  # Gateway access log: nginx sends JSON access-log lines over syslog/UDP.
   syslog:
     udp:
       listen_address: "0.0.0.0:5514"
@@ -70,7 +70,7 @@ processors:
           - set(log.severity_number, SEVERITY_NUMBER_ERROR) where log.cache["status"] >= 500
           - set(log.severity_number, SEVERITY_NUMBER_INFO) where log.cache["status"] < 500
           - delete_key(log.attributes, "message")
-  # ---- Redaction (plan O3). Regexes are RE2; single-quoted YAML keeps backslashes literal. ----
+  # ---- Redaction. Regexes are RE2; single-quoted YAML keeps backslashes literal. ----
   # Attribute KEYS that carry credentials have their value masked; attribute VALUES (any key,
   # on spans, span events, log records and metric data points) matching a PII/secret shape are
   # masked. allow_all_keys keeps all other attributes (no allow-list on traces/logs).
@@ -107,11 +107,11 @@ processors:
           - 'replace_pattern(span.name, "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "***")'
           - 'replace_pattern(span.status.message, "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "***")'
           - 'replace_pattern(span.status.message, "(?i)\\b(bearer|basic)\\s+[A-Za-z0-9._~+/=-]{8,}", "***")'
-  # Cardinality guardrail (OBS-MET-1): metric data points keep ONLY these attribute key families
+  # Cardinality guardrail: metric data points keep ONLY these attribute key families
   # (semantic-convention and Micrometer/JVM/Spring/Kafka/DB keys, all bounded). Anything else
   # (user_id, order_*, session/request ids, ...) is dropped from metrics. To allow a new metric
   # attribute, add its key family here after checking it is bounded.
-  # O6 added: event (event_type: CloudEvents type), group (Kafka consumer group), destination (outbox
+  # Async metrics: event (event_type: CloudEvents type), group (Kafka consumer group), destination (outbox
   # logical destination), all small fixed sets.
   transform/metric_allowlist:
     error_mode: ignore

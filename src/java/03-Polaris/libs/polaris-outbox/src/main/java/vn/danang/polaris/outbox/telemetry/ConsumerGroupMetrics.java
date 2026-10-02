@@ -23,7 +23,7 @@ import io.micrometer.core.instrument.ImmutableTag;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
- * Per consumer-group Kafka metrics (O6 design §3). Two parts, both labelled {@code group}:
+ * Per consumer-group Kafka metrics. Two parts, both labelled {@code group}:
  * <ul>
  * <li>{@link #clientMetrics(MeterRegistry, String)}: the Kafka client's own consumer metrics (notably
  * {@code kafka.consumer.fetch.manager.records.lag} per topic and partition), tagged with the group so lag is
@@ -31,7 +31,7 @@ import io.micrometer.core.instrument.MeterRegistry;
  * <li>{@link #recordInterceptor(String)}: {@code polaris.kafka.consumer.oldest.record.age}, the age of the oldest
  * record the group's consumer has taken but not finished (Kafka clients expose no record age), and
  * {@code polaris.kafka.consumer.records.skipped}, records given up on after retries.</li>
- * <li>{@code polaris.kafka.consumer.blocked.record.age} (O6c): how long the oldest unfinished record has been in the
+ * <li>{@code polaris.kafka.consumer.blocked.record.age}: how long the oldest unfinished record has been in the
  * consumer's hands, retries included. Unlike the age above it does not depend on the record's timestamp or on lag, so
  * it detects a blocked last record at lag 0.</li>
  * </ul>

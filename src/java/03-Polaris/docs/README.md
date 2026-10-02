@@ -27,4 +27,3 @@ Architecture, decisions, data, and implementation. Read this to understand how t
 
 ## [Operations](operations/) — how to run
 Deployment, monitoring, and runbooks. Read this to run, observe, and recover the system in production.
-- See [operations/README.md](operations/README.md) for current status.

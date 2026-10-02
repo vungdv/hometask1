@@ -29,7 +29,7 @@ x-kafka-healthcheck: &kafka-healthcheck
 
 services:
   nginx:
-    # Official -otel variant: ships ngx_otel_module (plan O2a). Pinned; see O2a design doc.
+    # Official -otel variant: ships ngx_otel_module. Pinned.
     image: nginx:1.31.6-alpine-otel
     container_name: nginx
     ports:
@@ -48,7 +48,7 @@ services:
       swagger-ui:
         condition: service_started
     # The Collector has a fixed address on polaris-net (see override) and nginx maps its name to
-    # it, so nginx starts and restarts with NO dependency on the Collector (OBS-RES-1).
+    # it, so nginx starts and restarts with NO dependency on the Collector.
     extra_hosts:
       - "otel-collector:172.29.250.10"
     healthcheck:
@@ -346,8 +346,8 @@ services:
       KC_DB_PASSWORD: keycloak
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
-      # Substituted into the master realm import (${GRAFANA_OAUTH_CLIENT_SECRET} in master-realm.json); same value Grafana uses.
-      GRAFANA_OAUTH_CLIENT_SECRET: ${GRAFANA_OAUTH_CLIENT_SECRET:?run scripts/init-env.sh (see docs/operations/access.md)}
+      # Substituted into the realm imports (${DEFAULT_PASSWORD}): password of the seeded users, incl. master `grafana-admin`.
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:?set DEFAULT_PASSWORD in .env}
       POLARIS_FULFILMENT_EMULATOR_SECRET: ${POLARIS_FULFILMENT_EMULATOR_SECRET:-fulfilment-emulator-dev-secret}
       KC_PROXY_HEADERS: xforwarded
       KC_HOSTNAME: https://id.${POLARIS_DOMAIN}

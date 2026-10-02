@@ -28,7 +28,7 @@ import vn.danang.polaris.outbox.store.JdbcOutboxStore;
 import vn.danang.polaris.outbox.store.OutboxRecord;
 
 /**
- * The O6a metric contract for the outbox, against the real V15 schema (H2) and the real relay: totals and per-event-type
+ * The metric contract for the outbox, against the real V15 schema (H2) and the real relay: totals and per-event-type
  * backlog and age, hand-off outcome per event type, and no identifier-shaped labels.
  */
 class OutboxMetricsH2Test {

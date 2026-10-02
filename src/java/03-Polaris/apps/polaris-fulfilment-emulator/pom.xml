@@ -21,7 +21,7 @@
 			<artifactId>polaris-events</artifactId>
 		</dependency>
 
-		<!-- Consumer-group metrics (O6): plain classes only; the outbox auto-configuration needs a datasource, so it stays inert here -->
+		<!-- Consumer-group metrics: plain classes only; the outbox auto-configuration needs a datasource, so it stays inert here -->
 		<dependency>
 			<groupId>vn.danang</groupId>
 			<artifactId>polaris-outbox</artifactId>

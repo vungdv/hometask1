@@ -22,7 +22,7 @@ import vn.danang.polaris.outbox.store.PendingByType;
 import vn.danang.polaris.outbox.store.PendingEvent;
 
 /**
- * O6c: the outbox gauges are read on the registry's single publish thread, so a database that hangs must never hold
+ * The outbox gauges are read on the registry's single publish thread, so a database that hangs must never hold
  * that thread (it would stop every metric of the app, JVM included). The store here hangs on demand.
  */
 class OutboxMetricsNonBlockingTest {

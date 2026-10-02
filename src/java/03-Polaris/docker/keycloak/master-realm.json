@@ -7,8 +7,7 @@
       "name": "Grafana Observability",
       "description": "Staff SSO for Grafana. Lives in master, apart from the polaris customer realm; roles are this client's roles.",
       "enabled": true,
-      "publicClient": false,
-      "secret": "${GRAFANA_OAUTH_CLIENT_SECRET}",
+      "publicClient": true,
       "redirectUris": [
         "https://grafana.polaris.local/login/generic_oauth"
       ],
@@ -33,6 +32,28 @@
       ]
     }
   ],
+  "users": [
+    {
+      "username": "grafana-admin",
+      "enabled": true,
+      "email": "grafana-admin@polaris.local",
+      "emailVerified": true,
+      "firstName": "Grafana",
+      "lastName": "Admin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${DEFAULT_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "clientRoles": {
+        "grafana": [
+          "admin"
+        ]
+      }
+    }
+  ],
   "roles": {
     "client": {
       "grafana": [
@@ -42,11 +63,11 @@
         },
         {
           "name": "editor",
-          "description": "Grafana Editor (Explore, all folders)"
+          "description": "Grafana Editor"
         },
         {
           "name": "viewer",
-          "description": "Grafana Viewer (operations folder only)"
+          "description": "Grafana Viewer"
         }
       ]
     }

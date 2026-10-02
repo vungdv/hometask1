@@ -1,13 +1,13 @@
 apiVersion: 1
 
-# Plan O2: full jsonData so an operator can pivot metric -> trace -> logs (OBS-DIA-1).
+# Full jsonData so an operator can pivot metric -> trace -> logs.
 # UIDs are fixed so the datasources reference each other.
 
 datasources:
 
   - name: Prometheus
     uid: prometheus
-    # Plan O7: provisioned and read-only; nobody edits or deletes it in the UI or API (changes go through this file).
+    # Provisioned and read-only; nobody edits or deletes it in the UI or API (changes go through this file).
     editable: false
     type: prometheus
     access: proxy
@@ -25,7 +25,7 @@ datasources:
 
   - name: Loki
     uid: loki
-    # Plan O7: provisioned and read-only; nobody edits or deletes it in the UI or API (changes go through this file).
+    # Provisioned and read-only; nobody edits or deletes it in the UI or API (changes go through this file).
     editable: false
     type: loki
     access: proxy
@@ -42,7 +42,7 @@ datasources:
 
   - name: Tempo
     uid: tempo
-    # Plan O7: provisioned and read-only; nobody edits or deletes it in the UI or API (changes go through this file).
+    # Provisioned and read-only; nobody edits or deletes it in the UI or API (changes go through this file).
     editable: false
     type: tempo
     access: proxy

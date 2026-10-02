@@ -79,7 +79,7 @@ public class OutboxAutoConfiguration {
     @ConditionalOnMissingBean
     OutboxMetrics outboxMetrics(DataSource dataSource, ObjectProvider<MeterRegistry> meterRegistry) {
         // Gauges are read on the registry's publish thread: own store with a statement timeout, snapshot cache and a
-        // bounded wait (O6c), so a slow database can never stall the whole app's metric export.
+        // bounded wait, so a slow database can never stall the whole app's metric export.
         JdbcTemplate template = new JdbcTemplate(dataSource);
         template.setQueryTimeout(METRICS_QUERY_TIMEOUT_SECONDS);
         // Without an app registry the meters stay local (not exported) rather than leaking into the global one.

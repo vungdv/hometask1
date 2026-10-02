@@ -27,12 +27,12 @@ import vn.danang.polaris.outbox.store.OutboxRelayStore;
 import vn.danang.polaris.outbox.store.PendingByType;
 
 /**
- * Outbox metrics (E3 design §7, O6 design): backlog and oldest-pending age read from the table when sampled, in total
+ * Outbox metrics (E3 design §7): backlog and oldest-pending age read from the table when sampled, in total
  * and per {@code event_type}, and hand-off latency, outcome and delivery lag recorded by the relay. Exported by the
- * app's registry (OTLP). Names, units and labels are a contract: see
- * {@code docs/development/design/operational-observability/O6a-async-metrics-contract.md}.
+ * app's registry (OTLP). Names, units and labels are a contract;
+ * new label keys must also be allow-listed in the Collector's {@code transform/metric_allowlist}.
  *
- * <p><b>Gauge callbacks never block the registry's publish thread (O6c).</b> The OTLP registry reads every gauge on
+ * <p><b>Gauge callbacks never block the registry's publish thread.</b> The OTLP registry reads every gauge on
  * one thread per step, so a callback stuck on the database would stop <em>all</em> metrics of the app (JVM
  * included). The database is therefore read on a dedicated thread: a callback waits at most {@code queryTimeout} for
  * a snapshot in total (the wait is shared by all gauges of a publish), and a query that hangs only occupies that

@@ -175,7 +175,7 @@
       "firstName": "Test",
       "lastName": "User",
       "email": "testuser@novagadgets.local",
-      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": [
         "offline_access", "uma_authorization", "admin",
         "customer-success", "customer_success",
@@ -192,7 +192,7 @@
       "enabled": true, "emailVerified": true,
       "firstName": "Customer", "lastName": "Success",
       "email": "customersuccess@novagadgets.local",
-      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "customer-success", "customer_success"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
     },
@@ -201,7 +201,7 @@
       "enabled": true, "emailVerified": true,
       "firstName": "Customer", "lastName": "Success",
       "email": "customer-success@novagadgets.local",
-      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "customer-success", "customer_success"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
     },
@@ -210,7 +210,7 @@
       "enabled": true, "emailVerified": true,
       "firstName": "Product", "lastName": "Catalog",
       "email": "productcatalog@novagadgets.local",
-      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "product-catalog", "product_catalog"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
     },
@@ -219,7 +219,7 @@
       "enabled": true, "emailVerified": true,
       "firstName": "Product", "lastName": "Catalog",
       "email": "product-catalog@novagadgets.local",
-      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "product-catalog", "product_catalog"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
     },
@@ -228,7 +228,7 @@
       "enabled": true, "emailVerified": true,
       "firstName": "Inventory", "lastName": "Manager",
       "email": "inventory@novagadgets.local",
-      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "inventory"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
     },
@@ -237,7 +237,7 @@
       "enabled": true, "emailVerified": true,
       "firstName": "Purchase", "lastName": "Management",
       "email": "purchasemanagement@novagadgets.local",
-      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "purchase-management", "purchase_management"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
     },
@@ -246,7 +246,7 @@
       "enabled": true, "emailVerified": true,
       "firstName": "Purchase", "lastName": "Management",
       "email": "purchase-management@novagadgets.local",
-      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "purchase-management", "purchase_management"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
     },
@@ -256,7 +256,7 @@
       "enabled": true, "emailVerified": true,
       "firstName": "Alice", "lastName": "Tran",
       "email": "alice.tran@example.com",
-      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "shopper"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
     },
@@ -266,7 +266,7 @@
       "enabled": true, "emailVerified": true,
       "firstName": "Ben", "lastName": "Nguyen",
       "email": "ben.nguyen@example.com",
-      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "shopper"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
     },
@@ -276,7 +276,7 @@
       "enabled": true, "emailVerified": true,
       "firstName": "Chi", "lastName": "Le",
       "email": "chi.le@example.com",
-      "credentials": [{ "type": "password", "value": "testpass", "temporary": false }],
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "shopper"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
     }

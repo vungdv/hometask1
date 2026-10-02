@@ -13,9 +13,9 @@ distributor:
         http:
           endpoint: 0.0.0.0:4318
 
-# Retention (plan O7, OBS-SEC-1): traces 3 days. In Tempo 3.x retention is enforced by the backend scheduler (which decides) and
+# Retention: traces 3 days. In Tempo 3.x retention is enforced by the backend scheduler (which decides) and
 # the backend worker (which deletes); both carry block_retention. Tempo has no size cap, so the overrides below bound ingest
-# instead. Dev/reference stack (Q1); see docs/operations/retention.md.
+# instead.
 backend_scheduler:
   provider:
     retention:
@@ -34,7 +34,7 @@ storage:
     local:
       path: /var/tempo/traces
 
-# Span-derived metrics (plan O2 / D3): span-metrics + service-graphs, remote-written to
+# Span-derived metrics: span-metrics + service-graphs, remote-written to
 # Prometheus (which enables the remote-write receiver and exemplar storage).
 metrics_generator:
   registry:

@@ -1,8 +1,0 @@
-{
-  "_comment": "Plan O7 / OBS-SEC-1. Declarative folder access for the provisioned dashboard folders (title = sub-directory of provisioning/dashboards/json). Applied idempotently by apply-folder-permissions.py (compose service grafana-access-init). Permission: View, Edit or Admin. A role not listed has NO access; the Admin org role always has it. Grafana OSS has no provisioning file for permissions, so the Grafana HTTP API is the provisioning mechanism.",
-  "folders": {
-    "operations":  { "Viewer": "View", "Editor": "View" },
-    "engineering": { "Editor": "View" },
-    "platform":    { "Editor": "View" }
-  }
-}

@@ -32,7 +32,7 @@ import org.testcontainers.kafka.KafkaContainer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
- * The O6a consumer-group contract against a real broker: client lag metrics carry the {@code group} tag, the oldest
+ * The consumer-group metric contract against a real broker: client lag metrics carry the {@code group} tag, the oldest
  * in-flight record age rises while a record is blocked and returns to 0, and a skipped poison record is counted.
  */
 @Testcontainers
@@ -109,7 +109,7 @@ class ConsumerGroupMetricsKafkaIntegrationTest {
     }
 
     /**
-     * O6c: a poison record that is still being retried when its container stops (no success, no skip) must not leave a
+     * A poison record that is still being retried when its container stops (no success, no skip) must not leave a
      * growing age behind. The blocked-record signal also rises while it is held, with the record being the last one
      * of the partition (nothing queued behind it).
      */
