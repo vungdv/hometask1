@@ -1,6 +1,6 @@
 # ADR-0016: GenAI Observability, OTel Semantic Conventions, and MCP Tool Audit Standards
 
-* **Status:** Accepted
+* **Status:** Accepted; §4.2 model span contract amended by [ADR-0020](0020-grafana-ai-observability-genai-telemetry.md) (2026-10-02)
 * **Deciders:** Polaris Architecture Team, Core Platform Engineering, AI Agent Platform Lead, SRE Lead, SecOps & AI Governance Lead
 * **Date:** 2026-09-17
 * **Technical Story:** Aligning Polaris Assistant foundation model reasoning telemetry with OpenTelemetry GenAI Semantic Conventions (v1.27+), establishing an audit trail on MCP tool execution spans (`mcp.tool_call`), enforcing automated PII/PCI redaction via `ArgumentSanitizer`, implementing sampled structured thought signature logging, and enriching lifecycle span event payloads.

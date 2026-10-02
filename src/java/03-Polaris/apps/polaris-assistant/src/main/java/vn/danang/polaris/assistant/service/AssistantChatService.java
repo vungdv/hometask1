@@ -33,6 +33,7 @@ import vn.danang.polaris.assistant.ai.AssistantModelClient;
 import vn.danang.polaris.assistant.ai.ModelRequestContext;
 import vn.danang.polaris.assistant.ai.ModelResponse;
 import vn.danang.polaris.assistant.ai.ToolCall;
+import vn.danang.polaris.assistant.observability.genai.GenAiTelemetry;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
@@ -103,7 +104,11 @@ public class AssistantChatService {
                 @SpanTag(key = "agent.name", value = "assistant-chat"),
                 @SpanTag(key = "agent.framework", value = "polaris-assistant"),
                 @SpanTag(key = "agent.session_id", expression = "#request?.sessionId()"),
-                @SpanTag(key = "agent.user_id", expression = "#userId != null && !#userId.isBlank() ? #userId : 'anonymous'")
+                @SpanTag(key = "agent.user_id", expression = "#userId != null && !#userId.isBlank() ? #userId : 'anonymous'"),
+                // OTel GenAI semconv (invoke_agent) keys, alongside the agent.* keys above
+                @SpanTag(key = "gen_ai.operation.name", value = "invoke_agent"),
+                @SpanTag(key = "gen_ai.agent.name", value = GenAiTelemetry.AGENT_NAME),
+                @SpanTag(key = "gen_ai.conversation.id", expression = "#request?.sessionId()")
             }
     )
     public ChatMessageResponse sendMessage(ChatMessageRequest request, String userId) {
@@ -161,7 +166,8 @@ public class AssistantChatService {
                     iterations,
                     resolvedIntent.intentId(),
                     resolvedIntent.confidence(),
-                    resolvedIntent.acceptedTools().size()
+                    resolvedIntent.acceptedTools().size(),
+                    sessionId
             );
 
             ModelResponse modelResponse = queryModel(history, resolvedIntent.acceptedTools(), context);

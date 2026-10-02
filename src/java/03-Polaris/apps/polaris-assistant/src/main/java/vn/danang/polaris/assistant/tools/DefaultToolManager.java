@@ -10,6 +10,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,11 +21,17 @@ import org.springframework.security.concurrent.DelegatingSecurityContextExecutor
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
+import com.grafana.agento11y.sdk.Agento11yClient;
+import com.grafana.agento11y.sdk.ToolExecutionRecorder;
+import com.grafana.agento11y.sdk.ToolExecutionStart;
+
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.opentelemetry.context.Context;
 import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.ai.ToolCall;
+import vn.danang.polaris.assistant.observability.genai.GenAiTelemetry;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
@@ -38,6 +45,9 @@ import vn.danang.polaris.assistant.observability.trace.SpanTag;
  * becomes a {@link ToolResult.Status#DENIED} result. {@link LocalTool}s (implemented inside the assistant, e.g.
  * {@code stage_order_draft}) are listed next to the remote tools; only the dispatch differs, and a local
  * tool takes precedence over a remote tool of the same name.
+ * <p>
+ * Every dispatched call is recorded as a GenAI tool execution ({@code execute_tool <name>} span) through the
+ * agento11y SDK; a tool result with status ERROR marks that execution as failed.
  */
 @Component
 public class DefaultToolManager implements ToolManager, DisposableBean {
@@ -48,15 +58,25 @@ public class DefaultToolManager implements ToolManager, DisposableBean {
     private final Executor executor;
     private final boolean managedExecutor;
     private final Map<String, LocalTool> localTools;
+    private final Agento11yClient genAiTelemetry;
 
     @Autowired
     public DefaultToolManager(
             PolarisMcpClient polarisMcpClient,
             ObjectProvider<Executor> executorProvider,
-            ObjectProvider<LocalTool> localToolsProvider) {
+            ObjectProvider<LocalTool> localToolsProvider,
+            Agento11yClient genAiTelemetry) {
         this(polarisMcpClient,
                 executorProvider != null ? executorProvider.getIfAvailable() : null,
-                localToolsProvider != null ? localToolsProvider.orderedStream().toList() : List.of());
+                localToolsProvider != null ? localToolsProvider.orderedStream().toList() : List.of(),
+                genAiTelemetry);
+    }
+
+    public DefaultToolManager(
+            PolarisMcpClient polarisMcpClient,
+            ObjectProvider<Executor> executorProvider,
+            ObjectProvider<LocalTool> localToolsProvider) {
+        this(polarisMcpClient, executorProvider, localToolsProvider, GenAiTelemetry.disabledClient());
     }
 
     public DefaultToolManager(PolarisMcpClient polarisMcpClient) {
@@ -67,7 +87,16 @@ public class DefaultToolManager implements ToolManager, DisposableBean {
             PolarisMcpClient polarisMcpClient,
             @Nullable Executor executor,
             @Nullable List<LocalTool> localTools) {
+        this(polarisMcpClient, executor, localTools, GenAiTelemetry.disabledClient());
+    }
+
+    public DefaultToolManager(
+            PolarisMcpClient polarisMcpClient,
+            @Nullable Executor executor,
+            @Nullable List<LocalTool> localTools,
+            Agento11yClient genAiTelemetry) {
         this.polarisMcpClient = polarisMcpClient;
+        this.genAiTelemetry = genAiTelemetry;
         this.localTools = indexByName(localTools != null ? localTools : List.of());
         if (executor != null) {
             this.executor = executor;
@@ -128,9 +157,11 @@ public class DefaultToolManager implements ToolManager, DisposableBean {
             return List.of();
         }
 
-        Executor delegatingExecutor = new DelegatingSecurityContextExecutor(
+        // Carry the caller's security context and trace context (the active span) onto the worker threads,
+        // so each execute_tool span and the MCP call it makes nest under the current turn.
+        Executor delegatingExecutor = Context.current().wrap(new DelegatingSecurityContextExecutor(
                 this.executor, SecurityContextHolder.getContext()
-        );
+        ));
 
         // Results kept in call order. Remote calls run concurrently, while mutating local tools
         // (e.g. stage then discard a draft) run one after another in call order, so their effects,
@@ -142,7 +173,8 @@ public class DefaultToolManager implements ToolManager, DisposableBean {
             if (localTool != null && localTool.mutating()) {
                 // executeLocalToolCall never completes exceptionally, so the chain always continues
                 lastMutation = lastMutation.thenApplyAsync(
-                        previous -> executeLocalToolCall(localTool, toolCall, context), delegatingExecutor);
+                        previous -> recordExecution(toolCall, context, () -> executeLocalToolCall(localTool, toolCall, context)),
+                        delegatingExecutor);
                 futures.add(lastMutation);
             } else {
                 futures.add(executeConcurrently(toolCall, context, delegatingExecutor));
@@ -173,9 +205,38 @@ public class DefaultToolManager implements ToolManager, DisposableBean {
             Executor executor) {
         LocalTool localTool = localTools.get(toolCall.name());
         if (localTool != null) {
-            return CompletableFuture.supplyAsync(() -> executeLocalToolCall(localTool, toolCall, context), executor);
+            return CompletableFuture.supplyAsync(
+                    () -> recordExecution(toolCall, context, () -> executeLocalToolCall(localTool, toolCall, context)), executor);
         }
-        return CompletableFuture.supplyAsync(() -> executeRemoteToolCall(toolCall), executor);
+        return CompletableFuture.supplyAsync(() -> recordExecution(toolCall, context, () -> executeRemoteToolCall(toolCall)), executor);
+    }
+
+    /**
+     * Runs one tool call as a GenAI tool execution. Arguments and results are not attached (the client's
+     * content capture keeps tool I/O out of spans); a {@link ToolResult.Status#ERROR} result fails the execution.
+     */
+    private ToolResult recordExecution(ToolCall toolCall, @Nullable ToolExecutionContext context, Supplier<ToolResult> execution) {
+        ToolExecutionStart start = new ToolExecutionStart()
+                .setToolName(toolCall.name())
+                .setToolCallId(toolCall.id())
+                .setToolType("function");
+        if (context != null && context.sessionId() != null) {
+            start.setConversationId(context.sessionId());
+        }
+        try (ToolExecutionRecorder recorder = genAiTelemetry.startToolExecution(start)) {
+            ToolResult result = execution.get();
+            if (result.status() == ToolResult.Status.ERROR) {
+                recorder.setCallError(new ToolExecutionException(toolCall.name(), result.errorDescription()));
+            }
+            return result;
+        }
+    }
+
+    /** A tool call that completed with an ERROR result; only used to mark the tool execution as failed. */
+    static final class ToolExecutionException extends RuntimeException {
+        ToolExecutionException(String toolName, @Nullable String description) {
+            super("Tool '" + toolName + "' failed" + (description != null ? ": " + description : ""));
+        }
     }
 
     private ToolResult executeLocalToolCall(LocalTool localTool, ToolCall toolCall, @Nullable ToolExecutionContext context) {

@@ -77,6 +77,15 @@
 			<groupId>io.opentelemetry.instrumentation</groupId>
 			<artifactId>opentelemetry-logback-appender-1.0</artifactId>
 		</dependency>
+		<dependency>
+			<groupId>com.grafana.agento11y</groupId>
+			<artifactId>agento11y-core</artifactId>
+		</dependency>
+		<!-- OTLP metric exporter for the GenAI MeterProvider (Boot only ships it at runtime scope) -->
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-exporter-otlp</artifactId>
+		</dependency>
 
 		<!-- Model Context Protocol (MCP) Client -->
 		<dependency>
@@ -104,6 +113,11 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-sdk-testing</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>

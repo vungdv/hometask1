@@ -11,6 +11,7 @@ services:
 
     volumes:
       - ./docker/telemetry/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./docker/telemetry/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
 
     command:
