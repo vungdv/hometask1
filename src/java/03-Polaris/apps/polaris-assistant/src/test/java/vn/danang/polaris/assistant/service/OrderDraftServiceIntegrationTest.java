@@ -26,12 +26,14 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import vn.danang.polaris.assistant.TestcontainersConfiguration;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
 import vn.danang.polaris.assistant.entity.AssistantSession;
 import vn.danang.polaris.assistant.entity.DraftLine;
 import vn.danang.polaris.assistant.entity.DraftStatus;
 import vn.danang.polaris.assistant.entity.OrderDraft;
+import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
 import vn.danang.polaris.assistant.repository.OrderDraftRepository;
 import vn.danang.polaris.web.exception.SessionAccessDeniedException;
@@ -67,8 +69,11 @@ class OrderDraftServiceIntegrationTest {
     @Autowired
     private OrderDraftService springService;
 
+    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+
     private OrderDraftService serviceAt(Instant now) {
-        return new OrderDraftService(sessionRepository, draftRepository, transactionManager, Clock.fixed(now, ZoneOffset.UTC));
+        return new OrderDraftService(sessionRepository, draftRepository, transactionManager, new AssistantOutcomeMetrics(meters),
+                Clock.fixed(now, ZoneOffset.UTC));
     }
 
     private String newSession(String userId) {
@@ -231,6 +236,66 @@ class OrderDraftServiceIntegrationTest {
             assertThatThrownBy(() -> serviceAt(NOW).discardOpenDraft(sessionId, "mallory"))
                     .isInstanceOf(SessionAccessDeniedException.class);
             assertThat(draftRepository.findOpenDraft(sessionId)).isPresent();
+        }
+    }
+
+    @Nested
+    @DisplayName("4. Outcome metrics")
+    class OutcomeMetrics {
+
+        private double closed(String outcome) {
+            var timer = meters.find("polaris.assistant.draft.lifetime").tags("outcome", outcome, "cause", "none").timer();
+            return timer != null ? timer.count() : 0;
+        }
+
+        private double staged() {
+            var counter = meters.find("polaris.assistant.drafts.staged").counter();
+            return counter != null ? counter.count() : 0;
+        }
+
+        @Test
+        @DisplayName("Given a draft re-staged, then two staged and the first one 'superseded'")
+        void restaging_counts_superseded() {
+            String sessionId = newSession("alice");
+            serviceAt(NOW).stage(sessionId, "alice", 7L, LINES);
+            serviceAt(NOW.plusSeconds(60)).stage(sessionId, "alice", 7L, LINES);
+
+            assertThat(staged()).isEqualTo(2);
+            assertThat(closed("superseded")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Given a lapsed draft re-staged, then it counts as 'expired', not 'superseded'")
+        void lapsed_restaging_counts_expired() {
+            String sessionId = newSession("alice");
+            serviceAt(NOW).stage(sessionId, "alice", 7L, LINES);
+            serviceAt(NOW.plus(OrderDraft.DEFAULT_TTL).plusSeconds(1)).stage(sessionId, "alice", 7L, LINES);
+
+            assertThat(closed("expired")).isEqualTo(1);
+            assertThat(closed("superseded")).isZero();
+        }
+
+        @Test
+        @DisplayName("Given the model discards the open draft, then 'discarded'; nothing to discard counts nothing")
+        void discard_counts_discarded() {
+            String sessionId = newSession("alice");
+            serviceAt(NOW).stage(sessionId, "alice", 7L, LINES);
+
+            serviceAt(NOW.plusSeconds(30)).discardOpenDraft(sessionId, "alice");
+            serviceAt(NOW.plusSeconds(40)).discardOpenDraft(sessionId, "alice");
+
+            assertThat(closed("discarded")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Given staging is denied, then nothing is counted")
+        void denied_staging_counts_nothing() {
+            String sessionId = newSession("alice");
+
+            assertThatThrownBy(() -> serviceAt(NOW).stage(sessionId, "mallory", 7L, LINES))
+                    .isInstanceOf(SessionAccessDeniedException.class);
+
+            assertThat(staged()).isZero();
         }
     }
 }

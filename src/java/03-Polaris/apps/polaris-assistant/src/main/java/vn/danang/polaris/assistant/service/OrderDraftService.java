@@ -20,6 +20,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import vn.danang.polaris.assistant.entity.AssistantSession;
 import vn.danang.polaris.assistant.entity.DraftLine;
 import vn.danang.polaris.assistant.entity.OrderDraft;
+import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics;
+import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics.DraftOutcome;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
@@ -50,24 +52,28 @@ public class OrderDraftService {
     private final AssistantSessionRepository sessionRepository;
     private final OrderDraftRepository draftRepository;
     private final TransactionTemplate transaction;
+    private final AssistantOutcomeMetrics outcomeMetrics;
     private final Clock clock;
 
     @Autowired
     public OrderDraftService(
             AssistantSessionRepository sessionRepository,
             OrderDraftRepository draftRepository,
-            PlatformTransactionManager transactionManager) {
-        this(sessionRepository, draftRepository, transactionManager, Clock.systemUTC());
+            PlatformTransactionManager transactionManager,
+            AssistantOutcomeMetrics outcomeMetrics) {
+        this(sessionRepository, draftRepository, transactionManager, outcomeMetrics, Clock.systemUTC());
     }
 
     OrderDraftService(
             AssistantSessionRepository sessionRepository,
             OrderDraftRepository draftRepository,
             PlatformTransactionManager transactionManager,
+            AssistantOutcomeMetrics outcomeMetrics,
             Clock clock) {
         this.sessionRepository = Objects.requireNonNull(sessionRepository, "sessionRepository must not be null");
         this.draftRepository = Objects.requireNonNull(draftRepository, "draftRepository must not be null");
         this.transaction = new TransactionTemplate(Objects.requireNonNull(transactionManager, "transactionManager must not be null"));
+        this.outcomeMetrics = Objects.requireNonNull(outcomeMetrics, "outcomeMetrics must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -94,8 +100,12 @@ public class OrderDraftService {
             Instant now = clock.instant();
             lockOwnedSession(sessionId, userId);
             expireLapsedOpenDraft(sessionId, now);
-            return draftRepository.supersedeOpenDraft(
+            draftRepository.findOpenDraft(sessionId)
+                    .ifPresent(open -> outcomeMetrics.draftClosed(open, DraftOutcome.SUPERSEDED, now));
+            OrderDraft staged = draftRepository.supersedeOpenDraft(
                     OrderDraft.stage(sessionId, customerId, lines, OrderDraft.DEFAULT_TTL, now), now);
+            outcomeMetrics.draftStaged();
+            return staged;
         });
         log.info("Staged order draft draftId={} sessionId={} customerId={} lines={} total={} expiresAt={}",
                 draft.getId(), sessionId, customerId, draft.getItems().size(), draft.getTotalAmount(), draft.getExpiresAt());
@@ -122,8 +132,10 @@ public class OrderDraftService {
             return draftRepository.findOpenDraft(sessionId).map(open -> {
                 if (open.isPastExpiry(now)) {
                     open.expire(now);
+                    outcomeMetrics.draftClosed(open, DraftOutcome.EXPIRED, now);
                 } else {
                     open.cancel(now);
+                    outcomeMetrics.draftClosed(open, DraftOutcome.DISCARDED, now);
                 }
                 return draftRepository.saveAndFlush(open);
             });
@@ -148,6 +160,7 @@ public class OrderDraftService {
                 .ifPresent(open -> {
                     open.expire(now);
                     draftRepository.saveAndFlush(open);
+                    outcomeMetrics.draftClosed(open, DraftOutcome.EXPIRED, now);
                 });
     }
 

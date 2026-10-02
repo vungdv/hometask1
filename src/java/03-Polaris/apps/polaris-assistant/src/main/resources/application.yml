@@ -105,6 +105,14 @@ management:
   tracing:
     sampling:
       probability: 1.0
+  # Explicit histogram buckets (none by default, so no percentile was computable).
+  # They include the SLO thresholds in docker/telemetry/prometheus/rules/assistant-slo.rules.yml (2s, 30s).
+  metrics:
+    distribution:
+      slo:
+        http.server.requests: 100ms,250ms,500ms,1s,2s,5s,10s,20s,30s,60s
+        # staging -> decision; the price hold (draft TTL) is 15 min
+        polaris.assistant.draft.lifetime: 15s,30s,1m,2m,5m,10m,15m,30m
   otlp:
     metrics:
       export:

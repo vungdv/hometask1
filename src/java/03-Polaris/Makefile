@@ -1,4 +1,4 @@
-.PHONY: pull build up up-dev-ports down validate-docs setup-hooks render-bpmn test test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders
+.PHONY: pull build up up-dev-ports down validate-docs setup-hooks render-bpmn test test-rules test-perf test-concurrency e2e-fulfilment e2e-fulfilment gcx gcx-exec status playwright-ui playwright-close run run-assistant run-fulfilment verify-fulfilment-image clean polaris-sql kafka-topics kafka-tail kafka-cluster kafka-offsets kafka-groups kafka-leaders
 
 run:
 	mvn spring-boot:run -pl apps/polaris
@@ -31,6 +31,9 @@ restart-%:
 	docker compose restart $*
 test:
 	mvn clean test
+# promtool unit tests for the Prometheus recording/alerting rules (same image as the stack)
+test-rules:
+	docker run --rm -v $$(pwd)/docker/telemetry/prometheus:/prom:ro -w /prom/tests --entrypoint promtool prom/prometheus:v3.14.0 test rules $$(cd docker/telemetry/prometheus/tests && ls *.test.yml)
 test-perf:
 	docker run --network host --rm -i -v $$(pwd)/tests/perf:/scripts -w /scripts grafana/k6 run api-test.js
 test-concurrency:

@@ -26,6 +26,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
@@ -51,6 +52,7 @@ import vn.danang.polaris.assistant.ai.AssistantModelClient;
 import vn.danang.polaris.assistant.ai.ModelRequestContext;
 import vn.danang.polaris.assistant.ai.ModelResponse;
 import vn.danang.polaris.assistant.ai.ToolCall;
+import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect;
 
 /**
@@ -67,9 +69,11 @@ class AssistantChatServiceTest {
     private IntentResolutionFacade intentResolutionFacade;
     private InMemorySessionStore sessionStore;
     private AssistantChatService chatService;
+    private SimpleMeterRegistry meters;
 
     @BeforeEach
     void setUp() {
+        meters = new SimpleMeterRegistry();
         modelClient = mock(AssistantModelClient.class);
         intentResolutionFacade = mock(IntentResolutionFacade.class);
         sessionStore = new InMemorySessionStore();
@@ -687,6 +691,115 @@ class AssistantChatServiceTest {
         }
     }
 
+    @Nested
+    @DisplayName("Outcome metrics")
+    class OutcomeMetrics {
+
+        private static final IntentDefinition SEARCH = new IntentDefinition("catalog.product.search", "search", List.of());
+
+        private double turns(String intent, String outcome) {
+            var counter = meters.find("polaris.assistant.turns").tags("intent", intent, "outcome", outcome).counter();
+            return counter != null ? counter.count() : 0;
+        }
+
+        private void resolveTo(ResolvedIntent intent) {
+            when(intentResolutionFacade.resolve(anyString(), anyList())).thenReturn(intent);
+        }
+
+        @Test
+        @DisplayName("Given a confident intent and a model reply, then one 'answered' turn tagged with the intent")
+        void answered() {
+            resolveTo(new ResolvedIntent("catalog.product.search", 0.95, true, List.of(), SEARCH));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("Here are chargers.", List.of()));
+
+            chatService.sendMessage(ChatMessageRequest.of("find chargers"), "user-1");
+
+            assertThat(turns("catalog.product.search", "answered")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Given confidence below threshold, then 'fallback'")
+        void fallback() {
+            IntentDefinition general = new IntentDefinition("general.conversation", "chat", List.of());
+            resolveTo(new ResolvedIntent("general.conversation", 0.3, false, List.of(), general));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("Could you say more?", List.of()));
+
+            chatService.sendMessage(ChatMessageRequest.of("hmm"), "user-1");
+
+            assertThat(turns("general.conversation", "fallback")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Given a denied tool call, then 'policy_denied'")
+        void policy_denied() {
+            resolveTo(new ResolvedIntent("catalog.product.search", 0.95, true, List.of(), SEARCH));
+            ToolCall toolCall = new ToolCall("place_order", Map.of());
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(toolCall)));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(toolCall)), any(ToolExecutionContext.class), any()))
+                    .thenReturn(List.of(ToolResult.denied(toolCall, "Missing scope.")));
+
+            chatService.sendMessage(ChatMessageRequest.of("buy"), "user-1");
+
+            assertThat(turns("catalog.product.search", "policy_denied")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Given the model loops on tools to the limit, then 'iteration_limit'")
+        void iteration_limit() {
+            ToolCall loopCall = new ToolCall("looping_tool", Map.of());
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(loopCall)));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(loopCall)), any(ToolExecutionContext.class), any()))
+                    .thenReturn(List.of(ToolResult.success(loopCall, "ok")));
+
+            chatService.sendMessage(ChatMessageRequest.of("loop"), "user-1");
+
+            // the default setUp intent has no matched definition
+            assertThat(turns("unknown", "iteration_limit")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Given the model throws, then 'failed' and the error still propagates")
+        void failed() {
+            resolveTo(new ResolvedIntent("catalog.product.search", 0.95, true, List.of(), SEARCH));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenThrow(new RuntimeException("Gemini model failure"));
+
+            assertThatThrownBy(() -> chatService.sendMessage(ChatMessageRequest.of("find"), "user-1"))
+                    .isInstanceOf(RuntimeException.class);
+
+            assertThat(turns("catalog.product.search", "failed")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Given intent resolution throws, then 'failed' with intent 'unknown'")
+        void failed_before_intent() {
+            when(intentResolutionFacade.resolve(anyString(), anyList())).thenThrow(new IllegalStateException("classifier down"));
+
+            assertThatThrownBy(() -> chatService.sendMessage(ChatMessageRequest.of("find"), "user-1"))
+                    .isInstanceOf(IllegalStateException.class);
+
+            assertThat(turns("unknown", "failed")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Given another user's session, then no turn is counted: access is refused before the agent runs")
+        void access_denied_is_not_a_turn() {
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("ok", List.of()));
+            chatService.sendMessage(ChatMessageRequest.of("session-alice", "hi"), "user-alice");
+
+            assertThatThrownBy(() -> chatService.sendMessage(ChatMessageRequest.of("session-alice", "hi"), "user-mallory"))
+                    .isInstanceOf(SessionAccessDeniedException.class);
+
+            assertThat(meters.find("polaris.assistant.turns").counters()).singleElement()
+                    .satisfies(counter -> assertThat(counter.count()).isEqualTo(1));
+        }
+    }
+
     private AssistantChatService createChatService(
             AssistantModelClient modelClient,
             Tracer tracer,
@@ -696,7 +809,8 @@ class AssistantChatServiceTest {
                 providerOf(tracer),
                 facade != null ? facade : intentResolutionFacade,
                 sessionStore,
-                new ObjectMapper()
+                new ObjectMapper(),
+                new AssistantOutcomeMetrics(meters)
         );
         if (tracer != null) {
             AspectJProxyFactory factory = new AspectJProxyFactory(target);

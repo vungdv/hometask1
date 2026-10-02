@@ -127,6 +127,8 @@ processors:
   # GenAI metrics (gen_ai.client.*, Grafana AI Observability): gen_ai.provider.name, gen_ai.request.model,
   # gen_ai.agent.name/version, gen_ai.operation.name, gen_ai.token.type, gen_ai.tool.name, plus error.type /
   # error.category; all bounded by configuration (models, agents, tools). Conversation/session ids never reach metrics.
+  # Assistant outcome metrics (polaris.assistant.*): intent (ids of the configured intents only, else "unknown"),
+  # plus outcome / cause, all small fixed sets.
   transform/metric_allowlist:
     error_mode: ignore
     metric_statements:
@@ -134,7 +136,7 @@ processors:
         statements:
           # Credential-looking keys: token only as a suffix (auth.token, access_token), so gen_ai.token.type survives.
           - 'delete_matching_keys(datapoint.attributes, "(?i)(authorization|cookie|passw|secret|token$|credential|api[-_.]?key|\\.header\\.)")'
-          - 'keep_matching_keys(datapoint.attributes, "^(http|url|server|error|exception|jvm|db|messaging|system|process|kafka|spring|authentication|net|network|rpc|state|area|id|pool|name|gc|cause|action|outcome|status|method|uri|result|level|topic|partition|client|node|type|path|version|vendor|runtime|compiler|main|listener|cache|scope|service|deployment|host|le|quantile|event|group|destination|gen_ai)([._].*)?$")'
+          - 'keep_matching_keys(datapoint.attributes, "^(http|url|server|error|exception|jvm|db|messaging|system|process|kafka|spring|authentication|net|network|rpc|state|area|id|pool|name|gc|cause|action|outcome|status|method|uri|result|level|topic|partition|client|node|type|path|version|vendor|runtime|compiler|main|listener|cache|scope|service|deployment|host|le|quantile|event|group|destination|gen_ai|intent)([._].*)?$")'
   batch:
     timeout: 2s
     send_batch_max_size: 8192
