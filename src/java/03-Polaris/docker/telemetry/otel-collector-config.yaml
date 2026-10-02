@@ -10,10 +10,21 @@
 #     after memory_limiter and BEFORE batch/exporter: secrets and PII never reach a backend
 #   - transform/metric_allowlist keeps only allow-listed attribute keys on metric data points
 #     (user_id, order_*, ... are dropped from metrics; traces and logs keep them)
+# Grafana Cloud (https://sincerelorry365.grafana.net/):
+#   - every pipeline also fans out to the stack's OTLP gateway via otlp_http/grafana_cloud,
+#     after the same redaction/allow-list processors as the local backends
+#   - endpoint and credentials come from the environment (GRAFANA_CLOUD_OTLP_ENDPOINT,
+#     GRAFANA_CLOUD_INSTANCE_ID, GRAFANA_CLOUD_API_TOKEN), never from this file
 
 extensions:
   health_check:
     endpoint: "0.0.0.0:13133"
+  # Grafana Cloud OTLP gateway auth: username = stack instance ID, password = Access Policy
+  # token with metrics:write, logs:write and traces:write scopes.
+  basicauth/grafana_cloud:
+    client_auth:
+      username: "${env:GRAFANA_CLOUD_INSTANCE_ID}"
+      password: "${env:GRAFANA_CLOUD_API_TOKEN}"
 
 receivers:
   otlp:
@@ -155,9 +166,25 @@ exporters:
       enabled: true
       num_consumers: 4
       queue_size: 1000
+  # Grafana Cloud OTLP gateway, e.g. https://otlp-gateway-prod-<zone>.grafana.net/otlp
+  # (the exporter appends /v1/traces, /v1/metrics, /v1/logs).
+  otlp_http/grafana_cloud:
+    endpoint: "${env:GRAFANA_CLOUD_OTLP_ENDPOINT}"
+    auth:
+      authenticator: basicauth/grafana_cloud
+    timeout: 10s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 120s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
 
 service:
-  extensions: [health_check]
+  extensions: [health_check, basicauth/grafana_cloud]
   telemetry:
     metrics:
       level: normal
@@ -171,20 +198,20 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, transform/nginx_spans, redaction/secrets, transform/redact_traces, batch]
-      exporters: [otlp_grpc/tempo]
+      exporters: [otlp_grpc/tempo, otlp_http/grafana_cloud]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, redaction/secrets, transform/metric_allowlist, batch]
-      exporters: [prometheus]
+      exporters: [prometheus, otlp_http/grafana_cloud]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, redaction/secrets, transform/redact_logs, batch]
-      exporters: [otlp_http/logs]
+      exporters: [otlp_http/logs, otlp_http/grafana_cloud]
     logs/nginx:
       receivers: [syslog]
       processors: [memory_limiter, resource/nginx, transform/nginx_logs, redaction/secrets, transform/redact_logs, batch]
-      exporters: [otlp_http/logs]
+      exporters: [otlp_http/logs, otlp_http/grafana_cloud]
     metrics/nginx:
       receivers: [nginx]
       processors: [memory_limiter, resource/nginx, redaction/secrets, transform/metric_allowlist, batch]
-      exporters: [prometheus]
+      exporters: [prometheus, otlp_http/grafana_cloud]

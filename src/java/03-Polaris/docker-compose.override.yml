@@ -88,6 +88,13 @@ services:
     volumes:
       - ./docker/telemetry/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
 
+    # Grafana Cloud export (otlp_http/grafana_cloud): stack https://sincerelorry365.grafana.net/
+    # Values from Grafana Cloud portal -> stack -> OpenTelemetry -> Configure.
+    environment:
+      GRAFANA_CLOUD_OTLP_ENDPOINT: ${GRAFANA_CLOUD_OTLP_ENDPOINT:?set GRAFANA_CLOUD_OTLP_ENDPOINT in .env}
+      GRAFANA_CLOUD_INSTANCE_ID: ${GRAFANA_CLOUD_INSTANCE_ID:?set GRAFANA_CLOUD_INSTANCE_ID in .env}
+      GRAFANA_CLOUD_API_TOKEN: ${GRAFANA_CLOUD_API_TOKEN:?set GRAFANA_CLOUD_API_TOKEN in .env}
+
     # OTLP 4317 (gRPC) / 4318 (HTTP) and the Prometheus exporter 8889 are internal to polaris-net. Host-run apps
     # (`make run`) and k6 use the loopback publish in docker-compose.dev-ports.yml.
     networks:
