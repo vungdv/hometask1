@@ -47,7 +47,9 @@ metrics_generator:
         send_exemplars: true
   processor:
     span_metrics:
-      dimensions: [http.request.method, http.response.status_code, http.route, polaris.sse]
+      # error + mcp.category: MCP tool calls set error=true on isError results (not only on exceptions),
+      # and mcp.category splits catalog from order tools on the Polaris Product Catalog & Orders dashboard.
+      dimensions: [http.request.method, http.response.status_code, http.route, polaris.sse, error, mcp.category]
       enable_target_info: true
     service_graphs:
       dimensions: []
