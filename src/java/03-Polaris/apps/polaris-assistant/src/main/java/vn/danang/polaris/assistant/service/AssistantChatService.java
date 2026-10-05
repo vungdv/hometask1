@@ -27,12 +27,15 @@ import vn.danang.polaris.assistant.dto.ProductListCard;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
+import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics;
+import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics.TurnOutcome;
 import vn.danang.polaris.assistant.tools.ToolExecutionContext;
 import vn.danang.polaris.assistant.tools.ToolResult;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
 import vn.danang.polaris.assistant.ai.ModelRequestContext;
 import vn.danang.polaris.assistant.ai.ModelResponse;
 import vn.danang.polaris.assistant.ai.ToolCall;
+import vn.danang.polaris.assistant.observability.genai.GenAiTelemetry;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 
@@ -59,6 +62,7 @@ public class AssistantChatService {
     private final IntentResolutionFacade intentResolutionFacade;
     private final ObjectMapper objectMapper;
     private final SessionStore sessionStore;
+    private final AssistantOutcomeMetrics outcomeMetrics;
 
     @Autowired
     public AssistantChatService(
@@ -66,7 +70,8 @@ public class AssistantChatService {
             ObjectProvider<Tracer> tracerProvider,
             IntentResolutionFacade intentResolutionFacade,
             SessionStore sessionStore,
-            ObjectProvider<ObjectMapper> objectMapperProvider) {
+            ObjectProvider<ObjectMapper> objectMapperProvider,
+            AssistantOutcomeMetrics outcomeMetrics) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient must not be null");
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
         this.intentResolutionFacade = Objects.requireNonNull(intentResolutionFacade, "intentResolutionFacade must not be null");
@@ -74,6 +79,7 @@ public class AssistantChatService {
         this.objectMapper = objectMapperProvider != null && objectMapperProvider.getIfAvailable() != null
                 ? objectMapperProvider.getIfAvailable()
                 : new ObjectMapper().findAndRegisterModules();
+        this.outcomeMetrics = Objects.requireNonNull(outcomeMetrics, "outcomeMetrics must not be null");
     }
 
     public AssistantChatService(
@@ -82,11 +88,22 @@ public class AssistantChatService {
             IntentResolutionFacade intentResolutionFacade,
             SessionStore sessionStore,
             @Nullable ObjectMapper objectMapper) {
+        this(modelClient, tracerProvider, intentResolutionFacade, sessionStore, objectMapper, AssistantOutcomeMetrics.detached());
+    }
+
+    public AssistantChatService(
+            AssistantModelClient modelClient,
+            ObjectProvider<Tracer> tracerProvider,
+            IntentResolutionFacade intentResolutionFacade,
+            SessionStore sessionStore,
+            @Nullable ObjectMapper objectMapper,
+            AssistantOutcomeMetrics outcomeMetrics) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient must not be null");
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
         this.intentResolutionFacade = Objects.requireNonNull(intentResolutionFacade, "intentResolutionFacade must not be null");
         this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore must not be null");
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper().findAndRegisterModules();
+        this.outcomeMetrics = Objects.requireNonNull(outcomeMetrics, "outcomeMetrics must not be null");
     }
 
     public AssistantChatService(
@@ -103,7 +120,11 @@ public class AssistantChatService {
                 @SpanTag(key = "agent.name", value = "assistant-chat"),
                 @SpanTag(key = "agent.framework", value = "polaris-assistant"),
                 @SpanTag(key = "agent.session_id", expression = "#request?.sessionId()"),
-                @SpanTag(key = "agent.user_id", expression = "#userId != null && !#userId.isBlank() ? #userId : 'anonymous'")
+                @SpanTag(key = "agent.user_id", expression = "#userId != null && !#userId.isBlank() ? #userId : 'anonymous'"),
+                // OTel GenAI semconv (invoke_agent) keys, alongside the agent.* keys above
+                @SpanTag(key = "gen_ai.operation.name", value = "invoke_agent"),
+                @SpanTag(key = "gen_ai.agent.name", value = GenAiTelemetry.AGENT_NAME),
+                @SpanTag(key = "gen_ai.conversation.id", expression = "#request?.sessionId()")
             }
     )
     public ChatMessageResponse sendMessage(ChatMessageRequest request, String userId) {
@@ -116,9 +137,17 @@ public class AssistantChatService {
         history.add(toUserTurn(messageText));
 
         // 2. Resolve intent & narrow tools to use.
-        ResolvedIntent resolvedIntent = intentResolutionFacade.resolve(messageText, history);
-        // 3. Execute tool loop (max 5 iterations)
-        ConversationLoopResult loopResult = executeConversationLoop(sessionId, userId, history, resolvedIntent);
+        ResolvedIntent resolvedIntent = null;
+        ConversationLoopResult loopResult;
+        try {
+            resolvedIntent = intentResolutionFacade.resolve(messageText, history);
+            // 3. Execute tool loop (max 5 iterations)
+            loopResult = executeConversationLoop(sessionId, userId, history, resolvedIntent);
+        } catch (RuntimeException e) {
+            outcomeMetrics.turn(resolvedIntent, TurnOutcome.FAILED);
+            throw e;
+        }
+        outcomeMetrics.turn(resolvedIntent, loopResult.outcome());
 
         // 4. Tag iteration count on active span
         tagIterationsCount(loopResult.iterations());
@@ -150,6 +179,7 @@ public class AssistantChatService {
         int iterations = 0;
         String finalReply = null;
         String finalThoughtSignature = null;
+        TurnOutcome outcome = TurnOutcome.ITERATION_LIMIT;
         // One card per type, updated in call order (see applyWidgetChanges).
         Map<String, ChatWidget> widgets = new LinkedHashMap<>();
 
@@ -161,23 +191,26 @@ public class AssistantChatService {
                     iterations,
                     resolvedIntent.intentId(),
                     resolvedIntent.confidence(),
-                    resolvedIntent.acceptedTools().size()
+                    resolvedIntent.acceptedTools().size(),
+                    sessionId
             );
 
             ModelResponse modelResponse = queryModel(history, resolvedIntent.acceptedTools(), context);
 
             if (modelResponse.hasToolCalls()) {
-                ToolExecutionOutcome outcome = executeToolBatch(sessionId, userId, iterations, resolvedIntent, modelResponse.toolCalls());
-                history.addAll(outcome.turns());
-                applyWidgetChanges(outcome.results(), widgets);
+                ToolExecutionOutcome batch = executeToolBatch(sessionId, userId, iterations, resolvedIntent, modelResponse.toolCalls());
+                history.addAll(batch.turns());
+                applyWidgetChanges(batch.results(), widgets);
 
-                if (outcome.policyDenied()) {
-                    finalReply = outcome.denialMessage();
+                if (batch.policyDenied()) {
+                    finalReply = batch.denialMessage();
+                    outcome = TurnOutcome.POLICY_DENIED;
                     break;
                 }
             } else {
                 finalReply = modelResponse.text();
                 finalThoughtSignature = modelResponse.thoughtSignature();
+                outcome = resolvedIntent.meetsThreshold() ? TurnOutcome.ANSWERED : TurnOutcome.FALLBACK;
                 break;
             }
         }
@@ -186,7 +219,7 @@ public class AssistantChatService {
             finalReply = DEFAULT_COMPLETION_REPLY;
         }
 
-        return new ConversationLoopResult(finalReply, finalThoughtSignature, iterations, List.copyOf(widgets.values()));
+        return new ConversationLoopResult(finalReply, finalThoughtSignature, iterations, List.copyOf(widgets.values()), outcome);
     }
 
     private ToolExecutionOutcome executeToolBatch(
@@ -331,5 +364,6 @@ public class AssistantChatService {
         return AssistantMessage.of(reply, MessageRole.ASSISTANT, thoughtSignature);
     }
 
-    private record ConversationLoopResult(String reply, @Nullable String thoughtSignature, int iterations, List<ChatWidget> widgets) {}
+    private record ConversationLoopResult(String reply, @Nullable String thoughtSignature, int iterations, List<ChatWidget> widgets,
+                                          TurnOutcome outcome) {}
 }

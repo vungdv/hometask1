@@ -37,6 +37,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import vn.danang.polaris.assistant.TestcontainersConfiguration;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
@@ -50,6 +51,7 @@ import vn.danang.polaris.assistant.entity.DraftLine;
 import vn.danang.polaris.assistant.entity.DraftStatus;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.entity.OrderDraft;
+import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics;
 import vn.danang.polaris.assistant.repository.AssistantMessageRepository;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
 import vn.danang.polaris.assistant.repository.OrderDraftRepository;
@@ -128,9 +130,12 @@ class OrderDraftConfirmationServiceIntegrationTest {
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt, authorities));
     }
 
+    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+
     private OrderDraftConfirmationService serviceAt(Instant now) {
         return new OrderDraftConfirmationService(sessionRepository, draftRepository, sessionStore, orderManagement.asClient(),
-                currentCustomerClient, userContext, objectMapper, transactionManager, Clock.fixed(now, ZoneOffset.UTC));
+                currentCustomerClient, userContext, objectMapper, transactionManager, new AssistantOutcomeMetrics(meters),
+                Clock.fixed(now, ZoneOffset.UTC));
     }
 
     private OrderDraftConfirmationService service() {
@@ -612,6 +617,70 @@ class OrderDraftConfirmationServiceIntegrationTest {
             assertThat(confirmation.orderNumber()).isEqualTo(orderManagement.orderNumberFor(draft.getId()));
             assertThat(orderManagement.ordersCreated()).isEqualTo(1);
             assertThat(statusOf(draft)).isEqualTo(DraftStatus.CANCELLED);
+        }
+    }
+
+    @Nested
+    @DisplayName("6. Outcome metrics")
+    class OutcomeMetrics {
+
+        private io.micrometer.core.instrument.Timer closed(String outcome, String cause) {
+            return meters.find("polaris.assistant.draft.lifetime").tags("outcome", outcome, "cause", cause).timer();
+        }
+
+        @Test
+        @DisplayName("Given a confirmed draft, then one 'placed' decision timed from staging; a replay does not count again")
+        void placed_is_counted_once() {
+            String sessionId = newSession("alice");
+            OrderDraft draft = stagedDraft(sessionId);
+
+            service().confirm(sessionId, "alice", draft.getId(), "click-1");
+            service().confirm(sessionId, "alice", draft.getId(), "click-2");
+
+            assertThat(closed("placed", "none").count()).isEqualTo(1);
+            assertThat(closed("placed", "none").totalTime(java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(60);
+        }
+
+        @Test
+        @DisplayName("Given Order Management rejects with price-changed, then 'invalidated' with cause price-changed")
+        void invalidated_carries_the_problem_type() {
+            String sessionId = newSession("alice");
+            OrderDraft draft = stagedDraft(sessionId);
+            orderManagement.rejectWith(FakeOrderManagementMcp.problem("price-changed", 409, "Price Changed", "changed", Map.of()));
+
+            org.assertj.core.api.Assertions.catchThrowable(() -> service().confirm(sessionId, "alice", draft.getId(), "k"));
+
+            assertThat(closed("invalidated", "price-changed").count()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Given a transport failure, then no decision is counted: the draft stays open")
+        void placement_failure_closes_nothing() {
+            String sessionId = newSession("alice");
+            OrderDraft draft = stagedDraft(sessionId);
+            orderManagement.rejectWith(FakeOrderManagementMcp.problem("internal-error", 500, "Internal Server Error", "boom", Map.of()));
+
+            org.assertj.core.api.Assertions.catchThrowable(() -> service().confirm(sessionId, "alice", draft.getId(), "k"));
+
+            assertThat(meters.find("polaris.assistant.draft.lifetime").timers()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Given the shopper cancels twice, then one 'cancelled'; a lapsed draft confirmed or cancelled counts as 'expired'")
+        void cancelled_and_expired() {
+            String sessionId = newSession("alice");
+            OrderDraft cancelled = stagedDraft(sessionId);
+            service().cancel(sessionId, "alice", cancelled.getId());
+            service().cancel(sessionId, "alice", cancelled.getId());
+
+            String lapsedSession = newSession("alice");
+            OrderDraft lapsed = stagedDraft(lapsedSession);
+            org.assertj.core.api.Assertions.catchThrowable(
+                    () -> serviceAt(STAGED_AT.plusSeconds(20 * 60)).confirm(lapsedSession, "alice", lapsed.getId(), "k"));
+
+            assertThat(closed("cancelled", "none").count()).isEqualTo(1);
+            assertThat(closed("expired", "none").count()).isEqualTo(1);
+            assertThat(closed("expired", "none").totalTime(java.util.concurrent.TimeUnit.MINUTES)).isEqualTo(20);
         }
     }
 }

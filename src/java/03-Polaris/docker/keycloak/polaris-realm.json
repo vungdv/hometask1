@@ -279,6 +279,106 @@
       "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
       "realmRoles": ["offline_access", "uma_authorization", "shopper"],
       "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a5b00",
+      "username": "shopper.0",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Shopper", "lastName": "0",
+      "email": "shopper.0@example.com",
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a5b01",
+      "username": "shopper.1",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Shopper", "lastName": "1",
+      "email": "shopper.1@example.com",
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a5b02",
+      "username": "shopper.2",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Shopper", "lastName": "2",
+      "email": "shopper.2@example.com",
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a5b03",
+      "username": "shopper.3",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Shopper", "lastName": "3",
+      "email": "shopper.3@example.com",
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a5b04",
+      "username": "shopper.4",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Shopper", "lastName": "4",
+      "email": "shopper.4@example.com",
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a5b05",
+      "username": "shopper.5",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Shopper", "lastName": "5",
+      "email": "shopper.5@example.com",
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a5b06",
+      "username": "shopper.6",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Shopper", "lastName": "6",
+      "email": "shopper.6@example.com",
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a5b07",
+      "username": "shopper.7",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Shopper", "lastName": "7",
+      "email": "shopper.7@example.com",
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a5b08",
+      "username": "shopper.8",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Shopper", "lastName": "8",
+      "email": "shopper.8@example.com",
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
+    },
+    {
+      "id": "3f0c6a1e-5b2d-4c8e-9a71-0d1e2f3a5b09",
+      "username": "shopper.9",
+      "enabled": true, "emailVerified": true,
+      "firstName": "Shopper", "lastName": "9",
+      "email": "shopper.9@example.com",
+      "credentials": [{ "type": "password", "value": "${DEFAULT_PASSWORD}", "temporary": false }],
+      "realmRoles": ["offline_access", "uma_authorization", "shopper"],
+      "clientRoles": { "account": ["view-profile", "manage-account"] }
     }
   ]
 }

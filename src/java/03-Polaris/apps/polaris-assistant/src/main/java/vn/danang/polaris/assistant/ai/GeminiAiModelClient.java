@@ -11,12 +11,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -25,16 +23,19 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.micrometer.tracing.Span;
-import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.config.AssistantAiProperties;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.MessageRole;
-import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
-import vn.danang.polaris.assistant.observability.trace.SpanTag;
+import vn.danang.polaris.assistant.observability.genai.GenAiGeneration;
+import vn.danang.polaris.assistant.observability.genai.GenAiTelemetry;
 
+/**
+ * Gemini {@code generateContent} client. Each live call is reported on {@link ModelResponse#modelCall()}
+ * (model, token usage, finish reason, failure); {@link GenAiGeneration} turns that into GenAI telemetry, so this
+ * class only talks to Gemini.
+ */
 @Component
 public class GeminiAiModelClient implements AssistantModelClient {
 
@@ -43,36 +44,18 @@ public class GeminiAiModelClient implements AssistantModelClient {
     private final AssistantAiProperties aiModelConfig;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
-    @Nullable
-    private final Tracer tracer;
 
     @Autowired
-    public GeminiAiModelClient(AssistantAiProperties aiModelConfig, ObjectProvider<Tracer> tracerProvider) {
-        this(aiModelConfig, HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build(), new ObjectMapper().findAndRegisterModules(),
-                tracerProvider != null ? tracerProvider.getIfAvailable() : null);
-    }
-
     public GeminiAiModelClient(AssistantAiProperties aiModelConfig) {
-        this(aiModelConfig, (Tracer) null);
-    }
-
-    public GeminiAiModelClient(AssistantAiProperties aiModelConfig, @Nullable Tracer tracer) {
         this(aiModelConfig, HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
-                .build(), new ObjectMapper().findAndRegisterModules(), tracer);
+                .build(), new ObjectMapper().findAndRegisterModules());
     }
 
     public GeminiAiModelClient(AssistantAiProperties aiModelConfig, HttpClient httpClient, ObjectMapper objectMapper) {
-        this(aiModelConfig, httpClient, objectMapper, null);
-    }
-
-    public GeminiAiModelClient(AssistantAiProperties aiModelConfig, HttpClient httpClient, ObjectMapper objectMapper, @Nullable Tracer tracer) {
         this.aiModelConfig = aiModelConfig;
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
-        this.tracer = tracer;
     }
 
     @Override
@@ -81,23 +64,20 @@ public class GeminiAiModelClient implements AssistantModelClient {
     }
 
     @Override
+    @GenAiGeneration(provider = GenAiTelemetry.PROVIDER_GEMINI)
     public ModelResponse generateResponse(List<AssistantMessage> messages, List<Tool> tools) {
         return generateResponse(messages, tools, ModelRequestContext.empty());
     }
 
     @Override
-    @CustomNextSpan(
-            name = "gemini.generate_content",
+    @GenAiGeneration(
+            provider = GenAiTelemetry.PROVIDER_GEMINI,
+            conversationId = "#context?.conversationId()",
             tags = {
-                    @SpanTag(key = "gen_ai.system", value = "gemini"),
-                    @SpanTag(key = "gen_ai.operation.name", value = "chat"),
-                    @SpanTag(key = "gen_ai.client", value = "GeminiAiModelClient"),
-                    @SpanTag(key = "peer.service", value = "generativelanguage.googleapis.com"),
-                    @SpanTag(key = "gemini.tools.count", expression = "#tools != null && !#tools.isEmpty() ? #tools.size() : null"),
-                    @SpanTag(key = "agent.iteration", expression = "#context?.iteration()"),
-                    @SpanTag(key = "agent.intent_id", expression = "#context != null ? (#context.intentId() ?: 'unknown') : null"),
-                    @SpanTag(key = "agent.intent_confidence", expression = "#context?.intentConfidence()"),
-                    @SpanTag(key = "agent.tools_offered_count", expression = "#context?.toolsOfferedCount()")
+                    @GenAiGeneration.Tag(key = "iteration", expression = "#context?.iteration()"),
+                    @GenAiGeneration.Tag(key = "intent_id", expression = "#context?.intentId()"),
+                    @GenAiGeneration.Tag(key = "intent_confidence", expression = "#context?.intentConfidence()"),
+                    @GenAiGeneration.Tag(key = "tools_offered", expression = "#tools != null ? #tools.size() : 0")
             }
     )
     public ModelResponse generateResponse(List<AssistantMessage> messages, List<Tool> tools, @Nullable ModelRequestContext context) {
@@ -118,49 +98,40 @@ public class GeminiAiModelClient implements AssistantModelClient {
             return new ModelResponse("I am Polaris Assistant! (Live AI Model key is not configured. Set GEMINI_API_KEY or polaris.ai.api-key to connect to live Gemini. Echo: \"" + lastUserMessage + "\")");
         }
 
-        Span span = this.tracer != null ? this.tracer.currentSpan() : null;
-        if (span != null) {
-            String model = Optional.ofNullable(aiModelConfig.getModel()).filter(s -> !s.isBlank()).orElse("unknown");
-            span.tag("gen_ai.request.model", model);
-        }
-        return executeAndParse(messages, tools, span);
+        return executeAndParse(messages, tools);
     }
 
-    private ModelResponse executeAndParse(List<AssistantMessage> messages, List<Tool> tools, @Nullable Span span) {
+    private ModelResponse executeAndParse(List<AssistantMessage> messages, List<Tool> tools) {
+        // Building the request never reaches Gemini: its failures are not model calls.
+        HttpRequest request;
         try {
-            HttpRequest request = buildRequest(messages, tools, span);
-            HttpResponse<String> response = httpClient.send(request,
-                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            return parseModelResponse(response, span);
-        } catch (InterruptedException e) {
-            recordSpanException(span, e);
-            Thread.currentThread().interrupt();
-            log.error("Gemini request interrupted", e);
-            return new ModelResponse("Request to AI model was interrupted.");
-        } catch (IOException e) {
-            recordSpanException(span, e);
-            log.error("Gemini request I/O error", e);
-            return new ModelResponse("Failed to communicate with AI Model: " + e.getMessage());
+            request = buildRequest(messages, tools);
         } catch (IllegalArgumentException e) {
-            recordSpanException(span, e);
             log.error("Invalid Gemini client configuration", e);
             return new ModelResponse("Invalid AI model configuration.");
         } catch (RuntimeException e) {
-            recordSpanException(span, e);
             log.error("Unexpected error in Gemini client", e);
             return new ModelResponse("Unexpected error communicating with AI Model.");
         }
-    }
-
-    private void recordSpanException(@Nullable Span span, Throwable e) {
-        if (span != null) {
-            span.error(e);
-            span.tag("error", "true");
-            span.tag("error.type", e.getClass().getSimpleName());
+        String model = aiModelConfig.getModel();
+        try {
+            HttpResponse<String> response = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            return parseModelResponse(response, model);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Gemini request interrupted", e);
+            return new ModelResponse("Request to AI model was interrupted.").withModelCall(ModelCall.failed(model, e));
+        } catch (IOException e) {
+            log.error("Gemini request I/O error", e);
+            return new ModelResponse("Failed to communicate with AI Model: " + e.getMessage()).withModelCall(ModelCall.failed(model, e));
+        } catch (RuntimeException e) {
+            log.error("Unexpected error in Gemini client", e);
+            return new ModelResponse("Unexpected error communicating with AI Model.").withModelCall(ModelCall.failed(model, e));
         }
     }
 
-    private HttpRequest buildRequest(List<AssistantMessage> messages, List<Tool> tools, @Nullable Span span) throws IllegalArgumentException {
+    private HttpRequest buildRequest(List<AssistantMessage> messages, List<Tool> tools) throws IllegalArgumentException {
         String apiKey = aiModelConfig.getApiKey();
         if (aiModelConfig.getBaseUrl() == null || aiModelConfig.getBaseUrl().isBlank()
                 || aiModelConfig.getModel() == null || aiModelConfig.getModel().isBlank()) {
@@ -172,21 +143,12 @@ public class GeminiAiModelClient implements AssistantModelClient {
                 + "/v1beta/models/" + aiModelConfig.getModel() + ":generateContent";
 
         log.info("Sending request to Gemini model {}", aiModelConfig.getModel());
-        HttpRequest.Builder builder = HttpRequest.newBuilder().uri(URI.create(url))
+        return HttpRequest.newBuilder().uri(URI.create(url))
                 .header("Content-Type", "application/json")
                 .header("x-goog-api-key", apiKey)
                 .timeout(Duration.ofSeconds(aiModelConfig.getTimeoutSeconds()))
-                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8));
-
-        if (span != null && span.context() != null) {
-            String traceId = span.context().traceId();
-            String spanId = span.context().spanId();
-            if (traceId != null && spanId != null) {
-                builder.header("traceparent", "00-" + traceId + "-" + spanId + "-01");
-            }
-        }
-
-        return builder.build();
+                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                .build();
     }
 
     private String getGeminiRequestBody(List<AssistantMessage> messages, List<Tool> tools) {
@@ -323,24 +285,12 @@ public class GeminiAiModelClient implements AssistantModelClient {
         }
     }
 
-    private ModelResponse parseModelResponse(HttpResponse<String> response, @Nullable Span span) throws IOException {
+    private ModelResponse parseModelResponse(HttpResponse<String> response, String model) throws IOException {
         if (response.statusCode() == 200) {
             JsonNode root = objectMapper.readTree(response.body());
-
-            if (span != null && root.has("usageMetadata")) {
-                JsonNode usage = root.path("usageMetadata");
-                if (usage.has("promptTokenCount")) {
-                    String promptTokens = usage.path("promptTokenCount").asText();
-                    span.tag("gen_ai.usage.input_tokens", promptTokens);
-                }
-                if (usage.has("candidatesTokenCount")) {
-                    String completionTokens = usage.path("candidatesTokenCount").asText();
-                    span.tag("gen_ai.usage.output_tokens", completionTokens);
-                }
-                if (usage.has("totalTokenCount")) {
-                    span.tag("gen_ai.usage.total_tokens", usage.path("totalTokenCount").asText());
-                }
-            }
+            ModelTokenUsage usage = tokenUsage(root.path("usageMetadata"));
+            String responseModel = root.hasNonNull("modelVersion") ? root.path("modelVersion").asText() : null;
+            String responseId = root.hasNonNull("responseId") ? root.path("responseId").asText() : null;
 
             JsonNode candidates = root.path("candidates");
             if (candidates.isArray() && !candidates.isEmpty()) {
@@ -393,28 +343,16 @@ public class GeminiAiModelClient implements AssistantModelClient {
                         }
                     }
 
-                    if (span != null) {
-                        if (!toolCalls.isEmpty()) {
-                            span.tag("gemini.tool_calls.count", String.valueOf(toolCalls.size()));
-                            span.tag("gen_ai.response.finish_reason", "tool_calls");
-                        } else {
-                            span.tag("gen_ai.response.finish_reason", "stop");
-                        }
-                    }
-
-                    return new ModelResponse(textBuilder.toString(), toolCalls, responseThoughtSignature);
+                    String finishReason = toolCalls.isEmpty() ? "stop" : "tool_calls";
+                    return new ModelResponse(textBuilder.toString(), toolCalls, responseThoughtSignature)
+                            .withModelCall(ModelCall.succeeded(model, responseModel, responseId, usage, finishReason));
                 }
             }
-            if (span != null) {
-                span.tag("gen_ai.response.finish_reason", "stop");
-            }
-            return new ModelResponse("The AI Model returned an empty response.");
+            return new ModelResponse("The AI Model returned an empty response.")
+                    .withModelCall(ModelCall.succeeded(model, responseModel, responseId, usage, "stop"));
         } else {
-            if (span != null) {
-                span.tag("http.status_code", String.valueOf(response.statusCode()));
-                span.tag("error", "true");
-            }
             log.error("Gemini API error status: {} body: {}", response.statusCode(), response.body());
+            ModelCall failedCall = ModelCall.failed(model, new ModelProviderException(response.statusCode()));
             String errorDetail = "Status " + response.statusCode();
             try {
                 JsonNode errorNode = objectMapper.readTree(response.body()).path("error").path("message");
@@ -423,7 +361,19 @@ public class GeminiAiModelClient implements AssistantModelClient {
                 }
             } catch (Exception ignored) {
             }
-            return new ModelResponse("Unable to get response from AI Model (" + errorDetail + ").");
+            return new ModelResponse("Unable to get response from AI Model (" + errorDetail + ").").withModelCall(failedCall);
         }
+    }
+
+    /**
+     * Maps Gemini {@code usageMetadata}. {@code promptTokenCount} already includes cached tokens; thinking tokens
+     * are reported separately from {@code candidatesTokenCount}.
+     */
+    private static ModelTokenUsage tokenUsage(JsonNode usage) {
+        return new ModelTokenUsage(
+                usage.path("promptTokenCount").asLong(0),
+                usage.path("candidatesTokenCount").asLong(0),
+                usage.path("thoughtsTokenCount").asLong(0),
+                usage.path("cachedContentTokenCount").asLong(0));
     }
 }

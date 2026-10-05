@@ -30,6 +30,7 @@
 		<polaris.version>0.1.1-SNAPSHOT</polaris.version>
 		<mcp.version>2.0.1</mcp.version>
 		<opentelemetry-logback.version>2.27.0-alpha</opentelemetry-logback.version>
+		<agento11y.version>0.7.2</agento11y.version>
 		<springdoc.version>3.1.1</springdoc.version>
 		<protobuf-java.version>4.36.1</protobuf-java.version>
 		<mapstruct.version>1.6.3</mapstruct.version>
@@ -94,6 +95,12 @@
 				<groupId>io.opentelemetry.instrumentation</groupId>
 				<artifactId>opentelemetry-logback-appender-1.0</artifactId>
 				<version>${opentelemetry-logback.version}</version>
+			</dependency>
+			<!-- Grafana AI Observability (Sigil) SDK: OTel GenAI semconv spans + metrics -->
+			<dependency>
+				<groupId>com.grafana.agento11y</groupId>
+				<artifactId>agento11y-core</artifactId>
+				<version>${agento11y.version}</version>
 			</dependency>
 			<dependency>
 				<groupId>io.modelcontextprotocol.sdk</groupId>

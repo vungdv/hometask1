@@ -33,6 +33,8 @@ import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.entity.AssistantSession;
 import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.entity.OrderDraft;
+import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics;
+import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics.DraftOutcome;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
 import vn.danang.polaris.assistant.observability.trace.SpanTag;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
@@ -83,6 +85,7 @@ public class OrderDraftConfirmationService {
     private final UserContext userContext;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transaction;
+    private final AssistantOutcomeMetrics outcomeMetrics;
     private final Clock clock;
 
     @Autowired
@@ -94,9 +97,10 @@ public class OrderDraftConfirmationService {
             CurrentCustomerClient currentCustomerClient,
             UserContext userContext,
             ObjectMapper objectMapper,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            AssistantOutcomeMetrics outcomeMetrics) {
         this(sessionRepository, draftRepository, sessionStore, polarisMcpClient, currentCustomerClient, userContext,
-                objectMapper, transactionManager, Clock.systemUTC());
+                objectMapper, transactionManager, outcomeMetrics, Clock.systemUTC());
     }
 
     OrderDraftConfirmationService(
@@ -108,6 +112,7 @@ public class OrderDraftConfirmationService {
             UserContext userContext,
             ObjectMapper objectMapper,
             PlatformTransactionManager transactionManager,
+            AssistantOutcomeMetrics outcomeMetrics,
             Clock clock) {
         this.sessionRepository = Objects.requireNonNull(sessionRepository, "sessionRepository must not be null");
         this.draftRepository = Objects.requireNonNull(draftRepository, "draftRepository must not be null");
@@ -117,6 +122,7 @@ public class OrderDraftConfirmationService {
         this.userContext = Objects.requireNonNull(userContext, "userContext must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         this.transaction = new TransactionTemplate(Objects.requireNonNull(transactionManager, "transactionManager must not be null"));
+        this.outcomeMetrics = Objects.requireNonNull(outcomeMetrics, "outcomeMetrics must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -208,9 +214,11 @@ public class OrderDraftConfirmationService {
                 case WAITING_CONFIRMATION -> {
                     if (current.isPastExpiry(now)) {
                         current.expire(now);
+                        outcomeMetrics.draftClosed(current, DraftOutcome.EXPIRED, now);
                         return draftRepository.saveAndFlush(current);
                     }
                     current.cancel(now);
+                    outcomeMetrics.draftClosed(current, DraftOutcome.CANCELLED, now);
                     OrderDraft cancelled = draftRepository.saveAndFlush(current);
                     appendNote(sessionId, userId, "The shopper cancelled order draft " + draftId
                             + " with the Cancel button. No order was placed. Stage a new draft if they want to order.", null);
@@ -246,6 +254,7 @@ public class OrderDraftConfirmationService {
                     return new Gate(draft, null);
                 } catch (DraftExpiredException expired) {
                     draft.expire(now);
+                    outcomeMetrics.draftClosed(draft, DraftOutcome.EXPIRED, now);
                     OrderDraft persisted = draftRepository.saveAndFlush(draft);
                     appendNote(sessionId, userId, "Order draft " + draftId + " expired before the shopper confirmed it (15-minute price hold). "
                             + "No order was placed. Offer to stage it again at the current prices and stock.", null);
@@ -305,6 +314,7 @@ public class OrderDraftConfirmationService {
             if (current.isOpen()) {
                 current.confirm(placed.orderNumber(), idempotencyKey, now);
                 draftRepository.saveAndFlush(current);
+                outcomeMetrics.draftClosed(current, DraftOutcome.PLACED, now);
             } else {
                 // Cancelled or superseded while the order was being placed. The order exists, so report it.
                 log.warn("Order placed for a draft that left WAITING_CONFIRMATION meanwhile draftId={} status={} orderNumber={}",
@@ -329,8 +339,10 @@ public class OrderDraftConfirmationService {
             inTransaction(() -> {
                 OrderDraft current = lockOwnedDraft(sessionId, userId, draftId);
                 if (current.isOpen()) {
-                    current.invalidate(clock.instant());
+                    Instant now = clock.instant();
+                    current.invalidate(now);
                     draftRepository.saveAndFlush(current);
+                    outcomeMetrics.draftClosed(current, DraftOutcome.INVALIDATED, rejected.type(), now);
                     appendNote(sessionId, userId, "Order Management rejected order draft " + draftId + " at confirmation ("
                             + rejected.type() + "): " + rejected.problem().get("detail")
                             + " No order was placed. Offer to stage a refreshed draft.", null);

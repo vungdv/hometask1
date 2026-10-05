@@ -21,10 +21,13 @@ import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import vn.danang.polaris.assistant.ai.ModelCall;
+import vn.danang.polaris.assistant.ai.ModelProviderException;
+import vn.danang.polaris.assistant.ai.ModelTokenUsage;
 import vn.danang.polaris.assistant.config.AssistantTypeSafeProperties;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
-import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
-import vn.danang.polaris.assistant.observability.trace.SpanTag;
+import vn.danang.polaris.assistant.observability.genai.GenAiGeneration;
+import vn.danang.polaris.assistant.observability.genai.GenAiTelemetry;
 
 /**
  * Classifies user intent using TypeSafe's Jev System One model (Choice primitive)
@@ -32,6 +35,9 @@ import vn.danang.polaris.assistant.observability.trace.SpanTag;
  * conversation history as state, and the intent taxonomy (id -&gt; description/examples)
  * as Choice criteria, letting the model make the semantic judgment call that brittle
  * string/keyword matching cannot generalize across paraphrases.
+ * <p>
+ * Each live call is reported on {@link IntentClassification#modelCall()}; {@link GenAiGeneration} records it as
+ * GenAI telemetry under its own agent ({@value GenAiTelemetry#INTENT_CLASSIFIER_AGENT_NAME}).
  */
 @Component
 public class TypeSafeIntentClassifier implements IntentClassifier {
@@ -59,19 +65,16 @@ public class TypeSafeIntentClassifier implements IntentClassifier {
     }
 
     @Override
-    @CustomNextSpan(
-            name = "typesafe.intent.classify",
+    @GenAiGeneration(
+            provider = GenAiTelemetry.PROVIDER_TYPESAFE,
+            agent = GenAiTelemetry.INTENT_CLASSIFIER_AGENT_NAME,
             tags = {
-                    @SpanTag(key = "gen_ai.system", value = "typesafe"),
-                    @SpanTag(key = "gen_ai.operation.name", value = "classify"),
-                    @SpanTag(key = "typesafe.intents.count", expression = "#intents != null ? #intents.size() : 0"),
-                    @SpanTag(key = "typesafe.history.count", expression = "#history != null ? #history.size() : 0")
-            },
-            resultTags = {
-                    @SpanTag(key = "typesafe.intent.result", expression = "intentId()"),
-                    @SpanTag(key = "typesafe.intent.confidence", expression = "confidence()"),
-                    @SpanTag(key = "typesafe.intent.fallback", expression = "fallback()"),
-                    @SpanTag(key = "typesafe.intent.fallback_reason", expression = "fallbackReason()")
+                    @GenAiGeneration.Tag(key = "intents_count", expression = "#intents != null ? #intents.size() : 0"),
+                    @GenAiGeneration.Tag(key = "history_count", expression = "#history != null ? #history.size() : 0"),
+                    @GenAiGeneration.Tag(key = "intent_result", expression = "#result.intentId()"),
+                    @GenAiGeneration.Tag(key = "intent_confidence", expression = "#result.confidence()"),
+                    @GenAiGeneration.Tag(key = "intent_fallback", expression = "#result.fallback()"),
+                    @GenAiGeneration.Tag(key = "intent_fallback_reason", expression = "#result.fallbackReason()")
             }
     )
     public IntentClassification classify(String query, List<AssistantMessage> history, Collection<IntentDefinition> intents) {
@@ -86,20 +89,25 @@ public class TypeSafeIntentClassifier implements IntentClassifier {
             return fallback("missing_api_key");
         }
 
+        String model = properties.getModel();
         try {
             HttpRequest request = buildRequest(apiKey, query, history, intents);
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            return parseResponse(response);
+            IntentClassification classification = parseResponse(response);
+            ModelCall call = response.statusCode() == 200
+                    ? ModelCall.succeeded(model, null, null, ModelTokenUsage.NONE, "stop")
+                    : ModelCall.failed(model, new ModelProviderException(response.statusCode()));
+            return classification.withModelCall(call);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("TypeSafe intent classification request interrupted", e);
-            return fallback("interrupted");
+            return fallback("interrupted").withModelCall(ModelCall.failed(model, e));
         } catch (IOException e) {
             log.error("TypeSafe intent classification I/O error: {}", e.getMessage(), e);
-            return fallback("io_error");
+            return fallback("io_error").withModelCall(ModelCall.failed(model, e));
         } catch (RuntimeException e) {
             log.error("Unexpected error classifying intent via TypeSafe: {}", e.getMessage(), e);
-            return fallback("unexpected_error");
+            return fallback("unexpected_error").withModelCall(ModelCall.failed(model, e));
         }
     }
 

@@ -27,6 +27,7 @@ import org.springframework.transaction.TransactionStatus;
 import vn.danang.polaris.assistant.entity.AssistantSession;
 import vn.danang.polaris.assistant.entity.DraftLine;
 import vn.danang.polaris.assistant.entity.OrderDraft;
+import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
 import vn.danang.polaris.assistant.repository.OrderDraftRepository;
 import vn.danang.polaris.web.exception.DraftConflictException;
@@ -53,7 +54,8 @@ class OrderDraftServiceTest {
         when(transactionManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         when(sessionRepository.findByIdForUpdate("s1")).thenReturn(Optional.of(AssistantSession.open("s1", "alice", NOW)));
         when(draftRepository.findOpenDraft(anyString())).thenReturn(Optional.empty());
-        service = new OrderDraftService(sessionRepository, draftRepository, transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new OrderDraftService(sessionRepository, draftRepository, transactionManager, AssistantOutcomeMetrics.detached(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test

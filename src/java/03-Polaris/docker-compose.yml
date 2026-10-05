@@ -168,6 +168,13 @@ services:
       SPRING_DATA_REDIS_PORT: "6379"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      # Grafana AI Observability generation export (Conversations view). Off (none) unless set in .env; the
+      # gen_ai.* spans and metrics always flow through the collector regardless.
+      AGENTO11Y_PROTOCOL: ${AGENTO11Y_PROTOCOL:-none}
+      AGENTO11Y_ENDPOINT: ${AGENTO11Y_ENDPOINT:-}
+      AGENTO11Y_AUTH_MODE: ${AGENTO11Y_AUTH_MODE:-}
+      AGENTO11Y_AUTH_TENANT_ID: ${AGENTO11Y_AUTH_TENANT_ID:-}
+      AGENTO11Y_AUTH_TOKEN: ${AGENTO11Y_AUTH_TOKEN:-}
       SPRINGDOC_SWAGGER-UI_OAUTH_CLIENT-ID: "polaris-app"
       SPRINGDOC_SWAGGER-UI_OAUTH_USE-PKCE-WITH-AUTHORIZATION-CODE-GRANT: "true"
       JAVA_TOOL_OPTIONS: "-Djavax.net.ssl.trustStore=/certs/truststore.jks"
