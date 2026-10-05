@@ -1,6 +1,7 @@
 package vn.danang.polaris.assistant.service;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -53,6 +54,7 @@ import vn.danang.polaris.assistant.ai.ModelRequestContext;
 import vn.danang.polaris.assistant.ai.ModelResponse;
 import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics;
+import vn.danang.polaris.assistant.resilience.AssistantUnavailableException;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect;
 
 /**
@@ -772,6 +774,38 @@ class AssistantChatServiceTest {
                     .isInstanceOf(RuntimeException.class);
 
             assertThat(turns("catalog.product.search", "failed")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Given TypeSafe is unavailable (degraded intent), then 'degraded' and the reply leads with the notice")
+        void degraded() {
+            IntentDefinition orderStatus = new IntentDefinition("information.lookup.order.status", "status", List.of());
+            resolveTo(new ResolvedIntent("information.lookup.order.status", 0.0, true, List.of(), orderStatus,
+                    "Only order status works right now."));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("Order ORD-1 is SHIPPED.", List.of()));
+
+            ChatMessageResponse response = chatService.sendMessage(ChatMessageRequest.of("where is ORD-1"), "user-1");
+
+            assertThat(response.reply()).isEqualTo("Only order status works right now.\n\nOrder ORD-1 is SHIPPED.");
+            assertThat(turns("information.lookup.order.status", "degraded")).isEqualTo(1);
+            assertThat(sessionStore.loadHistory(response.sessionId(), "user-1")).last()
+                    .satisfies(reply -> assertThat(reply.getContent()).startsWith("Only order status works right now."));
+        }
+
+        @Test
+        @DisplayName("Given the model is unavailable, then 'unavailable', nothing is persisted and the exception propagates")
+        void unavailable() {
+            resolveTo(new ResolvedIntent("catalog.product.search", 0.95, true, List.of(), SEARCH));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenThrow(new AssistantUnavailableException(Duration.ofSeconds(30), null));
+
+            assertThatThrownBy(() -> chatService.sendMessage(ChatMessageRequest.of("session-down", "find"), "user-1"))
+                    .isInstanceOf(AssistantUnavailableException.class);
+
+            assertThat(turns("catalog.product.search", "unavailable")).isEqualTo(1);
+            assertThat(turns("catalog.product.search", "failed")).isZero();
+            assertThat(sessionStore.loadHistory("session-down", "user-1")).isEmpty();
         }
 
         @Test

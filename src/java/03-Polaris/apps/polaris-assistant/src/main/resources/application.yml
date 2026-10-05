@@ -70,6 +70,17 @@ polaris:
         local-cache-ttl: ${POLARIS_ASSISTANT_INTENT_REDIS_LOCAL_CACHE_TTL:30s}
         fallback-retry-interval: ${POLARIS_ASSISTANT_INTENT_REDIS_FALLBACK_RETRY_INTERVAL:5s}
         seed-if-missing: ${POLARIS_ASSISTANT_INTENT_REDIS_SEED_IF_MISSING:true}
+    # Circuit breakers on TypeSafe (intent classification) and Gemini (replies).
+    # TypeSafe open -> every turn is pinned to degraded-intent and the reply says only order status works.
+    # Gemini open -> POST /chat answers 503 Problem Details "temporarily down" with Retry-After.
+    resilience:
+      degraded-intent: ${POLARIS_ASSISTANT_DEGRADED_INTENT:information.lookup.order.status}
+      circuit-breaker:
+        failure-rate-threshold: ${POLARIS_ASSISTANT_CB_FAILURE_RATE_THRESHOLD:50}
+        sliding-window-size: ${POLARIS_ASSISTANT_CB_SLIDING_WINDOW_SIZE:10}
+        minimum-number-of-calls: ${POLARIS_ASSISTANT_CB_MINIMUM_NUMBER_OF_CALLS:4}
+        wait-duration-in-open-state: ${POLARIS_ASSISTANT_CB_WAIT_DURATION_IN_OPEN_STATE:30s}
+        permitted-number-of-calls-in-half-open-state: ${POLARIS_ASSISTANT_CB_PERMITTED_CALLS_IN_HALF_OPEN_STATE:2}
 
 springdoc:
   api-docs:
@@ -85,14 +96,14 @@ management:
     health:
       probes:
         enabled: true
-      # Readiness reflects whether this instance can actually serve the assistant: it needs
-      # Gemini, TypeSafe and the Polaris Core MCP server all reachable, on top of the base
-      # readinessState. Liveness stays untouched by these, since a dependency outage should
-      # take the pod out of load-balancing (not ready), not restart a process that is otherwise
-      # healthy (live).
+      # Readiness needs the Polaris Core MCP server on top of the base readinessState. Gemini and
+      # TypeSafe are guarded by circuit breakers instead (TypeSafe down -> order-status-only mode,
+      # Gemini down -> 503 "temporarily down"), so their outage must not pull the instance out of
+      # load-balancing: shoppers would get a gateway error instead of that message. Both still
+      # show under /actuator/health. Liveness stays untouched by any dependency.
       group:
         readiness:
-          include: readinessState,gemini,typeSafe,polarisMcp
+          include: readinessState,polarisMcp
   endpoints:
     web:
       exposure:

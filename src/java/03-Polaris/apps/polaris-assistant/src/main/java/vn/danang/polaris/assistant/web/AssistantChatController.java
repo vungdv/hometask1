@@ -45,6 +45,8 @@ public class AssistantChatController {
         @ApiResponse(responseCode = "403", description = "Session belongs to another user",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
         @ApiResponse(responseCode = "500", description = "Internal server error during chat processing",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "503", description = "Assistant temporarily down (AI model unavailable); see Retry-After",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<ChatMessageResponse> chat(
