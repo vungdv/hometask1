@@ -44,3 +44,6 @@ polaris:
     lifecycle-topic:
       replicas: 1
       min-insync-replicas: 1
+    shipment-listener:
+      dlt-replicas: 1
+      dlt-min-insync-replicas: 1

@@ -5,17 +5,25 @@ import static org.awaitility.Awaitility.await;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +36,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.kafka.KafkaContainer;
 
@@ -54,6 +63,7 @@ class ShipmentProgressKafkaIntegrationTest {
 
     private static final String SKU = "F3-SHIP-SKU";
     private static final String PARTNER = "partner-a";
+    private static final String DLT = FulfilmentEvents.DESTINATION + ".DLT";
 
     @Autowired private JdbcClient jdbc;
     @Autowired private TransactionTemplate transactionTemplate;
@@ -107,17 +117,43 @@ class ShipmentProgressKafkaIntegrationTest {
     private void report(String orderNumber, String partner, ShipmentStep step) {
         String json = "{\"orderNumber\":\"" + orderNumber + "\",\"shipmentId\":\"S-" + orderNumber + "\",\"partnerId\":\""
                 + partner + "\",\"step\":\"" + step + "\",\"occurredAt\":\"" + Instant.now() + "\"}";
+        send(orderNumber, step, json, null);
+    }
+
+    private void send(String orderNumber, ShipmentStep step, String data, String traceparent) {
         var event = CloudEventBuilder.v1().withId(UUID.randomUUID().toString()).withType(step.type())
                 .withSource(URI.create(FulfilmentEvents.SOURCE)).withDataContentType("application/json")
-                .withData(json.getBytes()).build();
+                .withData(data.getBytes()).build();
         var config = Map.<String, Object>of(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
         try (var producer = new KafkaProducer<>(config, new StringSerializer(), new ByteArraySerializer())) {
             var message = KafkaMessageFactory.createWriter(FulfilmentEvents.DESTINATION).writeBinary(event);
-            producer.send(new ProducerRecord<>(FulfilmentEvents.DESTINATION, null, orderNumber, message.value(),
-                    message.headers())).get();
+            var record = new ProducerRecord<>(FulfilmentEvents.DESTINATION, null, orderNumber, message.value(),
+                    message.headers());
+            if (traceparent != null) {
+                record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
+            }
+            producer.send(record).get();
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /** Every record currently on the dead-letter topic. */
+    private List<ConsumerRecord<String, byte[]>> deadLetters() {
+        var config = Map.<String, Object>of(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers(),
+                ConsumerConfig.GROUP_ID_CONFIG, "dlt-reader-" + UUID.randomUUID(),
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        try (var consumer = new KafkaConsumer<>(config, new StringDeserializer(), new ByteArrayDeserializer())) {
+            consumer.subscribe(List.of(DLT));
+            var records = new ArrayList<ConsumerRecord<String, byte[]>>();
+            consumer.poll(Duration.ofSeconds(5)).forEach(records::add);
+            return records;
+        }
+    }
+
+    private static String header(ConsumerRecord<?, ?> record, String name) {
+        Header header = record.headers().lastHeader(name);
+        return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
     }
 
     /** Sends a valid PACKED for a fresh order and waits until it is applied: everything sent before it was consumed. */
@@ -205,5 +241,25 @@ class ShipmentProgressKafkaIntegrationTest {
         assertThat(ignored("packed", "cancelled") - cancelled0).isEqualTo(1);
         assertThat(ignored("packed", "unknown_order") - unknown0).isEqualTo(1);
         assertThat(ignored("delivered", "out_of_order") - outOfOrder0).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Unparseable report → moved to <topic>.DLT with its key, payload, traceparent and the failure; later reports still applied")
+    void poisonReport_isDeadLettered() {
+        String orderNumber = claimedOrder(PARTNER);
+        String traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+        send(orderNumber, ShipmentStep.PACKED, "not json", traceparent);
+        drain();
+
+        assertThat(statusOf(orderNumber)).isEqualTo("CONFIRMED");
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(deadLetters())
+                .filteredOn(r -> orderNumber.equals(r.key())).singleElement().satisfies(r -> {
+                    assertThat(new String(r.value(), StandardCharsets.UTF_8)).isEqualTo("not json");
+                    assertThat(header(r, "traceparent")).isEqualTo(traceparent);
+                    assertThat(header(r, "ce_type")).isEqualTo(ShipmentStep.PACKED.type());
+                    assertThat(header(r, KafkaHeaders.DLT_ORIGINAL_TOPIC)).isEqualTo(FulfilmentEvents.DESTINATION);
+                    assertThat(header(r, KafkaHeaders.DLT_EXCEPTION_CAUSE_FQCN)).contains("jackson");
+                }));
     }
 }
