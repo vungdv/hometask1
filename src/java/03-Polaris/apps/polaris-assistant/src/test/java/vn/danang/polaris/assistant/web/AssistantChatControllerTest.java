@@ -1,6 +1,7 @@
 package vn.danang.polaris.assistant.web;
 
 import java.security.Principal;
+import java.time.Duration;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,17 +28,19 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
+import vn.danang.polaris.assistant.resilience.AssistantUnavailableException;
 import vn.danang.polaris.assistant.service.AssistantChatService;
 import vn.danang.polaris.config.SecurityConfig;
 import vn.danang.polaris.web.exception.GlobalExceptionHandler;
 
 @WebMvcTest(AssistantChatController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class})
+@Import({SecurityConfig.class, GlobalExceptionHandler.class, AssistantUnavailableExceptionHandler.class})
 class AssistantChatControllerTest {
 
     @Autowired
@@ -330,6 +333,29 @@ class AssistantChatControllerTest {
                     .andExpect(jsonPath("$.status").value(500))
                     .andExpect(jsonPath("$.detail").value("Internal server error during processing."))
                     .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
+        }
+    }
+
+    @Nested
+    @DisplayName("Assistant unavailable")
+    class Unavailable {
+
+        @Test
+        @DisplayName("Given the AI model is down, when chat invoked, returns 503 Problem Details with the fixed message and Retry-After")
+        void returns_503_problem_details_when_model_unavailable() throws Exception {
+            when(chatService.sendMessage(any(ChatMessageRequest.class), eq("anonymous")))
+                    .thenThrow(new AssistantUnavailableException(Duration.ofSeconds(30), null));
+
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"message\": \"where is my order\"}"))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(header().string("Retry-After", "30"))
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.type").value(AssistantUnavailableExceptionHandler.TYPE))
+                    .andExpect(jsonPath("$.status").value(503))
+                    .andExpect(jsonPath("$.detail").value("Polaris Assistant is temporarily down. Please come back later."))
+                    .andExpect(jsonPath("$.retry_after_seconds").value(30));
         }
     }
 }

@@ -33,3 +33,5 @@ sequenceDiagram
 
     Service-->>-Controller: ChatMessageResponse (reply, sessionId)
 ```
+## See also
+- [Assistant Circuit Breakers](assistant-circuit-breakers.md): how a turn degrades when TypeSafe or Gemini is down.

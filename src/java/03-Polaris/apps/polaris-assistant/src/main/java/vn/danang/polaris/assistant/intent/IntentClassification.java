@@ -17,14 +17,21 @@ import vn.danang.polaris.assistant.ai.ModelCallResult;
  *                        {@code fallback} is {@code false}
  * @param modelCall the TypeSafe call behind this classification, or {@code null} when the model was not
  *                  consulted (missing key, empty taxonomy); never serialized
+ * @param degradedNotice set when the classifier is unavailable and the turn is pinned to {@code intentId} regardless
+ *                       of confidence; the notice tells the shopper what the assistant can still do. Never serialized
  */
 public record IntentClassification(
         @JsonProperty("intent_id") String intentId,
         @JsonProperty("confidence") double confidence,
         @JsonProperty("fallback") boolean fallback,
         @JsonProperty("fallback_reason") String fallbackReason,
-        @JsonIgnore ModelCall modelCall
+        @JsonIgnore ModelCall modelCall,
+        @JsonIgnore String degradedNotice
 ) implements ModelCallResult {
+
+    public IntentClassification(String intentId, double confidence, boolean fallback, String fallbackReason, ModelCall modelCall) {
+        this(intentId, confidence, fallback, fallbackReason, modelCall, null);
+    }
 
     public IntentClassification(String intentId, double confidence, boolean fallback, String fallbackReason) {
         this(intentId, confidence, fallback, fallbackReason, null);
@@ -46,7 +53,19 @@ public record IntentClassification(
         return new IntentClassification(intentId, 0.0, true, reason);
     }
 
+    /**
+     * Builds a degraded classification: the classifier is unavailable, so the turn is pinned to {@code intentId}
+     * (honoured regardless of its confidence threshold) and the shopper is told so with {@code notice}.
+     */
+    public static IntentClassification degraded(String intentId, String reason, String notice) {
+        return new IntentClassification(intentId, 0.0, true, reason, null, notice);
+    }
+
+    public boolean isDegraded() {
+        return degradedNotice != null;
+    }
+
     public IntentClassification withModelCall(ModelCall modelCall) {
-        return new IntentClassification(intentId, confidence, fallback, fallbackReason, modelCall);
+        return new IntentClassification(intentId, confidence, fallback, fallbackReason, modelCall, degradedNotice);
     }
 }

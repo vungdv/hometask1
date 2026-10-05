@@ -66,6 +66,10 @@ public class AssistantOutcomeMetrics {
         POLICY_DENIED,
         /** The model kept calling tools until the iteration limit, so the turn got the default reply. */
         ITERATION_LIMIT,
+        /** TypeSafe was unavailable: the turn was pinned to the degraded intent (order status only). */
+        DEGRADED,
+        /** The AI model was unavailable (call failed or circuit open); the caller got a 503. */
+        UNAVAILABLE,
         /** The turn threw (model provider, tool infrastructure, persistence); the caller got an error response. */
         FAILED
     }

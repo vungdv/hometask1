@@ -127,6 +127,21 @@ class DefaultIntentResolverTest {
         }
 
         @Test
+        @DisplayName("Given a degraded classification (classifier unavailable), when resolved, then pins its intent despite zero confidence and carries the notice")
+        void pins_degraded_intent_regardless_of_threshold() {
+            classifier.nextResult = IntentClassification.degraded("information.lookup.order.status", "circuit_open", "Only order status works.");
+            List<Tool> allTools = tools("search_available_products", "get_order_status", "place_order");
+
+            ResolvedIntent resolved = resolver.resolve("find chargers", List.of(), allTools);
+
+            assertThat(resolved.intentId()).isEqualTo("information.lookup.order.status");
+            assertThat(resolved.meetsThreshold()).isTrue();
+            assertThat(resolved.isDegraded()).isTrue();
+            assertThat(resolved.degradedNotice()).isEqualTo("Only order status works.");
+            assertThat(resolved.acceptedTools()).extracting(Tool::name).containsExactly("get_order_status");
+        }
+
+        @Test
         @DisplayName("Given an unknown intent id, when resolved, then the empty intent exposes no tool")
         void offers_no_tools_for_unknown_intent() {
             classifier.nextResult = new IntentClassification("does.not.exist", 0.99);

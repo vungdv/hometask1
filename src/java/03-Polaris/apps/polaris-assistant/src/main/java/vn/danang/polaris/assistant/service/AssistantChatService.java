@@ -29,6 +29,7 @@ import vn.danang.polaris.assistant.entity.MessageRole;
 import vn.danang.polaris.assistant.intent.ResolvedIntent;
 import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics;
 import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics.TurnOutcome;
+import vn.danang.polaris.assistant.resilience.AssistantUnavailableException;
 import vn.danang.polaris.assistant.tools.ToolExecutionContext;
 import vn.danang.polaris.assistant.tools.ToolResult;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
@@ -49,6 +50,10 @@ import vn.danang.polaris.assistant.observability.trace.SpanTag;
  * <p>
  * Cards ({@link ChatWidget}) produced by successful tool calls are returned with the reply and persisted
  * on the turn's final assistant message ({@code widget_type} / {@code widget_payload}).
+ * <p>
+ * Degraded mode: when the intent classifier is unavailable the turn is pinned to a fixed intent and the reply
+ * leads with its notice; when the AI model is unavailable the turn ends with {@link AssistantUnavailableException}
+ * (nothing is persisted, the caller gets a 503).
  */
 @Service
 public class AssistantChatService {
@@ -143,6 +148,9 @@ public class AssistantChatService {
             resolvedIntent = intentResolutionFacade.resolve(messageText, history);
             // 3. Execute tool loop (max 5 iterations)
             loopResult = executeConversationLoop(sessionId, userId, history, resolvedIntent);
+        } catch (AssistantUnavailableException e) {
+            outcomeMetrics.turn(resolvedIntent, TurnOutcome.UNAVAILABLE);
+            throw e;
         } catch (RuntimeException e) {
             outcomeMetrics.turn(resolvedIntent, TurnOutcome.FAILED);
             throw e;
@@ -210,13 +218,17 @@ public class AssistantChatService {
             } else {
                 finalReply = modelResponse.text();
                 finalThoughtSignature = modelResponse.thoughtSignature();
-                outcome = resolvedIntent.meetsThreshold() ? TurnOutcome.ANSWERED : TurnOutcome.FALLBACK;
+                outcome = resolvedIntent.isDegraded() ? TurnOutcome.DEGRADED
+                        : resolvedIntent.meetsThreshold() ? TurnOutcome.ANSWERED : TurnOutcome.FALLBACK;
                 break;
             }
         }
 
         if (finalReply == null || finalReply.isBlank()) {
             finalReply = DEFAULT_COMPLETION_REPLY;
+        }
+        if (resolvedIntent.isDegraded()) {
+            finalReply = resolvedIntent.degradedNotice() + "\n\n" + finalReply;
         }
 
         return new ConversationLoopResult(finalReply, finalThoughtSignature, iterations, List.copyOf(widgets.values()), outcome);

@@ -127,8 +127,8 @@ class AssistantOutcomeMetricsTest {
         // 5 outcomes with cause none + invalidated x 3 causes
         assertThat(meters.find(AssistantOutcomeMetrics.DRAFT_LIFETIME).timers()).hasSize(8).allSatisfy(t -> assertThat(t.count()).isZero());
         assertThat(lifetime("invalidated", "price-changed")).isNotNull();
-        // (configured intent + unknown) x 5 turn outcomes
-        assertThat(meters.find(AssistantOutcomeMetrics.TURNS).counters()).hasSize(10);
+        // (configured intent + unknown) x 7 turn outcomes
+        assertThat(meters.find(AssistantOutcomeMetrics.TURNS).counters()).hasSize(14);
         assertThat(meters.find(AssistantOutcomeMetrics.TURNS).tags("intent", "commerce.order.place", "outcome", "answered").counter()).isNotNull();
     }
 
@@ -143,7 +143,7 @@ class AssistantOutcomeMetricsTest {
         new AssistantOutcomeMetrics(meters, provider).registerKnownSeries();
 
         assertThat(meters.find(AssistantOutcomeMetrics.DRAFT_LIFETIME).timers()).hasSize(8);
-        assertThat(meters.find(AssistantOutcomeMetrics.TURNS).counters()).hasSize(5)
+        assertThat(meters.find(AssistantOutcomeMetrics.TURNS).counters()).hasSize(TurnOutcome.values().length)
                 .allSatisfy(c -> assertThat(c.getId().getTag("intent")).isEqualTo("unknown"));
     }
 }

@@ -18,6 +18,8 @@ import vn.danang.polaris.assistant.entity.AssistantMessage;
  * live (local classpath resource by default, a remote store in other implementations).
  * Below the intent's confidence threshold the turn falls back to {@value #DEFAULT_INTENT} and is offered
  * only that intent's tools, so an ambiguous message can't reach a write tool.
+ * A {@linkplain IntentClassification#isDegraded() degraded} classification (classifier unavailable) is pinned to
+ * its intent without the threshold check, and the notice is carried on the {@link ResolvedIntent}.
  */
 @Component
 @Primary
@@ -60,6 +62,11 @@ public class DefaultIntentResolver implements IntentResolver {
         String intentId = classification.intentId();
 
         IntentDefinition definition = intentManager.getIntent(intentId).orElse(IntentDefinition.empty());
+
+        if (classification.isDegraded()) {
+            return new ResolvedIntent(intentId, classification.confidence(), true, filterTools(definition, tools), definition,
+                    classification.degradedNotice());
+        }
 
         double confidence = classification.confidence();
         boolean meetsThreshold = confidence >= definition.confidenceThreshold();
