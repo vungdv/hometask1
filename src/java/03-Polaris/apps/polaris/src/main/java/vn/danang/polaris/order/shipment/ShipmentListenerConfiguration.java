@@ -12,25 +12,31 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.listener.ConcurrentMessageListenerContainer;
+import org.springframework.kafka.listener.ConsumerRecordRecoverer;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.listener.MessageListener;
 import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
+import org.springframework.util.backoff.BackOff;
 
+import io.cloudevents.rw.CloudEventRWException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 import vn.danang.polaris.outbox.telemetry.ConsumerGroupMetrics;
 import vn.danang.polaris.order.service.ShipmentProgressService;
 
 /**
  * Wires Order's shipment-report listener: one container in consumer group {@code order.shipments}, trace context
- * continued from the record's {@code traceparent}. A failing record is retried with exponential backoff, then logged
- * at ERROR with its coordinates and skipped, so a poison record never blocks the partition (same policy as the
- * emulator's offer listeners). {@code auto.offset.reset=earliest}: a first start replays the topic, which the
+ * continued from the record's {@code traceparent}. A malformed record is logged at ERROR with its coordinates and
+ * skipped at once; any other failure is retried with exponential backoff first. Either way a poison record never
+ * blocks the partition. {@code auto.offset.reset=earliest}: a first start replays the topic, which the
  * status guard makes harmless.
  */
 @Configuration(proxyBeanMethods = false)
@@ -76,11 +82,24 @@ class ShipmentListenerConfiguration {
         var backOff = new ExponentialBackOffWithMaxRetries(config.retries());
         backOff.setInitialInterval(config.backoffInitial().toMillis());
         backOff.setMultiplier(2.0);
-        container.setCommonErrorHandler(new DefaultErrorHandler((record, e) -> {
+        container.setCommonErrorHandler(errorHandler((record, e) -> {
             tracker.skipped(record);
-            log.error("Shipment report skipped after retries topic={} partition={} offset={} key={} error={}",
+            log.error("Shipment report skipped topic={} partition={} offset={} key={} error={}",
                     record.topic(), record.partition(), record.offset(), record.key(), e.toString());
         }, backOff));
         return container;
+    }
+
+    /**
+     * Classifies failures (messaging-stability S1). A malformed or invalid record fails the same way on every attempt,
+     * so it is recovered at once instead of after the backoff. A transient database failure (lock timeout, deadlock,
+     * lost connection) is retried with the backoff. Anything unclassified keeps the default: retried.
+     */
+    static DefaultErrorHandler errorHandler(ConsumerRecordRecoverer recoverer, BackOff backOff) {
+        var handler = new DefaultErrorHandler(recoverer, backOff);
+        handler.addNotRetryableExceptions(CloudEventRWException.class, JacksonException.class, IllegalArgumentException.class);
+        // Explicit, so a transient DB error wrapping a non-retryable cause is still retried (the outermost match wins).
+        handler.addRetryableExceptions(TransientDataAccessException.class, DataAccessResourceFailureException.class);
+        return handler;
     }
 }

@@ -11,7 +11,7 @@ public record ShipmentListenerProperties(
         @DefaultValue("true") boolean enabled,
         @DefaultValue(FulfilmentEvents.DESTINATION) String topic,
         @DefaultValue("order.shipments") String groupId,
-        /** Retries after the first failure, before the record is logged at ERROR and skipped. */
+        /** Retries after the first retryable failure, before the record is logged at ERROR and skipped. */
         @DefaultValue("3") int retries,
         @DefaultValue("500ms") java.time.Duration backoffInitial) {
 }
