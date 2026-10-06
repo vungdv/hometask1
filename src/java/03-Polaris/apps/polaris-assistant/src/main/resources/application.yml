@@ -85,14 +85,24 @@ management:
     health:
       probes:
         enabled: true
-      # Readiness reflects whether this instance can actually serve the assistant: it needs
-      # Gemini, TypeSafe and the Polaris Core MCP server all reachable, on top of the base
-      # readinessState. Liveness stays untouched by these, since a dependency outage should
-      # take the pod out of load-balancing (not ready), not restart a process that is otherwise
-      # healthy (live).
+      # Readiness reflects only what this instance itself can do: the base readinessState, its
+      # database ("db", the id Spring Boot gives the DataSourceHealthIndicator) and the Polaris
+      # Core MCP server. The AI models (gemini, typeSafe) are deliberately left out (plan
+      # client-ai-model-stability, A5): a model outage hits every pod at once, so failing
+      # readiness on it would pull the whole service out of load balancing, including the draft
+      # confirm/cancel endpoints that never call a model, and the ingress would answer with its
+      # own 503 instead of our Problem Details. Chat turns already fail loudly with 503 Problem
+      # Details (A1), and a TypeSafe outage falls back to general.conversation.
+      # gemini and typeSafe stay registered as informational contributors on /actuator/health.
+      # Liveness stays untouched by all dependencies, since an outage should take the pod out of
+      # load balancing (not ready), not restart a process that is otherwise healthy (live).
       group:
         readiness:
-          include: readinessState,gemini,typeSafe,polarisMcp
+          include: readinessState,db,polarisMcp
+      # Component statuses (no details) are visible to authenticated callers, so an operator can
+      # see which dependency, e.g. gemini or typeSafe, is DOWN; anonymous callers get only the
+      # aggregate status.
+      show-components: when-authorized
   endpoints:
     web:
       exposure:
