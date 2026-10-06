@@ -1,6 +1,12 @@
 package vn.danang.polaris.assistant.ai;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.ServerSocket;
 import java.time.Duration;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
@@ -11,6 +17,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 
+import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +28,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import vn.danang.polaris.assistant.config.AssistantAiProperties;
@@ -162,15 +170,15 @@ class GeminiAiModelClientWireMockTest {
     }
 
     // =========================================================================
-    // 2. Error handling — HTTP error statuses returned by the stubbed server
+    // 2. Error handling — HTTP error statuses fail loudly, never as reply text
     // =========================================================================
     @Nested
     @DisplayName("2. Error handling")
     class ErrorHandling {
 
         @Test
-        @DisplayName("Given the stub returns HTTP 400, when chat is invoked, then returns graceful error message with parsed detail")
-        void returns_graceful_message_on_400_response() {
+        @DisplayName("Given the stub returns HTTP 400, when chat is invoked, then throws ModelUnavailableException carrying the status")
+        void throws_model_unavailable_on_400_response() {
             wireMock.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
                     .willReturn(aResponse()
                             .withStatus(400)
@@ -185,52 +193,99 @@ class GeminiAiModelClientWireMockTest {
                                     }
                                     """)));
 
-            String reply = client.chat(List.of(createUserMessage("Test")));
-
-            assertThat(reply).isEqualTo("Unable to get response from AI Model (API key not valid. Please pass a valid API key.).");
+            assertThatThrownBy(() -> client.chat(List.of(createUserMessage("Test"))))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class, e -> {
+                        assertThat(e.getCause()).isInstanceOfSatisfying(ModelProviderException.class,
+                                cause -> assertThat(cause.statusCode()).isEqualTo(400));
+                        assertThat(e.retryAfter()).isEmpty();
+                    });
         }
 
         @Test
-        @DisplayName("Given the stub returns HTTP 500 with no parseable error body, when chat is invoked, then falls back to status-only message")
-        void returns_status_only_message_when_500_body_is_not_parseable() {
+        @DisplayName("Given the stub returns HTTP 500, when generating, then throws ModelUnavailableException with a failed model call")
+        void throws_model_unavailable_on_500_response() {
             wireMock.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
                     .willReturn(aResponse()
                             .withStatus(500)
                             .withHeader("Content-Type", "text/plain")
                             .withBody("internal server error")));
 
-            String reply = client.chat(List.of(createUserMessage("Test")));
-
-            assertThat(reply).isEqualTo("Unable to get response from AI Model (Status 500).");
+            assertThatThrownBy(() -> client.generateResponse(List.of(createUserMessage("Test")), List.of()))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class, e -> {
+                        assertThat(e.modelCall()).isNotNull();
+                        assertThat(e.modelCall().isFailed()).isTrue();
+                        assertThat(e.modelCall().failure()).isInstanceOfSatisfying(ModelProviderException.class,
+                                cause -> assertThat(cause.statusCode()).isEqualTo(500));
+                    });
         }
 
         @Test
-        @DisplayName("Given the stub returns HTTP 429, when chat is invoked, then returns graceful error message")
-        void returns_graceful_message_on_rate_limit_response() {
+        @DisplayName("Given the stub returns HTTP 503 with Retry-After seconds, when chat is invoked, then the exception carries the delay")
+        void carries_retry_after_seconds_on_503_response() {
+            wireMock.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
+                    .willReturn(aResponse()
+                            .withStatus(503)
+                            .withHeader("Retry-After", "17")
+                            .withBody("{ \"error\": { \"code\": 503, \"message\": \"The model is overloaded.\" } }")));
+
+            assertThatThrownBy(() -> client.chat(List.of(createUserMessage("Test"))))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class,
+                            e -> assertThat(e.retryAfter()).contains(Duration.ofSeconds(17)));
+        }
+
+        @Test
+        @DisplayName("Given the stub returns HTTP 429 with Retry-After, when chat is invoked, then throws ModelUnavailableException with the delay")
+        void throws_model_unavailable_with_retry_after_on_rate_limit_response() {
             wireMock.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
                     .willReturn(aResponse()
                             .withStatus(429)
                             .withHeader("Content-Type", "application/json")
+                            .withHeader("Retry-After", "30")
                             .withBody("""
                                     { "error": { "code": 429, "message": "Resource has been exhausted.", "status": "RESOURCE_EXHAUSTED" } }
                                     """)));
 
-            String reply = client.chat(List.of(createUserMessage("Test")));
+            assertThatThrownBy(() -> client.chat(List.of(createUserMessage("Test"))))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class, e -> {
+                        assertThat(e.retryAfter()).contains(Duration.ofSeconds(30));
+                        assertThat(e.getCause()).isInstanceOfSatisfying(ModelProviderException.class,
+                                cause -> assertThat(cause.statusCode()).isEqualTo(429));
+                    });
+        }
 
-            assertThat(reply).isEqualTo("Unable to get response from AI Model (Resource has been exhausted.).");
+        @Test
+        @DisplayName("Given the stub returns HTTP 429 with an HTTP-date Retry-After, when chat is invoked, then the delay is the time until that date")
+        void parses_http_date_retry_after() {
+            String inAMinute = DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.now(ZoneOffset.UTC).plusSeconds(60));
+            wireMock.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
+                    .willReturn(aResponse().withStatus(429).withHeader("Retry-After", inAMinute)));
+
+            assertThatThrownBy(() -> client.chat(List.of(createUserMessage("Test"))))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class, e -> assertThat(e.retryAfter())
+                            .hasValueSatisfying(delay -> assertThat(delay).isBetween(Duration.ofSeconds(50), Duration.ofSeconds(60))));
+        }
+
+        @Test
+        @DisplayName("Given the stub returns HTTP 429 with a garbage Retry-After, when chat is invoked, then no delay is reported")
+        void ignores_unparseable_retry_after() {
+            wireMock.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
+                    .willReturn(aResponse().withStatus(429).withHeader("Retry-After", "soon")));
+
+            assertThatThrownBy(() -> client.chat(List.of(createUserMessage("Test"))))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class, e -> assertThat(e.retryAfter()).isEmpty());
         }
     }
 
     // =========================================================================
-    // 3. Network edge cases — timeouts against a real socket
+    // 3. Network edge cases — timeouts and faults against a real socket
     // =========================================================================
     @Nested
     @DisplayName("3. Network edge cases")
     class NetworkEdgeCases {
 
         @Test
-        @DisplayName("Given the stub delays beyond the configured timeout, when chat is invoked, then returns a communication failure message")
-        void returns_failure_message_when_server_response_exceeds_timeout() {
+        @DisplayName("Given the stub delays beyond the configured timeout, when chat is invoked, then throws ModelUnavailableException")
+        void throws_model_unavailable_when_server_response_exceeds_timeout() {
             properties.setTimeoutSeconds(1);
             wireMock.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
                     .willReturn(aResponse()
@@ -239,9 +294,43 @@ class GeminiAiModelClientWireMockTest {
                             .withHeader("Content-Type", "application/json")
                             .withBody("{}")));
 
-            String reply = client.chat(List.of(createUserMessage("Test")));
+            assertThatThrownBy(() -> client.chat(List.of(createUserMessage("Test"))))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class, e -> {
+                        assertThat(e.getCause()).isInstanceOf(IOException.class);
+                        assertThat(e.retryAfter()).isEmpty();
+                    });
+        }
 
-            assertThat(reply).contains("Failed to communicate with AI Model:");
+        @Test
+        @DisplayName("Given the stub resets the connection, when chat is invoked, then throws ModelUnavailableException with a failed model call")
+        void throws_model_unavailable_on_connection_reset() {
+            wireMock.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
+                    .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
+
+            assertThatThrownBy(() -> client.chat(List.of(createUserMessage("Test"))))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class, e -> {
+                        assertThat(e.getCause()).isInstanceOf(IOException.class);
+                        assertThat(e.modelCall()).isNotNull();
+                        assertThat(e.modelCall().failure()).isSameAs(e.getCause());
+                    });
+        }
+
+        @Test
+        @DisplayName("Given Gemini is unreachable (connection refused), when chat is invoked, then throws ModelUnavailableException")
+        void throws_model_unavailable_when_gemini_is_unreachable() {
+            properties.setBaseUrl("http://localhost:" + unusedPort());
+
+            assertThatThrownBy(() -> client.chat(List.of(createUserMessage("Test"))))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class,
+                            e -> assertThat(e.getCause()).isInstanceOf(IOException.class));
+        }
+    }
+
+    private static int unusedPort() {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 

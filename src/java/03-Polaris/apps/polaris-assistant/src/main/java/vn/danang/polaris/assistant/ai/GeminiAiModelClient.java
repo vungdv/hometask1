@@ -7,6 +7,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -35,6 +39,10 @@ import vn.danang.polaris.assistant.observability.genai.GenAiTelemetry;
  * Gemini {@code generateContent} client. Each live call is reported on {@link ModelResponse#modelCall()}
  * (model, token usage, finish reason, failure); {@link GenAiGeneration} turns that into GenAI telemetry, so this
  * class only talks to Gemini.
+ * <p>
+ * Gemini failures (unreachable, timeout, non-2xx) are never turned into reply text: they raise
+ * {@link ModelUnavailableException}, carrying the failed {@link ModelCall} and any {@code Retry-After} hint, so
+ * {@link GenAiGeneration} still records the failed generation and the API can answer 503.
  */
 @Component
 public class GeminiAiModelClient implements AssistantModelClient {
@@ -108,26 +116,28 @@ public class GeminiAiModelClient implements AssistantModelClient {
             request = buildRequest(messages, tools);
         } catch (IllegalArgumentException e) {
             log.error("Invalid Gemini client configuration", e);
-            return new ModelResponse("Invalid AI model configuration.");
+            throw new ModelUnavailableException("Invalid Gemini client configuration", e, null, null);
         } catch (RuntimeException e) {
-            log.error("Unexpected error in Gemini client", e);
-            return new ModelResponse("Unexpected error communicating with AI Model.");
+            log.error("Unexpected error building Gemini request", e);
+            throw new ModelUnavailableException("Unexpected error building Gemini request", e, null, null);
         }
         String model = aiModelConfig.getModel();
         try {
             HttpResponse<String> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             return parseModelResponse(response, model);
+        } catch (ModelUnavailableException e) {
+            throw e;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("Gemini request interrupted", e);
-            return new ModelResponse("Request to AI model was interrupted.").withModelCall(ModelCall.failed(model, e));
+            throw new ModelUnavailableException("Gemini request interrupted", e, ModelCall.failed(model, e), null);
         } catch (IOException e) {
             log.error("Gemini request I/O error", e);
-            return new ModelResponse("Failed to communicate with AI Model: " + e.getMessage()).withModelCall(ModelCall.failed(model, e));
+            throw new ModelUnavailableException("Gemini request I/O error", e, ModelCall.failed(model, e), null);
         } catch (RuntimeException e) {
             log.error("Unexpected error in Gemini client", e);
-            return new ModelResponse("Unexpected error communicating with AI Model.").withModelCall(ModelCall.failed(model, e));
+            throw new ModelUnavailableException("Unexpected error in Gemini client", e, ModelCall.failed(model, e), null);
         }
     }
 
@@ -352,16 +362,41 @@ public class GeminiAiModelClient implements AssistantModelClient {
                     .withModelCall(ModelCall.succeeded(model, responseModel, responseId, usage, "stop"));
         } else {
             log.error("Gemini API error status: {} body: {}", response.statusCode(), response.body());
-            ModelCall failedCall = ModelCall.failed(model, new ModelProviderException(response.statusCode()));
-            String errorDetail = "Status " + response.statusCode();
+            ModelProviderException failure = new ModelProviderException(response.statusCode());
+            throw new ModelUnavailableException("Gemini returned HTTP " + response.statusCode(), failure,
+                    ModelCall.failed(model, failure), retryAfter(response));
+        }
+    }
+
+    /**
+     * The provider's {@code Retry-After} hint (RFC 9110 §10.2.3): either delay-seconds or an HTTP-date.
+     * Returns null when absent or unparseable.
+     */
+    @Nullable
+    static Duration retryAfter(HttpResponse<?> response) {
+        if (response.headers() == null) {
+            return null;
+        }
+        return response.headers().firstValue("Retry-After")
+                .map(String::trim)
+                .map(GeminiAiModelClient::parseRetryAfter)
+                .orElse(null);
+    }
+
+    @Nullable
+    private static Duration parseRetryAfter(String value) {
+        try {
+            long seconds = Long.parseLong(value);
+            return seconds >= 0 ? Duration.ofSeconds(seconds) : null;
+        } catch (NumberFormatException notSeconds) {
             try {
-                JsonNode errorNode = objectMapper.readTree(response.body()).path("error").path("message");
-                if (!errorNode.isMissingNode() && !errorNode.asText().isBlank()) {
-                    errorDetail = errorNode.asText();
-                }
-            } catch (Exception ignored) {
+                Duration untilDate = Duration.between(Instant.now(),
+                        ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant());
+                return untilDate.isNegative() ? Duration.ZERO : untilDate;
+            } catch (DateTimeParseException notDate) {
+                log.debug("Ignoring unparseable Retry-After header: {}", value);
+                return null;
             }
-            return new ModelResponse("Unable to get response from AI Model (" + errorDetail + ").").withModelCall(failedCall);
         }
     }
 

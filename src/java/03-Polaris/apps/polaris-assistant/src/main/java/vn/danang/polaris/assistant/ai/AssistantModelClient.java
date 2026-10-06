@@ -40,6 +40,7 @@ public interface AssistantModelClient {
      * @param tools available tools discovered via MCP
      * @param context reasoning context including iteration and resolved intent
      * @return ModelResponse containing either text or tool calls
+     * @throws ModelUnavailableException when the model provider is unreachable, times out or answers with an error
      */
     default ModelResponse generateResponse(List<AssistantMessage> messages, List<Tool> tools, ModelRequestContext context) {
         return generateResponse(messages, tools);

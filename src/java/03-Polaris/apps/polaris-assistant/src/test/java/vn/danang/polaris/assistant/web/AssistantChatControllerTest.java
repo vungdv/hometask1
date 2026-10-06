@@ -1,6 +1,7 @@
 package vn.danang.polaris.assistant.web;
 
 import java.security.Principal;
+import java.time.Duration;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,6 +20,7 @@ import static org.mockito.Mockito.when;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -27,9 +29,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import vn.danang.polaris.assistant.ai.ModelUnavailableException;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.service.AssistantChatService;
@@ -330,6 +334,71 @@ class AssistantChatControllerTest {
                     .andExpect(jsonPath("$.status").value(500))
                     .andExpect(jsonPath("$.detail").value("Internal server error during processing."))
                     .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"));
+        }
+    }
+
+    // =========================================================================
+    // 4. Model unavailable — 503 Problem Details with Retry-After (plan A1)
+    // =========================================================================
+    @Nested
+    @DisplayName("4. Model unavailable")
+    class ModelUnavailable {
+
+        private static final String JSON = """
+                {
+                    "sessionId": "session-down",
+                    "message": "Find chargers"
+                }
+                """;
+
+        @Test
+        @DisplayName("Given the model is unavailable with a Retry-After hint, returns 503 Problem Details with Retry-After and no provider error text")
+        void returns_503_problem_detail_with_retry_after() throws Exception {
+            when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
+                    .thenThrow(new ModelUnavailableException("Gemini returned HTTP 429: SECRET-PROVIDER-DETAIL",
+                            new java.io.IOException("SECRET-CAUSE"), null, Duration.ofSeconds(30)));
+
+            String body = mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(JSON))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(header().string(HttpHeaders.RETRY_AFTER, "30"))
+                    .andExpect(jsonPath("$.type").value("https://polaris.local/errors/assistant-unavailable"))
+                    .andExpect(jsonPath("$.title").value("Assistant Temporarily Unavailable"))
+                    .andExpect(jsonPath("$.status").value(503))
+                    .andExpect(jsonPath("$.detail").value("The assistant is temporarily unavailable. Please try again shortly."))
+                    .andExpect(jsonPath("$.instance").value("/api/v1/assistant/chat"))
+                    .andReturn().getResponse().getContentAsString();
+
+            assertThat(body).doesNotContain("SECRET", "Gemini", "429");
+        }
+
+        @Test
+        @DisplayName("Given the model is unavailable without a Retry-After hint, returns 503 Problem Details without Retry-After")
+        void returns_503_without_retry_after_when_unknown() throws Exception {
+            when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
+                    .thenThrow(new ModelUnavailableException("Gemini request I/O error", new java.io.IOException("reset"), null, null));
+
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(JSON))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(header().doesNotExist(HttpHeaders.RETRY_AFTER));
+        }
+
+        @Test
+        @DisplayName("Given a sub-second Retry-After hint, returns Retry-After rounded up to at least 1 second")
+        void rounds_sub_second_retry_after_up() throws Exception {
+            when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
+                    .thenThrow(new ModelUnavailableException("Gemini returned HTTP 429", null, null, Duration.ofMillis(1500)));
+
+            mockMvc.perform(post("/api/v1/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(JSON))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(header().string(HttpHeaders.RETRY_AFTER, "2"));
         }
     }
 }

@@ -1,6 +1,7 @@
 package vn.danang.polaris.assistant.service;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -51,6 +52,7 @@ import vn.danang.polaris.assistant.tools.ToolResult;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
 import vn.danang.polaris.assistant.ai.ModelRequestContext;
 import vn.danang.polaris.assistant.ai.ModelResponse;
+import vn.danang.polaris.assistant.ai.ModelUnavailableException;
 import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpanAspect;
@@ -451,6 +453,61 @@ class AssistantChatServiceTest {
             assertThat(captured.intentId()).isEqualTo("catalog.product.search");
             assertThat(captured.intentConfidence()).isEqualTo(0.95);
             assertThat(captured.toolsOfferedCount()).isEqualTo(1);
+        }
+    }
+
+    // =========================================================================
+    // 4. Model unavailable — fail loudly, never persist error text (plan A1, R1/R5)
+    // =========================================================================
+    @Nested
+    @DisplayName("4. Model unavailable")
+    class ModelUnavailable {
+
+        private final ModelUnavailableException outage =
+                new ModelUnavailableException("Gemini returned HTTP 503", null, null, Duration.ofSeconds(20));
+
+        @Test
+        @DisplayName("Given Gemini is unavailable on the first call, when sendMessage is called, then the exception propagates and nothing is persisted")
+        void propagates_and_persists_nothing_when_model_unavailable_before_any_tool() {
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class))).thenThrow(outage);
+
+            assertThatThrownBy(() -> chatService.sendMessage(ChatMessageRequest.of("sess-down", "Hello"), "user-123"))
+                    .isSameAs(outage);
+
+            assertThat(sessionStore.persisted("sess-down")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Given a tool ran and then Gemini fails (R5), when sendMessage is called, then the user and tool turns are persisted without any reply or error text")
+        void persists_executed_tool_turns_then_rethrows_when_model_fails_mid_loop() {
+            ToolCall stage = new ToolCall("stage_order_draft", Map.of("items", List.of(Map.of("sku", "NG-CHARGER-01", "quantity", 2))));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(stage)))
+                    .thenThrow(outage);
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(stage)), any(ToolExecutionContext.class), any()))
+                    .thenReturn(List.of(ToolResult.success(stage, "Draft staged: draft-1")));
+
+            assertThatThrownBy(() -> chatService.sendMessage(ChatMessageRequest.of("sess-r5", "order 2 chargers"), "user-123"))
+                    .isSameAs(outage);
+
+            List<AssistantMessage> persisted = sessionStore.persisted("sess-r5");
+            assertThat(persisted).extracting(AssistantMessage::getRole)
+                    .containsExactly(MessageRole.USER, MessageRole.ASSISTANT, MessageRole.TOOL);
+            assertThat(persisted.get(1).getToolCallId()).isEqualTo("stage_order_draft");
+            assertThat(persisted.get(2).getContent()).isEqualTo("Draft staged: draft-1");
+            assertThat(persisted).extracting(AssistantMessage::getContent)
+                    .noneMatch(content -> content != null && (content.contains("503") || content.contains("Unable")));
+        }
+
+        @Test
+        @DisplayName("Given Gemini is unavailable, when sendMessage is called, then the turn is counted as 'failed'")
+        void counts_failed_turn() {
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class))).thenThrow(outage);
+
+            assertThatThrownBy(() -> chatService.sendMessage(ChatMessageRequest.of("Hello"), "user-123"))
+                    .isInstanceOf(ModelUnavailableException.class);
+
+            assertThat(meters.find("polaris.assistant.turns").tags("outcome", "failed").counter().count()).isEqualTo(1);
         }
     }
 

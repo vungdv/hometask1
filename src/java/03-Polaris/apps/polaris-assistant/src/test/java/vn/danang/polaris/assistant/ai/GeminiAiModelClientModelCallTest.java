@@ -7,6 +7,7 @@ import java.net.http.HttpResponse;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -75,29 +76,27 @@ class GeminiAiModelClientModelCallTest {
     }
 
     @Test
-    @DisplayName("Given Gemini answers HTTP 429, when generating, then reports a failed call carrying the status")
+    @DisplayName("Given Gemini answers HTTP 429, when generating, then throws carrying a failed call with the status")
     void reports_http_failure_with_status() throws Exception {
         respondWith(429, """
                 { "error": { "message": "Resource has been exhausted" } }
                 """);
 
-        ModelResponse response = client.generateResponse(List.of(userMessage()), List.of(), ModelRequestContext.empty());
-
-        assertThat(response.text()).contains("Resource has been exhausted");
-        assertThat(response.modelCall().failure())
-                .isInstanceOfSatisfying(ModelProviderException.class, e -> assertThat(e.statusCode()).isEqualTo(429));
+        assertThatThrownBy(() -> client.generateResponse(List.of(userMessage()), List.of(), ModelRequestContext.empty()))
+                .isInstanceOfSatisfying(ModelUnavailableException.class, e -> assertThat(e.modelCall().failure())
+                        .isInstanceOfSatisfying(ModelProviderException.class, cause -> assertThat(cause.statusCode()).isEqualTo(429)));
     }
 
     @Test
-    @DisplayName("Given the network fails, when generating, then reports a failed call carrying the I/O error")
+    @DisplayName("Given the network fails, when generating, then throws carrying a failed call with the I/O error")
     @SuppressWarnings("unchecked")
     void reports_transport_failure() throws Exception {
         IOException failure = new IOException("Connection reset");
         when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenThrow(failure);
 
-        ModelResponse response = client.generateResponse(List.of(userMessage()), List.of(), ModelRequestContext.empty());
-
-        assertThat(response.modelCall()).isEqualTo(ModelCall.failed("gemini-3.6-flash", failure));
+        assertThatThrownBy(() -> client.generateResponse(List.of(userMessage()), List.of(), ModelRequestContext.empty()))
+                .isInstanceOfSatisfying(ModelUnavailableException.class,
+                        e -> assertThat(e.modelCall()).isEqualTo(ModelCall.failed("gemini-3.6-flash", failure)));
     }
 
     @Test
@@ -108,7 +107,8 @@ class GeminiAiModelClientModelCallTest {
 
         properties.setApiKey("test-valid-api-key");
         properties.setModel("");
-        assertThat(client.generateResponse(List.of(userMessage()), List.of(), ModelRequestContext.empty()).modelCall()).isNull();
+        assertThatThrownBy(() -> client.generateResponse(List.of(userMessage()), List.of(), ModelRequestContext.empty()))
+                .isInstanceOfSatisfying(ModelUnavailableException.class, e -> assertThat(e.modelCall()).isNull());
     }
 
     @SuppressWarnings("unchecked")
