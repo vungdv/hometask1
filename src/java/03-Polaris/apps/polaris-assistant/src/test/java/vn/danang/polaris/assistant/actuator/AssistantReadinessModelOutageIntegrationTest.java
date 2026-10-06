@@ -62,15 +62,8 @@ import vn.danang.polaris.assistant.tools.FakeOrderManagementMcp;
 import vn.danang.polaris.assistant.tools.PolarisMcpClient;
 
 /**
- * Readiness is decoupled from AI model health (plan {@code client-ai-model-stability} A5): with Gemini answering
- * 503 and TypeSafe unreachable, the real {@code gemini} and {@code typeSafe} health indicators report DOWN, yet the
- * readiness probe stays UP (it only holds what this pod can do: process, database, Polaris Core MCP), the models
- * still show as DOWN on {@code /actuator/health}, and draft confirm/cancel keep working because they never call a
- * model.
- * <p>
- * The test {@code application.yml} replaces the main one on the classpath, so the readiness group and the
- * component visibility are read from {@code src/main/resources/application.yml}: this exercises the production
- * group, not a copy of it. The context points at this class's WireMock server, so it is closed after the class.
+ * With Gemini and TypeSafe DOWN, readiness stays UP, {@code /actuator/health} shows both as DOWN, and draft
+ * confirm/cancel still work. The health settings are read from the production {@code application.yml}.
  */
 @SpringBootTest(classes = PolarisAssistantApp.class)
 @AutoConfigureMockMvc

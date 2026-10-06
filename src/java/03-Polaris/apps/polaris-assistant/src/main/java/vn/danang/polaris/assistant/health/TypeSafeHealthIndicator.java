@@ -16,10 +16,8 @@ import org.springframework.stereotype.Component;
 import vn.danang.polaris.assistant.config.AssistantTypeSafeProperties;
 
 /**
- * Reports whether the TypeSafe API is reachable, as an informational contributor on
- * {@code /actuator/health}. It is deliberately not part of the readiness group: intent classification falls
- * back to {@code general.conversation} when TypeSafe is down, so the pod can still serve (plan
- * client-ai-model-stability, A5).
+ * Reports whether the TypeSafe API is reachable, on {@code /actuator/health} only (not readiness).
+ * TypeSafe is optional; while it is down, intent classification falls back to {@code general.conversation}.
  *
  * TypeSafe exposes no free introspection/ping endpoint, so unlike {@link GeminiHealthIndicator}
  * this only proves network reachability: it sends a HEAD to the configured base URL and treats
