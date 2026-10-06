@@ -49,6 +49,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import vn.danang.polaris.assistant.PolarisAssistantApp;
 import vn.danang.polaris.assistant.TestcontainersConfiguration;
 import vn.danang.polaris.assistant.customer.CurrentCustomerClient;
@@ -60,6 +61,7 @@ import vn.danang.polaris.assistant.intent.DefaultIntentManager;
 import vn.danang.polaris.assistant.intent.RedisIntentManager;
 import vn.danang.polaris.assistant.repository.AssistantMessageRepository;
 import vn.danang.polaris.assistant.repository.OrderDraftRepository;
+import vn.danang.polaris.assistant.resilience.ModelCircuitBreakers;
 import vn.danang.polaris.assistant.tools.PolarisMcpClient;
 
 /**
@@ -132,6 +134,9 @@ class AssistantTurnTimeBudgetIntegrationTest {
     @Autowired
     private OrderDraftRepository draftRepository;
 
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakers;
+
     @MockitoBean
     private PolarisMcpClient polarisMcpClient;
 
@@ -146,6 +151,8 @@ class AssistantTurnTimeBudgetIntegrationTest {
     void setUp() throws Exception {
         gemini.resetAll();
         typeSafe.resetAll();
+        circuitBreakers.circuitBreaker(ModelCircuitBreakers.GEMINI).reset();
+        circuitBreakers.circuitBreaker(ModelCircuitBreakers.TYPESAFE).reset();
         typeSafe.stubFor(post(urlEqualTo(SYSTEM_ONE_PATH)).willReturn(aResponse()
                 .withStatus(200).withHeader("Content-Type", "application/json").withBody(ORDER_PLACE_INTENT)));
 
@@ -238,6 +245,31 @@ class AssistantTurnTimeBudgetIntegrationTest {
         gemini.verify(1, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH))
                 .withRequestBody(notContaining("stage_order_draft")));
         typeSafe.verify(1, postRequestedFor(urlEqualTo(SYSTEM_ONE_PATH)).withRequestBody(containing("commerce.order.place")));
+    }
+
+    @Test
+    @DisplayName("Given the TypeSafe breaker is open, when chatting, then the turn completes as general.conversation without waiting for or calling TypeSafe")
+    void open_typesafe_breaker_falls_back_without_waiting() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        circuitBreakers.circuitBreaker(ModelCircuitBreakers.TYPESAFE).transitionToOpenState();
+        typeSafe.stubFor(post(urlEqualTo(SYSTEM_ONE_PATH)).willReturn(aResponse()
+                .withStatus(200).withFixedDelay(GEMINI_HANG_MILLIS).withBody(ORDER_PLACE_INTENT)));
+        gemini.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                { "candidates": [{ "content": { "role": "model", "parts": [ { "text": "Hello there!" } ] } }] }
+                                """)));
+
+        chatAsShopper(sessionId, "order 2 of NG-CHARGER-01")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reply").value("Hello there!"));
+
+        // TypeSafe is never called, so its timeout is never waited for
+        typeSafe.verify(0, postRequestedFor(urlEqualTo(SYSTEM_ONE_PATH)));
+        gemini.verify(1, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH))
+                .withRequestBody(notContaining("stage_order_draft")));
     }
 
     private static Duration elapsedSince(long startedNanos) {

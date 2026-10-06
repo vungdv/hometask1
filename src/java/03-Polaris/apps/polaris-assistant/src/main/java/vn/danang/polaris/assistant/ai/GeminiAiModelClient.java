@@ -117,7 +117,7 @@ public class GeminiAiModelClient implements AssistantModelClient {
         String model = aiModelConfig.getModel();
         Duration timeout = callTimeout(deadline);
         if (timeout.isNegative() || timeout.isZero()) {
-            HttpTimeoutException exhausted = new HttpTimeoutException("Turn deadline exceeded before calling Gemini");
+            TurnDeadlineExceededException exhausted = new TurnDeadlineExceededException("Turn deadline exceeded before calling Gemini");
             log.error("Turn deadline exceeded before calling Gemini");
             throw new ModelUnavailableException(exhausted.getMessage(), exhausted, ModelCall.failed(model, exhausted), null);
         }

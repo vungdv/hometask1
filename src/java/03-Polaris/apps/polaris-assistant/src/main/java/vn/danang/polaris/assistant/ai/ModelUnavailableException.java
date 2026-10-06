@@ -7,8 +7,8 @@ import jakarta.annotation.Nullable;
 
 /**
  * The model provider could not produce a reply: it was unreachable, timed out, or answered with a non-2xx status.
- * Raised instead of returning error text as a reply, so callers fail loudly (HTTP 503) and never persist or show
- * provider error details to the user.
+ * Raised instead of returning error text as a reply, so callers fail loudly (HTTP 503, or 500 when the provider
+ * rejected our own request) and never persist or show provider error details to the user.
  * <p>
  * Carries the failed {@link ModelCall} (null when the provider was never reached, e.g. missing configuration) so
  * GenAI telemetry still records the failed generation, and the provider's {@code Retry-After} hint when it sent one.
