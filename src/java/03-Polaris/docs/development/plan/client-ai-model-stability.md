@@ -79,8 +79,8 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | # | Slice | Title | Status | External | Branch | PR | Notes |
 |:--|:--|:--|:--|:--|:--|:--|:--|
 | 1 | A1 | Fail loudly: 503 Problem Details | `done` | — | `client-ai-stability-a1-fail-loudly` | [#47](https://github.com/vungdv/hometask1/pull/47) | |
-| 2 | A5 | Decouple readiness from model health | `approved` | — | `client-ai-stability-a5-readiness` | [#48](https://github.com/vungdv/hometask1/pull/48) | |
-| 3 | A2 | Time budget per turn | `todo` | — | | | |
+| 2 | A5 | Decouple readiness from model health | `done` | — | `client-ai-stability-a5-readiness` | [#48](https://github.com/vungdv/hometask1/pull/48) | |
+| 3 | A2 | Time budget per turn | `in-progress` | — | | | |
 | 4 | A3+A4 | Circuit breakers and bounded retry | `todo` | — | | | |
 | 5 | A6 | Metrics, alert, dashboard, runbook | `todo` | — | | | |
 
