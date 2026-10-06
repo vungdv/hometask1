@@ -1,5 +1,6 @@
 package vn.danang.polaris.assistant.service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -20,6 +21,7 @@ import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import jakarta.annotation.Nullable;
+import vn.danang.polaris.assistant.config.AssistantAiProperties;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
 import vn.danang.polaris.assistant.dto.ChatWidget;
@@ -50,6 +52,9 @@ import vn.danang.polaris.assistant.observability.trace.SpanTag;
  * <p>
  * Cards ({@link ChatWidget}) produced by successful tool calls are returned with the reply and persisted
  * on the turn's final assistant message ({@code widget_type} / {@code widget_payload}).
+ * <p>
+ * Each turn has a deadline ({@code polaris.ai.turn-deadline}) passed to every model call; when it runs out the
+ * model client raises {@link ModelUnavailableException}.
  */
 @Service
 public class AssistantChatService {
@@ -64,6 +69,7 @@ public class AssistantChatService {
     private final ObjectMapper objectMapper;
     private final SessionStore sessionStore;
     private final AssistantOutcomeMetrics outcomeMetrics;
+    private final Duration turnDeadline;
 
     @Autowired
     public AssistantChatService(
@@ -72,7 +78,8 @@ public class AssistantChatService {
             IntentResolutionFacade intentResolutionFacade,
             SessionStore sessionStore,
             ObjectProvider<ObjectMapper> objectMapperProvider,
-            AssistantOutcomeMetrics outcomeMetrics) {
+            AssistantOutcomeMetrics outcomeMetrics,
+            AssistantAiProperties aiProperties) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient must not be null");
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
         this.intentResolutionFacade = Objects.requireNonNull(intentResolutionFacade, "intentResolutionFacade must not be null");
@@ -81,6 +88,7 @@ public class AssistantChatService {
                 ? objectMapperProvider.getIfAvailable()
                 : new ObjectMapper().findAndRegisterModules();
         this.outcomeMetrics = Objects.requireNonNull(outcomeMetrics, "outcomeMetrics must not be null");
+        this.turnDeadline = Objects.requireNonNull(aiProperties.getTurnDeadline(), "turnDeadline must not be null");
     }
 
     public AssistantChatService(
@@ -99,12 +107,25 @@ public class AssistantChatService {
             SessionStore sessionStore,
             @Nullable ObjectMapper objectMapper,
             AssistantOutcomeMetrics outcomeMetrics) {
+        this(modelClient, tracerProvider, intentResolutionFacade, sessionStore, objectMapper, outcomeMetrics,
+                new AssistantAiProperties().getTurnDeadline());
+    }
+
+    public AssistantChatService(
+            AssistantModelClient modelClient,
+            ObjectProvider<Tracer> tracerProvider,
+            IntentResolutionFacade intentResolutionFacade,
+            SessionStore sessionStore,
+            @Nullable ObjectMapper objectMapper,
+            AssistantOutcomeMetrics outcomeMetrics,
+            Duration turnDeadline) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient must not be null");
         this.tracer = Optional.ofNullable(tracerProvider).map(ObjectProvider::getIfAvailable);
         this.intentResolutionFacade = Objects.requireNonNull(intentResolutionFacade, "intentResolutionFacade must not be null");
         this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore must not be null");
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper().findAndRegisterModules();
         this.outcomeMetrics = Objects.requireNonNull(outcomeMetrics, "outcomeMetrics must not be null");
+        this.turnDeadline = Objects.requireNonNull(turnDeadline, "turnDeadline must not be null");
     }
 
     public AssistantChatService(
@@ -129,6 +150,7 @@ public class AssistantChatService {
             }
     )
     public ChatMessageResponse sendMessage(ChatMessageRequest request, String userId) {
+        Instant deadline = Instant.now().plus(turnDeadline);
         String messageText = request.message();
         String sessionId = request.sessionId();
 
@@ -143,7 +165,7 @@ public class AssistantChatService {
         try {
             resolvedIntent = intentResolutionFacade.resolve(messageText, history);
             // 3. Execute tool loop (max 5 iterations)
-            loopResult = executeConversationLoop(sessionId, userId, history, resolvedIntent);
+            loopResult = executeConversationLoop(sessionId, userId, history, resolvedIntent, deadline);
         } catch (ModelUnavailableException e) {
             outcomeMetrics.turn(resolvedIntent, TurnOutcome.FAILED);
             persistExecutedToolTurns(sessionId, userId, history, persistedTurns);
@@ -195,7 +217,8 @@ public class AssistantChatService {
             String sessionId,
             String userId,
             List<AssistantMessage> history,
-            ResolvedIntent resolvedIntent) {
+            ResolvedIntent resolvedIntent,
+            Instant deadline) {
 
         int iterations = 0;
         String finalReply = null;
@@ -213,7 +236,8 @@ public class AssistantChatService {
                     resolvedIntent.intentId(),
                     resolvedIntent.confidence(),
                     resolvedIntent.acceptedTools().size(),
-                    sessionId
+                    sessionId,
+                    deadline
             );
 
             ModelResponse modelResponse = queryModel(history, resolvedIntent.acceptedTools(), context);

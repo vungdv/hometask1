@@ -15,5 +15,5 @@ public class AssistantTypeSafeProperties {
     private String apiKey = "";
     private String model = "jev-latest";
     private String baseUrl = "https://api.typesafe.ai";
-    private int timeoutSeconds = 15;
+    private int timeoutSeconds = 3;
 }

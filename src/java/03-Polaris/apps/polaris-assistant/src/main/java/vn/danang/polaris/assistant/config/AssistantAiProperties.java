@@ -1,5 +1,7 @@
 package vn.danang.polaris.assistant.config;
 
+import java.time.Duration;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
@@ -21,5 +23,8 @@ public class AssistantAiProperties {
             + "Only state product details, prices and stock levels that come from tool results in this conversation; "
             + "never guess or invent them, and say so when you don't have the data. "
             + "Never say that an order was placed, changed or cancelled unless a tool result in this conversation confirmed it.";
+    /** Per-call Gemini request timeout. */
     private int timeoutSeconds = 30;
+    /** Time budget for a whole chat turn; each Gemini call waits at most what is left of it. */
+    private Duration turnDeadline = Duration.ofSeconds(25);
 }

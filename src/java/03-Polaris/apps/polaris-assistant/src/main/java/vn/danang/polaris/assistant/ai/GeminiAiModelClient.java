@@ -5,6 +5,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -43,6 +44,9 @@ import vn.danang.polaris.assistant.observability.genai.GenAiTelemetry;
  * Gemini failures (unreachable, timeout, non-2xx) are never turned into reply text: they raise
  * {@link ModelUnavailableException}, carrying the failed {@link ModelCall} and any {@code Retry-After} hint, so
  * {@link GenAiGeneration} still records the failed generation and the API can answer 503.
+ * <p>
+ * A call waits at most the per-call timeout, capped by what is left of the turn's
+ * {@link ModelRequestContext#deadline()}.
  */
 @Component
 public class GeminiAiModelClient implements AssistantModelClient {
@@ -106,14 +110,21 @@ public class GeminiAiModelClient implements AssistantModelClient {
             return new ModelResponse("I am Polaris Assistant! (Live AI Model key is not configured. Set GEMINI_API_KEY or polaris.ai.api-key to connect to live Gemini. Echo: \"" + lastUserMessage + "\")");
         }
 
-        return executeAndParse(messages, tools);
+        return executeAndParse(messages, tools, context != null ? context.deadline() : null);
     }
 
-    private ModelResponse executeAndParse(List<AssistantMessage> messages, List<Tool> tools) {
+    private ModelResponse executeAndParse(List<AssistantMessage> messages, List<Tool> tools, @Nullable Instant deadline) {
+        String model = aiModelConfig.getModel();
+        Duration timeout = callTimeout(deadline);
+        if (timeout.isNegative() || timeout.isZero()) {
+            HttpTimeoutException exhausted = new HttpTimeoutException("Turn deadline exceeded before calling Gemini");
+            log.error("Turn deadline exceeded before calling Gemini");
+            throw new ModelUnavailableException(exhausted.getMessage(), exhausted, ModelCall.failed(model, exhausted), null);
+        }
         // Building the request never reaches Gemini: its failures are not model calls.
         HttpRequest request;
         try {
-            request = buildRequest(messages, tools);
+            request = buildRequest(messages, tools, timeout);
         } catch (IllegalArgumentException e) {
             log.error("Invalid Gemini client configuration", e);
             throw new ModelUnavailableException("Invalid Gemini client configuration", e, null, null);
@@ -121,7 +132,6 @@ public class GeminiAiModelClient implements AssistantModelClient {
             log.error("Unexpected error building Gemini request", e);
             throw new ModelUnavailableException("Unexpected error building Gemini request", e, null, null);
         }
-        String model = aiModelConfig.getModel();
         try {
             HttpResponse<String> response = httpClient.send(request,
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -132,6 +142,9 @@ public class GeminiAiModelClient implements AssistantModelClient {
             Thread.currentThread().interrupt();
             log.error("Gemini request interrupted", e);
             throw new ModelUnavailableException("Gemini request interrupted", e, ModelCall.failed(model, e), null);
+        } catch (HttpTimeoutException e) {
+            log.error("Gemini request timed out after {}", timeout, e);
+            throw new ModelUnavailableException("Gemini request timed out", e, ModelCall.failed(model, e), null);
         } catch (IOException e) {
             log.error("Gemini request I/O error", e);
             throw new ModelUnavailableException("Gemini request I/O error", e, ModelCall.failed(model, e), null);
@@ -141,7 +154,17 @@ public class GeminiAiModelClient implements AssistantModelClient {
         }
     }
 
-    private HttpRequest buildRequest(List<AssistantMessage> messages, List<Tool> tools) throws IllegalArgumentException {
+    /** The per-call timeout, capped by what is left of the turn's budget. */
+    private Duration callTimeout(@Nullable Instant deadline) {
+        Duration perCall = Duration.ofSeconds(aiModelConfig.getTimeoutSeconds());
+        if (deadline == null) {
+            return perCall;
+        }
+        Duration remaining = Duration.between(Instant.now(), deadline);
+        return remaining.compareTo(perCall) < 0 ? remaining : perCall;
+    }
+
+    private HttpRequest buildRequest(List<AssistantMessage> messages, List<Tool> tools, Duration timeout) throws IllegalArgumentException {
         String apiKey = aiModelConfig.getApiKey();
         if (aiModelConfig.getBaseUrl() == null || aiModelConfig.getBaseUrl().isBlank()
                 || aiModelConfig.getModel() == null || aiModelConfig.getModel().isBlank()) {
@@ -156,7 +179,7 @@ public class GeminiAiModelClient implements AssistantModelClient {
         return HttpRequest.newBuilder().uri(URI.create(url))
                 .header("Content-Type", "application/json")
                 .header("x-goog-api-key", apiKey)
-                .timeout(Duration.ofSeconds(aiModelConfig.getTimeoutSeconds()))
+                .timeout(timeout)
                 .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
                 .build();
     }
