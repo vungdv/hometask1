@@ -2,7 +2,7 @@
 
 - **Scope:** `polaris-assistant`, its outbound calls to Gemini (`GeminiAiModelClient`) and TypeSafe (`TypeSafeIntentClassifier`), and what the chat API and readiness probe do when those calls fail
 - **Reference:** Michael T. Nygard, *Release It!*, 2nd ed.: stability antipatterns and stability patterns
-- **Status:** Draft for review
+- **Status:** Approved (2026-10-06): §5 decisions accepted as recommended
 
 ## 1. Problem statement
 
@@ -78,10 +78,16 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 
 | # | Slice | Title | Status | External | Branch | PR | Notes |
 |:--|:--|:--|:--|:--|:--|:--|:--|
-| 1 | A1 | Fail loudly: 503 Problem Details | `todo` | — | | | |
+| 1 | A1 | Fail loudly: 503 Problem Details | `in-progress` | — | | | |
 | 2 | A5 | Decouple readiness from model health | `todo` | — | | | |
 | 3 | A2 | Time budget per turn | `todo` | — | | | |
 | 4 | A3+A4 | Circuit breakers and bounded retry | `todo` | — | | | |
 | 5 | A6 | Metrics, alert, dashboard, runbook | `todo` | — | | | |
 
 **Statuses:** `todo` → `in-progress` → `in-review` → `approved` (not merged) → `done` (merged), plus `blocked` (reason in *Notes*) and `dropped`.
+
+## Change Log
+
+| Date | Change | Reason | Slices affected |
+|:--|:--|:--|:--|
+| 2026-10-06 | §5 decisions accepted as recommended; plan status Draft → Approved | User confirmed the recommendations before execution | all |
