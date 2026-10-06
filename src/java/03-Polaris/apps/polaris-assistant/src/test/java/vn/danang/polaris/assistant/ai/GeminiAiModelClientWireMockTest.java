@@ -3,7 +3,9 @@ package vn.danang.polaris.assistant.ai;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.ServerSocket;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -323,6 +325,49 @@ class GeminiAiModelClientWireMockTest {
             assertThatThrownBy(() -> client.chat(List.of(createUserMessage("Test"))))
                     .isInstanceOfSatisfying(ModelUnavailableException.class,
                             e -> assertThat(e.getCause()).isInstanceOf(IOException.class));
+        }
+    }
+
+    // =========================================================================
+    // 4. Turn deadline — per-call timeout capped by the remaining budget
+    // =========================================================================
+    @Nested
+    @DisplayName("4. Turn deadline")
+    class TurnDeadline {
+
+        @Test
+        @DisplayName("Given a turn deadline sooner than the per-call timeout, when Gemini is slow, then the call times out at the deadline")
+        void call_timeout_is_capped_by_remaining_turn_budget() {
+            properties.setTimeoutSeconds(10);
+            wireMock.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
+                    .willReturn(aResponse().withStatus(200).withFixedDelay(5_000).withBody("{}")));
+            ModelRequestContext context = new ModelRequestContext(2, "general.conversation", 1.0, 0, "sess-1",
+                    Instant.now().plusMillis(500));
+
+            long started = System.nanoTime();
+            assertThatThrownBy(() -> client.generateResponse(List.of(createUserMessage("Test")), List.of(), context))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class, e -> {
+                        assertThat(e.getCause()).isInstanceOf(HttpTimeoutException.class);
+                        assertThat(e.modelCall()).isNotNull();
+                        assertThat(e.modelCall().failure()).isSameAs(e.getCause());
+                    });
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(3));
+        }
+
+        @Test
+        @DisplayName("Given the turn deadline has passed, when generateResponse is invoked, then fails with a timeout without calling Gemini")
+        void fails_without_calling_gemini_when_budget_is_exhausted() {
+            ModelRequestContext context = new ModelRequestContext(3, "general.conversation", 1.0, 0, "sess-1",
+                    Instant.now().minusMillis(1));
+
+            assertThatThrownBy(() -> client.generateResponse(List.of(createUserMessage("Test")), List.of(), context))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class, e -> {
+                        assertThat(e.getCause()).isInstanceOf(HttpTimeoutException.class);
+                        assertThat(e.modelCall()).isNotNull();
+                        assertThat(e.modelCall().isFailed()).isTrue();
+                        assertThat(e.retryAfter()).isEmpty();
+                    });
+            wireMock.verify(0, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
         }
     }
 

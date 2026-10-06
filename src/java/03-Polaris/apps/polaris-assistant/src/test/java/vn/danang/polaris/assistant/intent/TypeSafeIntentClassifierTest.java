@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -222,6 +224,26 @@ class TypeSafeIntentClassifierTest {
 
             assertThat(result.intentId()).isEqualTo(DefaultIntentResolver.DEFAULT_INTENT);
             assertThat(result.confidence()).isEqualTo(0.0);
+        }
+
+        @Test
+        @DisplayName("Given default properties, when classify is invoked, then the request times out after 3 s and a timeout falls back to the default intent")
+        @SuppressWarnings("unchecked")
+        void times_out_after_3_seconds_and_falls_back() throws Exception {
+            properties.setApiKey("test-typesafe-key");
+            when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                    .thenThrow(new HttpTimeoutException("request timed out"));
+
+            IntentClassification result = classifier.classify("hello", List.of(), intents);
+
+            assertThat(result.intentId()).isEqualTo(DefaultIntentResolver.DEFAULT_INTENT);
+            assertThat(result.fallbackReason()).isEqualTo("timeout");
+            assertThat(result.modelCall()).isNotNull();
+            assertThat(result.modelCall().isFailed()).isTrue();
+
+            ArgumentCaptor<HttpRequest> requestCaptor = ArgumentCaptor.forClass(HttpRequest.class);
+            verify(httpClient).send(requestCaptor.capture(), any());
+            assertThat(requestCaptor.getValue().timeout()).hasValue(Duration.ofSeconds(3));
         }
 
         @Test

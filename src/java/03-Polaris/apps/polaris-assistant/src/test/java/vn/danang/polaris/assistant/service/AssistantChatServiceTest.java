@@ -2,6 +2,7 @@ package vn.danang.polaris.assistant.service;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -508,6 +509,37 @@ class AssistantChatServiceTest {
                     .isInstanceOf(ModelUnavailableException.class);
 
             assertThat(meters.find("polaris.assistant.turns").tags("outcome", "failed").counter().count()).isEqualTo(1);
+        }
+    }
+
+    // =========================================================================
+    // 5. Turn time budget
+    // =========================================================================
+    @Nested
+    @DisplayName("5. Turn time budget")
+    class TurnTimeBudget {
+
+        @Test
+        @DisplayName("Given a turn with tool iterations, when sendMessage is called, then every model call gets the same deadline, one turn budget from the start")
+        void passes_one_turn_deadline_to_every_model_call() {
+            Duration budget = Duration.ofSeconds(25);
+            AssistantChatService service = new AssistantChatService(modelClient, null, intentResolutionFacade, sessionStore,
+                    new ObjectMapper(), new AssistantOutcomeMetrics(meters), budget);
+            ToolCall search = new ToolCall("search_available_products", Map.of("query", "charger"));
+            when(modelClient.generateResponse(anyList(), anyList(), any(ModelRequestContext.class)))
+                    .thenReturn(new ModelResponse("", List.of(search)))
+                    .thenReturn(new ModelResponse("Found it.", List.of()));
+            when(intentResolutionFacade.executeToolCalls(eq(List.of(search)), any(ToolExecutionContext.class), any()))
+                    .thenReturn(List.of(ToolResult.success(search, "Found")));
+
+            Instant before = Instant.now();
+            service.sendMessage(ChatMessageRequest.of("Find chargers"), "user-123");
+            Instant after = Instant.now();
+
+            ArgumentCaptor<ModelRequestContext> contexts = ArgumentCaptor.forClass(ModelRequestContext.class);
+            verify(modelClient, times(2)).generateResponse(anyList(), anyList(), contexts.capture());
+            assertThat(contexts.getAllValues()).extracting(ModelRequestContext::deadline).containsOnly(contexts.getValue().deadline());
+            assertThat(contexts.getValue().deadline()).isBetween(before.plus(budget), after.plus(budget));
         }
     }
 

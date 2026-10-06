@@ -5,6 +5,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -54,7 +55,7 @@ public class TypeSafeIntentClassifier implements IntentClassifier {
     @Autowired
     public TypeSafeIntentClassifier(AssistantTypeSafeProperties properties) {
         this(properties,
-                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build(),
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(properties.getTimeoutSeconds())).build(),
                 new ObjectMapper().findAndRegisterModules());
     }
 
@@ -102,6 +103,9 @@ public class TypeSafeIntentClassifier implements IntentClassifier {
             Thread.currentThread().interrupt();
             log.error("TypeSafe intent classification request interrupted", e);
             return fallback("interrupted").withModelCall(ModelCall.failed(model, e));
+        } catch (HttpTimeoutException e) {
+            log.warn("TypeSafe intent classification timed out after {} s; falling back to default intent", properties.getTimeoutSeconds());
+            return fallback("timeout").withModelCall(ModelCall.failed(model, e));
         } catch (IOException e) {
             log.error("TypeSafe intent classification I/O error: {}", e.getMessage(), e);
             return fallback("io_error").withModelCall(ModelCall.failed(model, e));
