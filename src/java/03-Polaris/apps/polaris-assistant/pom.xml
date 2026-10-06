@@ -97,6 +97,12 @@
 			<artifactId>mcp-json-jackson2</artifactId>
 		</dependency>
 
+		<!-- Circuit breakers and retry for the AI model calls (metrics via resilience4j-micrometer) -->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-spring-boot4</artifactId>
+		</dependency>
+
 		<!-- Utilities -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>

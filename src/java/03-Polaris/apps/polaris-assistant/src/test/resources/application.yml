@@ -46,4 +46,30 @@ management:
     redis:
       enabled: false
 
+# Same shape as production, with small values so breaker and retry tests stay fast
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 4
+        minimum-number-of-calls: 4
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 1
+    instances:
+      gemini:
+        base-config: default
+      typeSafe:
+        base-config: default
+  retry:
+    configs:
+      gemini:
+        max-attempts: 2
+        wait-duration: 50ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+
 

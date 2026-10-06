@@ -73,6 +73,32 @@ polaris:
         fallback-retry-interval: ${POLARIS_ASSISTANT_INTENT_REDIS_FALLBACK_RETRY_INTERVAL:5s}
         seed-if-missing: ${POLARIS_ASSISTANT_INTENT_REDIS_SEED_IF_MISSING:true}
 
+# Circuit breaker per AI model provider; retry for Gemini only (it runs inside the breaker)
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: ${POLARIS_AI_BREAKER_WINDOW_SIZE:20}
+        minimum-number-of-calls: ${POLARIS_AI_BREAKER_MINIMUM_CALLS:10}
+        failure-rate-threshold: ${POLARIS_AI_BREAKER_FAILURE_RATE:50}
+        wait-duration-in-open-state: ${POLARIS_AI_BREAKER_OPEN_DURATION:30s}
+        permitted-number-of-calls-in-half-open-state: 3
+    instances:
+      gemini:
+        base-config: default
+      typeSafe:
+        base-config: default
+  retry:
+    configs:
+      gemini:
+        max-attempts: ${POLARIS_AI_RETRY_MAX_ATTEMPTS:2}
+        wait-duration: ${POLARIS_AI_RETRY_WAIT:500ms}
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+
 springdoc:
   api-docs:
     enabled: true
@@ -91,6 +117,7 @@ management:
       # Not in readiness, shown on /actuator/health only:
       #   gemini   - required for chat; an outage returns 503 Problem Details
       #   typeSafe - optional; an outage degrades intent classification to general.conversation
+      #   circuitBreakers - state of the gemini and typeSafe breakers (an open breaker doesn't change the aggregate)
       group:
         readiness:
           include: readinessState,db,polarisMcp

@@ -1,5 +1,7 @@
 package vn.danang.polaris.assistant.ai;
 
+import java.util.Optional;
+
 import jakarta.annotation.Nullable;
 
 /**
@@ -13,4 +15,9 @@ public interface ModelCallResult {
      */
     @Nullable
     ModelCall modelCall();
+
+    /** The provider call behind this result; empty when the provider was not called. */
+    default Optional<ModelCall> findModelCall() {
+        return Optional.ofNullable(modelCall());
+    }
 }

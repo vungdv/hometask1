@@ -51,6 +51,8 @@ import com.github.tomakehurst.wiremock.http.Fault;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import vn.danang.polaris.assistant.PolarisAssistantApp;
 import vn.danang.polaris.assistant.TestcontainersConfiguration;
 import vn.danang.polaris.assistant.customer.CurrentCustomerClient;
@@ -64,13 +66,16 @@ import vn.danang.polaris.assistant.intent.IntentClassifier;
 import vn.danang.polaris.assistant.intent.RedisIntentManager;
 import vn.danang.polaris.assistant.repository.AssistantMessageRepository;
 import vn.danang.polaris.assistant.repository.OrderDraftRepository;
+import vn.danang.polaris.assistant.resilience.ModelCircuitBreakers;
 import vn.danang.polaris.assistant.tools.PolarisMcpClient;
 
 /**
- * Gemini outages end to end (plan {@code client-ai-model-stability} A1): HTTP, security, the real
+ * Gemini outages end to end: HTTP, security, the real
  * {@code GeminiAiModelClient} against a WireMock-stubbed Gemini, the real intent/policy/tool pipeline and
  * PostgreSQL. A failing Gemini call must answer {@code 503} Problem Details (with {@code Retry-After} when Gemini
  * gave one), never a {@code 200} with error text, and must never write error text to the conversation history.
+ * Transient failures are retried once, an open circuit breaker fails fast, and a request Gemini rejects (4xx other
+ * than 429) answers {@code 500}.
  * <p>
  * The context points Gemini at this class's WireMock server, so no other test can reuse it: it is closed after
  * the class (with its PostgreSQL container) instead of lingering in the context cache until JVM shutdown.
@@ -118,6 +123,9 @@ class AssistantModelOutageIntegrationTest {
     @Autowired
     private OrderDraftRepository draftRepository;
 
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakers;
+
     @MockitoBean
     private PolarisMcpClient polarisMcpClient;
 
@@ -134,6 +142,7 @@ class AssistantModelOutageIntegrationTest {
     @SuppressWarnings("unchecked")
     void setUp() throws Exception {
         gemini.resetAll();
+        circuitBreakers.circuitBreaker(ModelCircuitBreakers.GEMINI).reset();
 
         DefaultIntentManager taxonomy = new DefaultIntentManager();
         when(redisIntentManager.listIntents()).thenReturn(taxonomy.listIntents());
@@ -176,7 +185,7 @@ class AssistantModelOutageIntegrationTest {
     }
 
     @Test
-    @DisplayName("Given Gemini answers 503, when chatting, then 503 Problem Details and nothing in history")
+    @DisplayName("Given Gemini keeps answering 503, when chatting, then one retry, then 503 Problem Details and nothing in history")
     void gemini_server_error_returns_503_and_persists_nothing() throws Exception {
         String sessionId = UUID.randomUUID().toString();
         gemini.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
@@ -189,7 +198,78 @@ class AssistantModelOutageIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body).doesNotContain(PROVIDER_ERROR_TEXT);
+        gemini.verify(2, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
         assertThat(messageRepository.findBySessionIdOrderByIdAsc(sessionId)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Given Gemini answers 503 once and then replies, when chatting, then the retry succeeds and the reply is 200")
+    void transient_gemini_error_is_retried_and_turn_succeeds() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        gemini.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
+                .inScenario("transient").whenScenarioStateIs(STARTED)
+                .willReturn(aResponse().withStatus(503).withBody(PROVIDER_ERROR_TEXT))
+                .willSetStateTo("recovered"));
+        gemini.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
+                .inScenario("transient").whenScenarioStateIs("recovered")
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                { "candidates": [{ "content": { "role": "model", "parts": [ { "text": "Hello there!" } ] } }] }
+                                """)));
+
+        chatAsShopper(sessionId, "hello")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reply").value("Hello there!"));
+
+        gemini.verify(2, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
+        assertThat(messageRepository.findBySessionIdOrderByIdAsc(sessionId)).extracting(AssistantMessage::getContent)
+                .containsExactly("hello", "Hello there!");
+    }
+
+    @Test
+    @DisplayName("Given Gemini rejects our request with 400, when chatting, then 500 Problem Details without Retry-After, no retry and nothing in history")
+    void rejected_request_returns_500_without_retry_after() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        gemini.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
+                .willReturn(aResponse().withStatus(400).withBody(PROVIDER_ERROR_TEXT)));
+
+        String body = chatAsShopper(sessionId, "hello")
+                .andExpect(status().isInternalServerError())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(header().doesNotExist(HttpHeaders.RETRY_AFTER))
+                .andExpect(jsonPath("$.status").value(500))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/assistant-error"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain(PROVIDER_ERROR_TEXT);
+        gemini.verify(1, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
+        assertThat(messageRepository.findBySessionIdOrderByIdAsc(sessionId)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Given failing Gemini calls opened the breaker, when chatting, then 503 with Retry-After until half-open, without calling Gemini")
+    void open_breaker_returns_503_without_calling_gemini() throws Exception {
+        gemini.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH))
+                .willReturn(aResponse().withStatus(500).withBody(PROVIDER_ERROR_TEXT)));
+        // the test configuration opens the breaker at 50 % failures over 4 calls
+        for (int i = 0; i < 4; i++) {
+            chatAsShopper(UUID.randomUUID().toString(), "hello").andExpect(status().isServiceUnavailable());
+        }
+        assertThat(circuitBreakers.circuitBreaker(ModelCircuitBreakers.GEMINI).getState())
+                .isEqualTo(CircuitBreaker.State.OPEN);
+        gemini.resetRequests();
+
+        String retryAfter = chatAsShopper(UUID.randomUUID().toString(), "hello")
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("https://polaris.local/errors/assistant-unavailable"))
+                .andReturn().getResponse().getHeader(HttpHeaders.RETRY_AFTER);
+
+        assertThat(retryAfter).isNotNull();
+        assertThat(Integer.parseInt(retryAfter)).isBetween(1, 30);
+        gemini.verify(0, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
     }
 
     @Test
@@ -234,7 +314,8 @@ class AssistantModelOutageIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body).doesNotContain(PROVIDER_ERROR_TEXT);
-        gemini.verify(2, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
+        // the 500 after the tool ran is retried once
+        gemini.verify(3, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
 
         // The staged draft survives the outage
         assertThat(draftRepository.findOpenDraft(sessionId)).hasValueSatisfying(

@@ -38,6 +38,7 @@
 		<lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
 		<wiremock.version>3.13.2</wiremock.version>
 		<cloudevents.version>4.0.1</cloudevents.version>
+		<resilience4j.version>2.4.0</resilience4j.version>
 		<argLine></argLine>
 	</properties>
 
@@ -138,6 +139,11 @@
 				<groupId>org.wiremock</groupId>
 				<artifactId>wiremock-standalone</artifactId>
 				<version>${wiremock.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>io.github.resilience4j</groupId>
+				<artifactId>resilience4j-spring-boot4</artifactId>
+				<version>${resilience4j.version}</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>

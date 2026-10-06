@@ -46,6 +46,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import vn.danang.polaris.assistant.PolarisAssistantApp;
 import vn.danang.polaris.assistant.TestcontainersConfiguration;
 import vn.danang.polaris.assistant.customer.CurrentCustomerClient;
@@ -56,6 +57,7 @@ import vn.danang.polaris.assistant.entity.DraftStatus;
 import vn.danang.polaris.assistant.entity.OrderDraft;
 import vn.danang.polaris.assistant.intent.DefaultIntentManager;
 import vn.danang.polaris.assistant.intent.RedisIntentManager;
+import vn.danang.polaris.assistant.resilience.ModelCircuitBreakers;
 import vn.danang.polaris.assistant.repository.AssistantSessionRepository;
 import vn.danang.polaris.assistant.repository.OrderDraftRepository;
 import vn.danang.polaris.assistant.tools.FakeOrderManagementMcp;
@@ -118,6 +120,9 @@ class AssistantReadinessModelOutageIntegrationTest {
     private OrderDraftRepository draftRepository;
 
     @Autowired
+    private CircuitBreakerRegistry circuitBreakers;
+
+    @Autowired
     private AssistantSessionRepository sessionRepository;
 
     @MockitoBean
@@ -134,6 +139,7 @@ class AssistantReadinessModelOutageIntegrationTest {
     @BeforeEach
     void setUp() {
         upstream.resetAll();
+        circuitBreakers.circuitBreaker(ModelCircuitBreakers.GEMINI).reset();
         upstream.stubFor(get(urlEqualTo(GEMINI_MODEL_PATH))
                 .willReturn(aResponse().withStatus(503).withBody("{\"error\":{\"code\":503}}")));
         upstream.stubFor(com.github.tomakehurst.wiremock.client.WireMock.post(urlEqualTo("/mcp"))
@@ -196,6 +202,20 @@ class AssistantReadinessModelOutageIntegrationTest {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.status").value("DOWN"))
                 .andExpect(jsonPath("$.components").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("Given the Gemini breaker is open, /actuator/health shows each breaker's state and readiness stays UP")
+    void health_shows_breaker_states_without_affecting_readiness() throws Exception {
+        circuitBreakers.circuitBreaker(ModelCircuitBreakers.GEMINI).transitionToOpenState();
+
+        mockMvc.perform(MockMvcRequestBuilders.get("/actuator/health").with(shopper("ops")))
+                .andExpect(jsonPath("$.components.circuitBreakers.components.gemini.status").value("CIRCUIT_OPEN"))
+                .andExpect(jsonPath("$.components.circuitBreakers.components.typeSafe.status").value("UP"));
+        mockMvc.perform(MockMvcRequestBuilders.get("/actuator/health/readiness").with(shopper("ops")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.components.circuitBreakers").doesNotExist());
     }
 
     @Test

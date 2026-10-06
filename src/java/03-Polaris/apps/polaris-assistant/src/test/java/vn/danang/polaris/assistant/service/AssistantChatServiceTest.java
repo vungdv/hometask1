@@ -53,6 +53,7 @@ import vn.danang.polaris.assistant.tools.ToolResult;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
 import vn.danang.polaris.assistant.ai.ModelRequestContext;
 import vn.danang.polaris.assistant.ai.ModelResponse;
+import vn.danang.polaris.assistant.ai.ModelProviderException;
 import vn.danang.polaris.assistant.ai.ModelUnavailableException;
 import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.observability.outcome.AssistantOutcomeMetrics;
@@ -465,7 +466,7 @@ class AssistantChatServiceTest {
     class ModelUnavailable {
 
         private final ModelUnavailableException outage =
-                new ModelUnavailableException("Gemini returned HTTP 503", null, null, Duration.ofSeconds(20));
+                new ModelUnavailableException("Gemini returned HTTP 503", new ModelProviderException(503), Duration.ofSeconds(20));
 
         @Test
         @DisplayName("Given Gemini is unavailable on the first call, when sendMessage is called, then the exception propagates and nothing is persisted")
@@ -539,7 +540,8 @@ class AssistantChatServiceTest {
             ArgumentCaptor<ModelRequestContext> contexts = ArgumentCaptor.forClass(ModelRequestContext.class);
             verify(modelClient, times(2)).generateResponse(anyList(), anyList(), contexts.capture());
             assertThat(contexts.getAllValues()).extracting(ModelRequestContext::deadline).containsOnly(contexts.getValue().deadline());
-            assertThat(contexts.getValue().deadline()).isBetween(before.plus(budget), after.plus(budget));
+            assertThat(contexts.getValue().deadline()).hasValueSatisfying(
+                    deadline -> assertThat(deadline).isBetween(before.plus(budget), after.plus(budget)));
         }
     }
 

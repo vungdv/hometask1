@@ -33,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import vn.danang.polaris.assistant.ai.ModelProviderException;
 import vn.danang.polaris.assistant.ai.ModelUnavailableException;
 import vn.danang.polaris.assistant.dto.ChatMessageRequest;
 import vn.danang.polaris.assistant.dto.ChatMessageResponse;
@@ -356,7 +357,7 @@ class AssistantChatControllerTest {
         void returns_503_problem_detail_with_retry_after() throws Exception {
             when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
                     .thenThrow(new ModelUnavailableException("Gemini returned HTTP 429: SECRET-PROVIDER-DETAIL",
-                            new java.io.IOException("SECRET-CAUSE"), null, Duration.ofSeconds(30)));
+                            new java.io.IOException("SECRET-CAUSE"), Duration.ofSeconds(30)));
 
             String body = mockMvc.perform(post("/api/v1/assistant/chat")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -378,7 +379,7 @@ class AssistantChatControllerTest {
         @DisplayName("Given the model is unavailable without a Retry-After hint, returns 503 Problem Details without Retry-After")
         void returns_503_without_retry_after_when_unknown() throws Exception {
             when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
-                    .thenThrow(new ModelUnavailableException("Gemini request I/O error", new java.io.IOException("reset"), null, null));
+                    .thenThrow(new ModelUnavailableException("Gemini request I/O error", new java.io.IOException("reset")));
 
             mockMvc.perform(post("/api/v1/assistant/chat")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -392,7 +393,7 @@ class AssistantChatControllerTest {
         @DisplayName("Given a sub-second Retry-After hint, returns Retry-After rounded up to at least 1 second")
         void rounds_sub_second_retry_after_up() throws Exception {
             when(chatService.sendMessage(any(ChatMessageRequest.class), any()))
-                    .thenThrow(new ModelUnavailableException("Gemini returned HTTP 429", null, null, Duration.ofMillis(1500)));
+                    .thenThrow(new ModelUnavailableException("Gemini returned HTTP 429", new ModelProviderException(429), Duration.ofMillis(1500)));
 
             mockMvc.perform(post("/api/v1/assistant/chat")
                             .contentType(MediaType.APPLICATION_JSON)
