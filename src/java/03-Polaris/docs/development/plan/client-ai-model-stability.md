@@ -81,7 +81,7 @@ Slices run top to bottom; only the `execute-plan` coordinator edits this table.
 | 1 | A1 | Fail loudly: 503 Problem Details | `done` | — | `client-ai-stability-a1-fail-loudly` | [#47](https://github.com/vungdv/hometask1/pull/47) | |
 | 2 | A5 | Decouple readiness from model health | `done` | — | `client-ai-stability-a5-readiness` | [#48](https://github.com/vungdv/hometask1/pull/48) | |
 | 3 | A2 | Time budget per turn | `done` | — | `client-ai-stability-a2-time-budget` | [#49](https://github.com/vungdv/hometask1/pull/49) | |
-| 4 | A3+A4 | Circuit breakers and bounded retry | `in-progress` | — | | | |
+| 4 | A3+A4 | Circuit breakers and bounded retry | `in-review` | — | `client-ai-stability-a3a4-breaker-retry` | [#50](https://github.com/vungdv/hometask1/pull/50) | |
 | 5 | A6 | Metrics, alert, dashboard, runbook | `todo` | — | | | |
 
 **Statuses:** `todo` → `in-progress` → `in-review` → `approved` (not merged) → `done` (merged), plus `blocked` (reason in *Notes*) and `dropped`.
