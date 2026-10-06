@@ -15,14 +15,15 @@ import org.springframework.stereotype.Component;
 import vn.danang.polaris.assistant.config.AssistantAiProperties;
 
 /**
- * Reports whether the Gemini API is reachable, for the readiness probe.
+ * Reports whether the Gemini API is reachable, on {@code /actuator/health} only (not readiness).
+ * Gemini is required for chat; while it is down, chat answers 503 Problem Details.
  *
  * Probes with a GET on the model metadata endpoint ({@code /v1beta/models/{model}}) rather
  * than a {@code generateContent} call: it exercises the same host, TLS and API key as a real
  * request but returns model info instead of generated content, so it costs no tokens and stays
  * cheap enough to run on every probe. A short, fixed timeout is used here regardless of
- * {@code polaris.ai.timeout-seconds}, so a slow/unreachable Gemini never stalls the container
- * healthcheck past its own timeout.
+ * {@code polaris.ai.timeout-seconds}, so a slow/unreachable Gemini never stalls a
+ * {@code /actuator/health} call.
  *
  * Can be turned off with {@code management.health.gemini.enabled=false}, e.g. in test suites
  * that boot the full application context without real AI credentials or network egress.

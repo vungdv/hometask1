@@ -199,8 +199,7 @@ services:
       otel-collector:
         condition: service_healthy
     healthcheck:
-      # readiness now probes Gemini, TypeSafe and the Polaris Core MCP server (up to 2s each,
-      # run sequentially), so the timeout allows for that worst case plus the liveness call.
+      # readiness checks db and polarisMcp only; Gemini/TypeSafe outages don't mark the container unhealthy.
       test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health/liveness && curl -f http://localhost:8081/actuator/health/readiness || exit 1"]
       interval: 10s
       timeout: 8s

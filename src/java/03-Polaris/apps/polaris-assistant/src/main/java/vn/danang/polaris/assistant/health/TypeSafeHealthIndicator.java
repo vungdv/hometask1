@@ -16,7 +16,8 @@ import org.springframework.stereotype.Component;
 import vn.danang.polaris.assistant.config.AssistantTypeSafeProperties;
 
 /**
- * Reports whether the TypeSafe API is reachable, for the readiness probe.
+ * Reports whether the TypeSafe API is reachable, on {@code /actuator/health} only (not readiness).
+ * TypeSafe is optional; while it is down, intent classification falls back to {@code general.conversation}.
  *
  * TypeSafe exposes no free introspection/ping endpoint, so unlike {@link GeminiHealthIndicator}
  * this only proves network reachability: it sends a HEAD to the configured base URL and treats
@@ -24,7 +25,7 @@ import vn.danang.polaris.assistant.config.AssistantTypeSafeProperties;
  * does not call {@code /v1/systemone}, since that endpoint performs a billed model judgment.
  * Only a transport-level failure (timeout, connection refused, unknown host) counts as down.
  * A short, fixed timeout is used regardless of {@code polaris.typesafe.timeout-seconds}, so a
- * slow/unreachable TypeSafe never stalls the container healthcheck past its own timeout.
+ * slow/unreachable TypeSafe never stalls a {@code /actuator/health} call.
  *
  * Can be turned off with {@code management.health.typeSafe.enabled=false}, e.g. in test suites
  * that boot the full application context without real network egress.
