@@ -14,6 +14,7 @@ import org.springframework.core.env.PropertySource;
 import org.springframework.core.io.FileSystemResource;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig.SlidingWindowType;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.core.functions.Either;
 import io.github.resilience4j.retry.RetryConfig;
@@ -27,7 +28,7 @@ class ModelResilienceProductionConfigTest {
     private static final String MAIN_CONFIG = "src/main/resources/application.yml";
 
     @Test
-    @DisplayName("Breakers open at 50 % failures over the last 20 calls for 30 s; Gemini retries twice from 500 ms with jitter")
+    @DisplayName("Breakers open at 50 % failures for 30 s (Gemini over the last 20 calls, TypeSafe over the last 60 s); Gemini retries twice from 500 ms with jitter")
     void production_settings() throws IOException {
         PropertySource<?> main = new YamlPropertySourceLoader()
                 .load("main-application.yml", new FileSystemResource(MAIN_CONFIG)).get(0);
@@ -40,11 +41,18 @@ class ModelResilienceProductionConfigTest {
                     CircuitBreakerRegistry breakers = context.getBean(CircuitBreakerRegistry.class);
                     for (String name : new String[] {ModelCircuitBreakers.GEMINI, ModelCircuitBreakers.TYPESAFE}) {
                         CircuitBreakerConfig config = breakers.circuitBreaker(name).getCircuitBreakerConfig();
-                        assertThat(config.getSlidingWindowSize()).as(name).isEqualTo(20);
+                        assertThat(config.getMinimumNumberOfCalls()).as(name).isEqualTo(10);
                         assertThat(config.getFailureRateThreshold()).as(name).isEqualTo(50f);
                         assertThat(config.getWaitIntervalFunctionInOpenState().apply(1)).as(name).isEqualTo(30_000L);
                         assertThat(config.getIgnoreExceptionPredicate().test(new IllegalStateException())).as(name).isTrue();
                     }
+
+                    CircuitBreakerConfig gemini = breakers.circuitBreaker(ModelCircuitBreakers.GEMINI).getCircuitBreakerConfig();
+                    assertThat(gemini.getSlidingWindowType()).isEqualTo(SlidingWindowType.COUNT_BASED);
+                    assertThat(gemini.getSlidingWindowSize()).isEqualTo(20);
+                    CircuitBreakerConfig typeSafe = breakers.circuitBreaker(ModelCircuitBreakers.TYPESAFE).getCircuitBreakerConfig();
+                    assertThat(typeSafe.getSlidingWindowType()).isEqualTo(SlidingWindowType.TIME_BASED);
+                    assertThat(typeSafe.getSlidingWindowSize()).isEqualTo(60);
 
                     RetryConfig retry = context.getBean(RetryRegistry.class).getConfiguration(ModelCircuitBreakers.GEMINI)
                             .orElseThrow();

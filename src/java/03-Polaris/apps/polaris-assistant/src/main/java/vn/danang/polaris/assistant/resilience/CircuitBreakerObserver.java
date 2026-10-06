@@ -38,7 +38,9 @@ final class CircuitBreakerObserver {
 
     /** Tags {@code circuit_breaker.<name>.state} on the active span, when there is one. */
     void tagState() {
-        tracer.ifAvailable(active -> Optional.ofNullable(active.currentSpan()).ifPresent(span -> span.tag(
-                "circuit_breaker." + circuitBreaker.getName() + ".state", circuitBreaker.getState().name())));
+        tracer
+                .ifAvailable(active -> Optional.ofNullable(active.currentSpan())
+                .ifPresent(span ->
+                        span.tag("circuit_breaker." + circuitBreaker.getName() + ".state", circuitBreaker.getState().name())));
     }
 }

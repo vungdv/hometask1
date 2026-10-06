@@ -89,6 +89,9 @@ resilience4j:
         base-config: default
       typeSafe:
         base-config: default
+        # TypeSafe is called on every turn, so judge it over recent time rather than a call count
+        sliding-window-type: TIME_BASED
+        sliding-window-size: ${POLARIS_AI_TYPESAFE_BREAKER_WINDOW_SECONDS:60}
   retry:
     configs:
       gemini:

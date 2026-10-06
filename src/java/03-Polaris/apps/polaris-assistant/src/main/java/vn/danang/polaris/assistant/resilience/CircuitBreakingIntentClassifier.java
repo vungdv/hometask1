@@ -64,7 +64,8 @@ public class CircuitBreakingIntentClassifier implements IntentClassifier {
         try {
             IntentClassification result = delegate.classify(query, history, intents);
             long duration = circuitBreaker.getCurrentTimestamp() - start;
-            result.findModelCall().ifPresentOrElse(call -> record(call, duration), circuitBreaker::releasePermission);
+            result.findModelCall()
+                    .ifPresentOrElse(call -> record(call, duration), circuitBreaker::releasePermission);
             return result;
         } catch (RuntimeException e) {
             circuitBreaker.onError(circuitBreaker.getCurrentTimestamp() - start, circuitBreaker.getTimestampUnit(), e);

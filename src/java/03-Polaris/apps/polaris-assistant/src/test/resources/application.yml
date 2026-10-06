@@ -62,6 +62,8 @@ resilience4j:
         base-config: default
       typeSafe:
         base-config: default
+        sliding-window-type: TIME_BASED
+        sliding-window-size: 60
   retry:
     configs:
       gemini:
