@@ -3,6 +3,7 @@ package vn.danang.polaris.assistant.resilience;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
@@ -21,7 +22,6 @@ import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.retry.RetryRegistry;
 import io.micrometer.tracing.Tracer;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
 import vn.danang.polaris.assistant.ai.GeminiAiModelClient;
 import vn.danang.polaris.assistant.ai.ModelFailures;
@@ -53,11 +53,11 @@ public class ResilientGeminiModelClient implements AssistantModelClient {
     @Autowired
     public ResilientGeminiModelClient(GeminiAiModelClient delegate, CircuitBreakerRegistry circuitBreakers,
             RetryRegistry retries, ObjectProvider<Tracer> tracer) {
-        this(delegate, circuitBreakers.circuitBreaker(ModelCircuitBreakers.GEMINI), retries, tracer.getIfAvailable());
+        this(delegate, circuitBreakers.circuitBreaker(ModelCircuitBreakers.GEMINI), retries, tracer);
     }
 
     ResilientGeminiModelClient(AssistantModelClient delegate, CircuitBreaker circuitBreaker, RetryRegistry retries,
-            @Nullable Tracer tracer) {
+            ObjectProvider<Tracer> tracer) {
         this.delegate = delegate;
         this.circuitBreaker = circuitBreaker;
         RetryConfig configured = retries.getConfiguration(ModelCircuitBreakers.GEMINI).orElseGet(retries::getDefaultConfig);
@@ -77,8 +77,8 @@ public class ResilientGeminiModelClient implements AssistantModelClient {
 
     @Override
     public ModelResponse generateResponse(List<AssistantMessage> messages, List<Tool> tools,
-            @Nullable ModelRequestContext context) {
-        ModelRequestContext callContext = context != null ? context : ModelRequestContext.empty();
+            ModelRequestContext context) {
+        ModelRequestContext callContext = Optional.ofNullable(context).orElseGet(ModelRequestContext::empty);
         Supplier<ModelResponse> retrying = Retry.decorateSupplier(retry, () -> attempt(messages, tools, callContext));
         try {
             return circuitBreaker.executeSupplier(() -> {
@@ -91,7 +91,7 @@ public class ResilientGeminiModelClient implements AssistantModelClient {
         } catch (CallNotPermittedException e) {
             Duration retryAfter = observer.untilHalfOpen();
             log.warn("Gemini circuit breaker is {}; failing fast, retry after {}", circuitBreaker.getState(), retryAfter);
-            throw new ModelUnavailableException("Gemini circuit breaker is open", e, null, retryAfter);
+            throw new ModelUnavailableException("Gemini circuit breaker is open", e, retryAfter);
         } finally {
             observer.tagState();
         }
@@ -101,7 +101,7 @@ public class ResilientGeminiModelClient implements AssistantModelClient {
         try {
             return delegate.generateResponse(messages, tools, context);
         } catch (ModelUnavailableException e) {
-            if (ModelFailures.isRetryable(e) && retryEndsBefore(context.deadline(), e)) {
+            if (ModelFailures.isRetryable(e) && retryEndsBefore(context, e)) {
                 throw new RetryableFailure(e);
             }
             throw e;
@@ -109,8 +109,9 @@ public class ResilientGeminiModelClient implements AssistantModelClient {
     }
 
     /** A retry that first waits the provider's Retry-After must still start before the turn's deadline. */
-    private static boolean retryEndsBefore(@Nullable Instant deadline, ModelUnavailableException failure) {
-        return deadline == null || Instant.now().plus(failure.retryAfter().orElse(Duration.ZERO)).isBefore(deadline);
+    private static boolean retryEndsBefore(ModelRequestContext context, ModelUnavailableException failure) {
+        Instant retryAt = Instant.now().plus(failure.retryAfter().orElse(Duration.ZERO));
+        return context.deadline().map(retryAt::isBefore).orElse(true);
     }
 
     private static RetryConfig retryConfig(RetryConfig configured) {
@@ -118,9 +119,9 @@ public class ResilientGeminiModelClient implements AssistantModelClient {
         return RetryConfig.from(configured)
                 .retryOnException(RetryableFailure.class::isInstance)
                 .intervalBiFunction((attempt, outcome) -> {
-                    if (outcome.isLeft() && outcome.getLeft() instanceof RetryableFailure retryable
-                            && retryable.failure.retryAfter().isPresent()) {
-                        return retryable.failure.retryAfter().get().toMillis();
+                    if (outcome.isLeft() && outcome.getLeft() instanceof RetryableFailure retryable) {
+                        return retryable.failure.retryAfter().map(Duration::toMillis)
+                                .orElseGet(() -> backoff.apply(attempt, outcome));
                     }
                     return backoff.apply(attempt, outcome);
                 })

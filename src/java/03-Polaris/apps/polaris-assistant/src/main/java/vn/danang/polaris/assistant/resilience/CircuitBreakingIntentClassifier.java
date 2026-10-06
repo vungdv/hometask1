@@ -13,7 +13,6 @@ import org.springframework.stereotype.Component;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.micrometer.tracing.Tracer;
-import jakarta.annotation.Nullable;
 import vn.danang.polaris.assistant.ai.ModelCall;
 import vn.danang.polaris.assistant.entity.AssistantMessage;
 import vn.danang.polaris.assistant.intent.DefaultIntentResolver;
@@ -43,10 +42,11 @@ public class CircuitBreakingIntentClassifier implements IntentClassifier {
     @Autowired
     public CircuitBreakingIntentClassifier(TypeSafeIntentClassifier delegate, CircuitBreakerRegistry circuitBreakers,
             ObjectProvider<Tracer> tracer) {
-        this(delegate, circuitBreakers.circuitBreaker(ModelCircuitBreakers.TYPESAFE), tracer.getIfAvailable());
+        this(delegate, circuitBreakers.circuitBreaker(ModelCircuitBreakers.TYPESAFE), tracer);
     }
 
-    CircuitBreakingIntentClassifier(IntentClassifier delegate, CircuitBreaker circuitBreaker, @Nullable Tracer tracer) {
+    CircuitBreakingIntentClassifier(IntentClassifier delegate, CircuitBreaker circuitBreaker,
+            ObjectProvider<Tracer> tracer) {
         this.delegate = delegate;
         this.circuitBreaker = circuitBreaker;
         this.observer = new CircuitBreakerObserver(circuitBreaker, tracer);
@@ -63,7 +63,8 @@ public class CircuitBreakingIntentClassifier implements IntentClassifier {
         long start = circuitBreaker.getCurrentTimestamp();
         try {
             IntentClassification result = delegate.classify(query, history, intents);
-            record(result.modelCall(), circuitBreaker.getCurrentTimestamp() - start);
+            long duration = circuitBreaker.getCurrentTimestamp() - start;
+            result.findModelCall().ifPresentOrElse(call -> record(call, duration), circuitBreaker::releasePermission);
             return result;
         } catch (RuntimeException e) {
             circuitBreaker.onError(circuitBreaker.getCurrentTimestamp() - start, circuitBreaker.getTimestampUnit(), e);
@@ -73,10 +74,8 @@ public class CircuitBreakingIntentClassifier implements IntentClassifier {
         }
     }
 
-    private void record(@Nullable ModelCall call, long duration) {
-        if (call == null) {
-            circuitBreaker.releasePermission();
-        } else if (call.isFailed()) {
+    private void record(ModelCall call, long duration) {
+        if (call.isFailed()) {
             circuitBreaker.onError(duration, circuitBreaker.getTimestampUnit(), call.failure());
         } else {
             circuitBreaker.onSuccess(duration, circuitBreaker.getTimestampUnit());

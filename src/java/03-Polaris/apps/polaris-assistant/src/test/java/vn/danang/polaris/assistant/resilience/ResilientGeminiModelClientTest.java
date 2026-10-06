@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
@@ -90,7 +91,8 @@ class ResilientGeminiModelClientTest {
         span = mock(Span.class);
         when(tracer.currentSpan()).thenReturn(span);
 
-        client = new ResilientGeminiModelClient(new GeminiAiModelClient(properties), circuitBreaker, retries, tracer);
+        client = new ResilientGeminiModelClient(new GeminiAiModelClient(properties), circuitBreaker, retries,
+                new StaticListableBeanFactory(Map.of("tracer", tracer)).getBeanProvider(Tracer.class));
     }
 
     @Test
@@ -98,7 +100,7 @@ class ResilientGeminiModelClientTest {
     void retries_a_server_error_once_and_succeeds() {
         stubFirstThen(aResponse().withStatus(503), ok());
 
-        ModelResponse response = generate(null);
+        ModelResponse response = generate();
 
         assertThat(response.text()).isEqualTo("Hello there!");
         gemini.verify(2, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
@@ -110,7 +112,7 @@ class ResilientGeminiModelClientTest {
     void retries_a_connection_reset_and_succeeds() {
         stubFirstThen(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER), ok());
 
-        assertThat(generate(null).text()).isEqualTo("Hello there!");
+        assertThat(generate().text()).isEqualTo("Hello there!");
         gemini.verify(2, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
     }
 
@@ -119,7 +121,7 @@ class ResilientGeminiModelClientTest {
     void stops_after_two_attempts() {
         gemini.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH)).willReturn(aResponse().withStatus(503)));
 
-        assertThatThrownBy(() -> generate(null)).isInstanceOf(ModelUnavailableException.class)
+        assertThatThrownBy(() -> generate()).isInstanceOf(ModelUnavailableException.class)
                 .hasMessageContaining("HTTP 503");
         gemini.verify(2, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
         assertThat(circuitBreaker.getMetrics().getNumberOfFailedCalls()).isEqualTo(1);
@@ -130,7 +132,7 @@ class ResilientGeminiModelClientTest {
     void waits_retry_after_before_retrying() {
         stubFirstThen(aResponse().withStatus(429).withHeader("Retry-After", "1"), ok());
 
-        assertThat(generate(Instant.now().plusSeconds(5)).text()).isEqualTo("Hello there!");
+        assertThat(generateBefore(Instant.now().plusSeconds(5)).text()).isEqualTo("Hello there!");
 
         List<LoggedRequest> requests = gemini.findAll(postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
         assertThat(requests).hasSize(2);
@@ -145,7 +147,7 @@ class ResilientGeminiModelClientTest {
                 .willReturn(aResponse().withStatus(429).withHeader("Retry-After", "30")));
 
         ModelUnavailableException failure = catchThrowableOfType(ModelUnavailableException.class,
-                () -> generate(Instant.now().plusSeconds(5)));
+                () -> generateBefore(Instant.now().plusSeconds(5)));
 
         assertThat(failure.retryAfter()).contains(Duration.ofSeconds(30));
         gemini.verify(1, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
@@ -156,7 +158,7 @@ class ResilientGeminiModelClientTest {
     void does_not_retry_a_request_timeout() {
         gemini.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH)).willReturn(ok().withFixedDelay(2_000)));
 
-        assertThatThrownBy(() -> generate(null)).isInstanceOf(ModelUnavailableException.class);
+        assertThatThrownBy(() -> generate()).isInstanceOf(ModelUnavailableException.class);
 
         gemini.verify(1, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
         assertThat(circuitBreaker.getMetrics().getNumberOfFailedCalls()).isEqualTo(1);
@@ -168,7 +170,7 @@ class ResilientGeminiModelClientTest {
         gemini.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH)).willReturn(aResponse().withStatus(400)));
 
         for (int i = 0; i < 5; i++) {
-            assertThatThrownBy(() -> generate(null)).isInstanceOf(ModelUnavailableException.class);
+            assertThatThrownBy(() -> generate()).isInstanceOf(ModelUnavailableException.class);
         }
 
         gemini.verify(5, postRequestedFor(urlEqualTo(GENERATE_CONTENT_PATH)));
@@ -181,13 +183,13 @@ class ResilientGeminiModelClientTest {
     void open_breaker_fails_fast_without_calling_gemini() {
         gemini.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH)).willReturn(aResponse().withStatus(500)));
         for (int i = 0; i < 4; i++) {
-            assertThatThrownBy(() -> generate(null)).isInstanceOf(ModelUnavailableException.class);
+            assertThatThrownBy(() -> generate()).isInstanceOf(ModelUnavailableException.class);
         }
         assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
         gemini.resetRequests();
 
         long started = System.nanoTime();
-        ModelUnavailableException failure = catchThrowableOfType(ModelUnavailableException.class, () -> generate(null));
+        ModelUnavailableException failure = catchThrowableOfType(ModelUnavailableException.class, () -> generate());
         Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
 
         assertThat(elapsed).isLessThan(Duration.ofMillis(50));
@@ -203,17 +205,24 @@ class ResilientGeminiModelClientTest {
         gemini.stubFor(post(urlEqualTo(GENERATE_CONTENT_PATH)).willReturn(aResponse().withStatus(500)));
         circuitBreaker.transitionToOpenState();
 
-        assertThatThrownBy(() -> generate(null)).isInstanceOf(ModelUnavailableException.class);
+        assertThatThrownBy(() -> generate()).isInstanceOf(ModelUnavailableException.class);
 
         verify(span).tag("circuit_breaker.gemini.state", "OPEN");
     }
 
-    private ModelResponse generate(Instant deadline) {
+    private ModelResponse generate() {
+        return generate(new ModelRequestContext(1, "general.conversation", 1.0, 0, "session-1"));
+    }
+
+    private ModelResponse generateBefore(Instant deadline) {
+        return generate(new ModelRequestContext(1, "general.conversation", 1.0, 0, "session-1", deadline));
+    }
+
+    private ModelResponse generate(ModelRequestContext context) {
         AssistantMessage message = new AssistantMessage();
         message.setRole(MessageRole.USER);
         message.setContent("hello");
-        return client.generateResponse(List.of(message), List.of(),
-                new ModelRequestContext(1, "general.conversation", 1.0, 0, "session-1", deadline));
+        return client.generateResponse(List.of(message), List.of(), context);
     }
 
     private static com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder ok() {

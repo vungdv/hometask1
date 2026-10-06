@@ -2,11 +2,12 @@ package vn.danang.polaris.assistant.resilience;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
+
+import org.springframework.beans.factory.ObjectProvider;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
-import jakarta.annotation.Nullable;
 
 /**
  * Watches one circuit breaker: tags its state on the active trace span and knows when an open breaker will
@@ -15,11 +16,10 @@ import jakarta.annotation.Nullable;
 final class CircuitBreakerObserver {
 
     private final CircuitBreaker circuitBreaker;
-    @Nullable
-    private final Tracer tracer;
+    private final ObjectProvider<Tracer> tracer;
     private volatile Instant halfOpenAt = Instant.EPOCH;
 
-    CircuitBreakerObserver(CircuitBreaker circuitBreaker, @Nullable Tracer tracer) {
+    CircuitBreakerObserver(CircuitBreaker circuitBreaker, ObjectProvider<Tracer> tracer) {
         this.circuitBreaker = circuitBreaker;
         this.tracer = tracer;
         circuitBreaker.getEventPublisher().onStateTransition(event -> {
@@ -36,11 +36,9 @@ final class CircuitBreakerObserver {
         return remaining.isNegative() ? Duration.ZERO : remaining;
     }
 
-    /** Tags {@code circuit_breaker.<name>.state} on the active span. */
+    /** Tags {@code circuit_breaker.<name>.state} on the active span, when there is one. */
     void tagState() {
-        Span span = tracer != null ? tracer.currentSpan() : null;
-        if (span != null) {
-            span.tag("circuit_breaker." + circuitBreaker.getName() + ".state", circuitBreaker.getState().name());
-        }
+        tracer.ifAvailable(active -> Optional.ofNullable(active.currentSpan()).ifPresent(span -> span.tag(
+                "circuit_breaker." + circuitBreaker.getName() + ".state", circuitBreaker.getState().name())));
     }
 }

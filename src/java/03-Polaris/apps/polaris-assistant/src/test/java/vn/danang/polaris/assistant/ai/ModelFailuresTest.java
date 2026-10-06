@@ -56,10 +56,10 @@ class ModelFailuresTest {
     }
 
     @Test
-    @DisplayName("An exhausted turn budget, a bad response body, an interrupt or a missing cause are neither outages nor retryable")
+    @DisplayName("An exhausted turn budget, a bad response body or an interrupt are neither outages nor retryable")
     void local_failures_are_not_outages() {
         for (Throwable cause : new Throwable[] {new TurnDeadlineExceededException("deadline"),
-                new JsonParseException(null, "bad json"), new InterruptedException(), new IllegalStateException(), null}) {
+                new JsonParseException(null, "bad json"), new InterruptedException(), new IllegalStateException()}) {
             assertThat(ModelFailures.isOutage(unavailable(cause))).as(String.valueOf(cause)).isFalse();
             assertThat(ModelFailures.isRetryable(unavailable(cause))).as(String.valueOf(cause)).isFalse();
         }
@@ -74,6 +74,6 @@ class ModelFailuresTest {
     }
 
     private static ModelUnavailableException unavailable(Throwable cause) {
-        return new ModelUnavailableException("failed", cause, null, null);
+        return new ModelUnavailableException("failed", cause);
     }
 }

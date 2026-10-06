@@ -13,11 +13,13 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
@@ -71,7 +73,8 @@ class CircuitBreakingIntentClassifierTest {
         span = mock(Span.class);
         when(tracer.currentSpan()).thenReturn(span);
 
-        classifier = new CircuitBreakingIntentClassifier(new TypeSafeIntentClassifier(properties), circuitBreaker, tracer);
+        classifier = new CircuitBreakingIntentClassifier(new TypeSafeIntentClassifier(properties), circuitBreaker,
+                new StaticListableBeanFactory(Map.of("tracer", tracer)).getBeanProvider(Tracer.class));
     }
 
     @Test
