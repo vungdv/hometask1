@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -181,9 +182,9 @@ class GeminiAiModelClientTelemetryTest {
                     { "error": { "code": 429, "message": "Resource has been exhausted" } }
                     """);
 
-            ModelResponse response = client.generateResponse(List.of(userMessage("Hello")), List.of(), ModelRequestContext.empty());
+            assertThatThrownBy(() -> client.generateResponse(List.of(userMessage("Hello")), List.of(), ModelRequestContext.empty()))
+                    .isInstanceOf(ModelUnavailableException.class);
 
-            assertThat(response.text()).contains("Resource has been exhausted");
             SpanData span = telemetry.onlySpan();
             assertThat(span.getStatus().getStatusCode()).isEqualTo(StatusCode.ERROR);
             assertThat(span.getAttributes().get(ERROR_TYPE)).isEqualTo("provider_call_error");
@@ -197,15 +198,15 @@ class GeminiAiModelClientTelemetryTest {
         }
 
         @Test
-        @DisplayName("Given the network fails, when generating, then returns the fallback reply and records a failed generation")
+        @DisplayName("Given the network fails, when generating, then throws ModelUnavailableException and records a failed generation")
         @SuppressWarnings("unchecked")
         void records_failed_generation_on_network_error() throws Exception {
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                     .thenThrow(new IOException("Connection reset"));
 
-            ModelResponse response = client.generateResponse(List.of(userMessage("Hello")), List.of(), ModelRequestContext.empty());
+            assertThatThrownBy(() -> client.generateResponse(List.of(userMessage("Hello")), List.of(), ModelRequestContext.empty()))
+                    .isInstanceOf(ModelUnavailableException.class);
 
-            assertThat(response.text()).isEqualTo("Failed to communicate with AI Model: Connection reset");
             SpanData span = telemetry.onlySpan();
             assertThat(span.getStatus().getStatusCode()).isEqualTo(StatusCode.ERROR);
             assertThat(span.getAttributes().get(ERROR_TYPE)).isEqualTo("provider_call_error");

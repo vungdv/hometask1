@@ -37,9 +37,10 @@ import vn.danang.polaris.assistant.ai.ModelTokenUsage;
  * generation recorded through the agento11y SDK, so provider clients stay free of telemetry code.
  * <p>
  * The generation is recorded after the method returns, with the call's measured start time. That loses
- * nothing: the SDK never makes its span current during the call anyway. Exceptions propagate unrecorded:
- * provider clients catch call failures and report them on {@link ModelCall#failure()}, so a thrown exception
- * means no provider call result exists (e.g. a missing API key rejected up front).
+ * nothing: the SDK never makes its span current during the call anyway. A failed provider call is thrown as an
+ * exception that is itself a {@link ModelCallResult} (e.g. {@code ModelUnavailableException}); its
+ * {@link ModelCall#failure()} is recorded and the exception rethrown. Any other exception propagates unrecorded:
+ * it means no provider call result exists (e.g. a missing API key rejected up front).
  */
 @Aspect
 @Component
@@ -59,15 +60,31 @@ public class GenAiGenerationAspect {
     @Around("@annotation(generation)")
     public Object recordGeneration(ProceedingJoinPoint joinPoint, GenAiGeneration generation) throws Throwable {
         Instant startedAt = Instant.now();
-        Object result = joinPoint.proceed();
-        if (result instanceof ModelCallResult callResult && callResult.modelCall() != null) {
-            try {
-                record(generation, callResult.modelCall(), startedAt, evaluationContext(joinPoint, result));
-            } catch (RuntimeException e) {
-                log.warn("Failed to record GenAI generation for {}: {}", joinPoint.getSignature().toShortString(), e.getMessage());
+        Object result;
+        try {
+            result = joinPoint.proceed();
+        } catch (Throwable failure) {
+            if (failure instanceof ModelCallResult failedCall) {
+                recordSafely(joinPoint, generation, failedCall, startedAt, null);
             }
+            throw failure;
+        }
+        if (result instanceof ModelCallResult callResult) {
+            recordSafely(joinPoint, generation, callResult, startedAt, result);
         }
         return result;
+    }
+
+    private void recordSafely(ProceedingJoinPoint joinPoint, GenAiGeneration generation, ModelCallResult callResult,
+            Instant startedAt, @Nullable Object result) {
+        if (callResult.modelCall() == null) {
+            return;
+        }
+        try {
+            record(generation, callResult.modelCall(), startedAt, evaluationContext(joinPoint, result));
+        } catch (RuntimeException e) {
+            log.warn("Failed to record GenAI generation for {}: {}", joinPoint.getSignature().toShortString(), e.getMessage());
+        }
     }
 
     private void record(GenAiGeneration generation, ModelCall call, Instant startedAt, EvaluationContext context) {

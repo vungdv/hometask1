@@ -396,9 +396,9 @@ class GeminiAiModelClientTest {
         }
 
         @Test
-        @DisplayName("Given API returns HTTP 400 error, when chat is invoked, then returns graceful error message")
+        @DisplayName("Given API returns HTTP 400 error, when chat is invoked, then throws ModelUnavailableException without leaking the error text as a reply")
         @SuppressWarnings("unchecked")
-        void returns_graceful_error_message_when_api_returns_error_status() throws Exception {
+        void throws_model_unavailable_when_api_returns_error_status() throws Exception {
             properties.setApiKey("test-invalid-key");
 
             String mockErrorResponseBody = """
@@ -417,9 +417,9 @@ class GeminiAiModelClientTest {
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
                     .thenReturn(mockResponse);
 
-            String reply = client.chat(List.of(createUserMessage("Test")));
-
-            assertThat(reply).contains("Unable to get response from AI Model (API key not valid. Please pass a valid API key.).");
+            assertThatThrownBy(() -> client.chat(List.of(createUserMessage("Test"))))
+                    .isInstanceOfSatisfying(ModelUnavailableException.class, e -> assertThat(e.getCause())
+                            .isInstanceOfSatisfying(ModelProviderException.class, cause -> assertThat(cause.statusCode()).isEqualTo(400)));
         }
 
 }
@@ -468,16 +468,17 @@ class GeminiAiModelClientTest {
         }
 
         @Test
-        @DisplayName("Given network failure with IOException, when chat invoked, then returns formatted error message")
+        @DisplayName("Given network failure with IOException, when chat invoked, then throws ModelUnavailableException carrying the cause")
         @SuppressWarnings("unchecked")
-        void returns_error_message_when_network_throws_io_exception() throws Exception {
+        void throws_model_unavailable_when_network_throws_io_exception() throws Exception {
             properties.setApiKey("test-key");
+            IOException failure = new IOException("Connection refused");
             when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
-                    .thenThrow(new IOException("Connection refused"));
+                    .thenThrow(failure);
 
-            String reply = client.chat(List.of(createUserMessage("Test")));
-
-            assertThat(reply).contains("Failed to communicate with AI Model: Connection refused");
+            assertThatThrownBy(() -> client.chat(List.of(createUserMessage("Test"))))
+                    .isInstanceOf(ModelUnavailableException.class)
+                    .hasCause(failure);
         }
 
 @Test

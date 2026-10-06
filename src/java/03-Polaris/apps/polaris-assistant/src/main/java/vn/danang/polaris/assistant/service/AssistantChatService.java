@@ -34,6 +34,7 @@ import vn.danang.polaris.assistant.tools.ToolResult;
 import vn.danang.polaris.assistant.ai.AssistantModelClient;
 import vn.danang.polaris.assistant.ai.ModelRequestContext;
 import vn.danang.polaris.assistant.ai.ModelResponse;
+import vn.danang.polaris.assistant.ai.ModelUnavailableException;
 import vn.danang.polaris.assistant.ai.ToolCall;
 import vn.danang.polaris.assistant.observability.genai.GenAiTelemetry;
 import vn.danang.polaris.assistant.observability.trace.CustomNextSpan;
@@ -143,6 +144,10 @@ public class AssistantChatService {
             resolvedIntent = intentResolutionFacade.resolve(messageText, history);
             // 3. Execute tool loop (max 5 iterations)
             loopResult = executeConversationLoop(sessionId, userId, history, resolvedIntent);
+        } catch (ModelUnavailableException e) {
+            outcomeMetrics.turn(resolvedIntent, TurnOutcome.FAILED);
+            persistExecutedToolTurns(sessionId, userId, history, persistedTurns);
+            throw e;
         } catch (RuntimeException e) {
             outcomeMetrics.turn(resolvedIntent, TurnOutcome.FAILED);
             throw e;
@@ -168,6 +173,22 @@ public class AssistantChatService {
                 assistantMsg.getCreatedAt(),
                 loopResult.widgets()
         );
+    }
+
+    /**
+     * The model became unavailable mid-turn. Tools that already ran (e.g. a staged draft) have side effects the
+     * conversation must remember, so their call/result turns are persisted with the user message; no reply and no
+     * error text are. When no tool ran, nothing is persisted and the user can simply resend the message.
+     */
+    private void persistExecutedToolTurns(String sessionId, String userId, List<AssistantMessage> history, int persistedTurns) {
+        List<AssistantMessage> turnMessages = history.subList(persistedTurns, history.size());
+        boolean toolsRan = turnMessages.stream().anyMatch(msg -> msg.getRole() == MessageRole.TOOL);
+        if (!toolsRan) {
+            return;
+        }
+        log.warn("AI model unavailable after tools ran; persisting {} executed tool turn(s) for sessionId: {}",
+                turnMessages.size() - 1, sessionId);
+        sessionStore.append(sessionId, userId, List.copyOf(turnMessages));
     }
 
     private ConversationLoopResult executeConversationLoop(
